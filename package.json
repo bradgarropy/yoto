@@ -1,0 +1,26 @@
+{
+  "name": "yoto",
+  "version": "1.0.0",
+  "description": "Download YouTube playlists as mp3 files",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "yoto": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["youtube", "playlist", "downloader", "mp3", "yt-dlp"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^25.0.10",
+    "commander": "^14.0.2",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
