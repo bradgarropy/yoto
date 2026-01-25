@@ -6,13 +6,13 @@ Sync YouTube playlists to Yoto with a single command. Downloads songs from YouTu
 
 ## Commands
 
-| Command                      | Description                              |
-| ---------------------------- | ---------------------------------------- |
-| `yoto login`                 | Paste and store auth token               |
-| `yoto logout`                | Clear stored token                       |
-| `yoto status`                | Show login status + token expiry         |
-| `yoto list`                  | Show all Yoto playlists (table: ID, Name)|
-| `yoto sync <url> [-p name]`  | Sync YouTube playlist to Yoto            |
+| Command                     | Description                               |
+| --------------------------- | ----------------------------------------- |
+| `yoto login`                | Paste and store auth token                |
+| `yoto logout`               | Clear stored token                        |
+| `yoto status`               | Show login status + token expiry          |
+| `yoto list`                 | Show all Yoto playlists (table: ID, Name) |
+| `yoto sync <url> [-p name]` | Sync YouTube playlist to Yoto             |
 
 ## Dependencies to Add
 
@@ -49,8 +49,8 @@ src/
 
 ```json
 {
-  "accessToken": "eyJhbG...",
-  "expiresAt": 1769359129
+    "accessToken": "eyJhbG...",
+    "expiresAt": 1769359129
 }
 ```
 
@@ -58,12 +58,12 @@ src/
 
 ```json
 {
-  "PLxxxxx": {
-    "yotoId": "abc123",
-    "yotoName": "Discover",
-    "youtubeName": "Discover Playlist",
-    "lastSynced": "2026-01-24T23:30:00Z"
-  }
+    "PLxxxxx": {
+        "yotoId": "abc123",
+        "yotoName": "Discover",
+        "youtubeName": "Discover Playlist",
+        "lastSynced": "2026-01-24T23:30:00Z"
+    }
 }
 ```
 
@@ -77,7 +77,7 @@ $ yoto login
 To authenticate with Yoto:
 
 1. Open https://my.yotoplay.com in your browser
-2. Log in if needed  
+2. Log in if needed
 3. Open DevTools (F12) → Network tab
 4. Refresh the page
 5. Click any request to api.yotoplay.com
@@ -134,14 +134,14 @@ Fetching current tracks...
 
 Sync plan:
 
-  #   Status   Track                    
+  #   Status   Track
   ──────────────────────────────────────
-  1   ✓        Sweet Home Alabama       
-  2   +        Take It Easy             
-  3   ✓        Hotel California         
-  4   +        Free Bird                
-  5   +        Ramblin' Man             
-  -   -        Old Song                 
+  1   ✓        Sweet Home Alabama
+  2   +        Take It Easy
+  3   ✓        Hotel California
+  4   +        Free Bird
+  5   +        Ramblin' Man
+  -   -        Old Song
 
   Summary: 2 keep, 3 add, 1 remove
 
@@ -170,8 +170,8 @@ Updating playlist...
 
 #### Options
 
-| Flag                  | Description                                      |
-| --------------------- | ------------------------------------------------ |
+| Flag                    | Description                                          |
+| ----------------------- | ---------------------------------------------------- |
 | `-p, --playlist <name>` | Fuzzy match Yoto playlist by name (e.g., "Discover") |
 
 #### Sync Resolution Order
@@ -206,17 +206,20 @@ Tracks in Yoto but **not** in YouTube → **Removed** (with confirmation)
 ### Example
 
 **YouTube Playlist (source of truth for order):**
+
 1. Sweet Home Alabama
-2. Take It Easy *(new)*
+2. Take It Easy _(new)_
 3. Hotel California
-4. Free Bird *(new)*
+4. Free Bird _(new)_
 
 **Existing Yoto Playlist:**
+
 1. Hotel California (custom star icon)
 2. Sweet Home Alabama (custom guitar icon)
 3. Old Song (will be removed)
 
 **Result after sync:**
+
 1. Sweet Home Alabama (keeps guitar icon)
 2. Take It Easy (new, gets "2" number icon)
 3. Hotel California (keeps star icon)
@@ -224,16 +227,16 @@ Tracks in Yoto but **not** in YouTube → **Removed** (with confirmation)
 
 ## Key Behaviors
 
-| Scenario                        | Behavior                                          |
-| ------------------------------- | ------------------------------------------------- |
-| `--playlist` matches multiple   | Show selection list via inquirer                  |
-| `--playlist` matches none       | Prompt for new playlist name                      |
-| Saved association exists        | Use it, ask for confirmation                      |
-| No association, no `--playlist` | Prompt for new playlist name, save association    |
-| Tracks will be removed          | Show in sync plan table, ask for confirmation     |
-| Song fails to download          | Abort entire sync, clean up temp dir              |
-| Any error                       | Always clean up temp directory                    |
-| Sync complete                   | Open Yoto playlist in browser                     |
+| Scenario                        | Behavior                                       |
+| ------------------------------- | ---------------------------------------------- |
+| `--playlist` matches multiple   | Show selection list via inquirer               |
+| `--playlist` matches none       | Prompt for new playlist name                   |
+| Saved association exists        | Use it, ask for confirmation                   |
+| No association, no `--playlist` | Prompt for new playlist name, save association |
+| Tracks will be removed          | Show in sync plan table, ask for confirmation  |
+| Song fails to download          | Abort entire sync, clean up temp dir           |
+| Any error                       | Always clean up temp directory                 |
+| Sync complete                   | Open Yoto playlist in browser                  |
 
 ## Yoto API Reference
 
@@ -244,6 +247,7 @@ Tracks in Yoto but **not** in YouTube → **Removed** (with confirmation)
 ### Authentication
 
 Bearer token in `Authorization` header:
+
 ```
 Authorization: Bearer eyJhbG...
 ```
@@ -251,16 +255,19 @@ Authorization: Bearer eyJhbG...
 ### Endpoints
 
 #### List playlists
+
 ```
 GET /content/mine
 ```
 
 #### Get playlist
+
 ```
 GET /content/{cardId}
 ```
 
 #### Create playlist
+
 ```
 POST /content
 Content-Type: application/json
@@ -282,26 +289,29 @@ Content-Type: application/json
 ```
 
 #### Update playlist
+
 ```
 PUT /content/{cardId}
 ```
 
 #### Get upload URL
+
 ```
 GET /media/transcode/audio/uploadUrl?sha256={sha256}&filename={filename}
 ```
 
 #### Check transcode status
+
 ```
 GET /media/upload/{sha256}/transcoded?loudnorm=false
 ```
 
 ## Implementation Order
 
-| Step | File                  | Description                                      |
-| ---- | --------------------- | ------------------------------------------------ |
-| 1    | `src/yoto/config.ts`  | Config paths, read/write auth.json & playlists.json |
-| 2    | `src/yoto/auth.ts`    | login, logout, status, getToken() helper         |
-| 3    | `src/yoto/api.ts`     | Yoto API client (list, get, create, update, upload) |
-| 4    | `src/yoto/sync.ts`    | Sync orchestration with smart merge logic        |
-| 5    | `src/index.ts`        | Wire up all subcommands                          |
+| Step | File                 | Description                                         |
+| ---- | -------------------- | --------------------------------------------------- |
+| 1    | `src/yoto/config.ts` | Config paths, read/write auth.json & playlists.json |
+| 2    | `src/yoto/auth.ts`   | login, logout, status, getToken() helper            |
+| 3    | `src/yoto/api.ts`    | Yoto API client (list, get, create, update, upload) |
+| 4    | `src/yoto/sync.ts`   | Sync orchestration with smart merge logic           |
+| 5    | `src/index.ts`       | Wire up all subcommands                             |
