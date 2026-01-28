@@ -3,6 +3,7 @@
 import {createInterface} from "node:readline"
 import {program} from "commander"
 import {isUrl} from "~/url"
+import {listPlaylists} from "~/yoto/api"
 import {login, logout, status} from "~/yoto/auth"
 import {downloadPlaylist, downloadVideo, isInstalled} from "~/ytdlp"
 
@@ -120,6 +121,55 @@ program
         } else {
             console.log("Not logged in")
             console.log("  Run: yoto login")
+        }
+    })
+
+// List command
+program
+    .command("list")
+    .description("Show all Yoto playlists")
+    .action(async () => {
+        try {
+            const playlists = await listPlaylists()
+
+            if (playlists.length === 0) {
+                console.log("No playlists found")
+                return
+            }
+
+            // Calculate column widths
+            const idWidth = Math.max(
+                "ID".length,
+                ...playlists.map(p => p.cardId.length),
+            )
+
+            const nameWidth = Math.max(
+                "Name".length,
+                ...playlists.map(p => p.title.length),
+            )
+
+            // Print header
+            console.log()
+            console.log(`${"ID".padEnd(idWidth)}  ${"Name".padEnd(nameWidth)}`)
+            console.log(`${"─".repeat(idWidth)}  ${"─".repeat(nameWidth)}`)
+
+            // Print playlists
+            for (const playlist of playlists) {
+                console.log(
+                    `${playlist.cardId.padEnd(idWidth)}  ${playlist.title}`,
+                )
+            }
+
+            console.log()
+            console.log(
+                `${playlists.length} playlist${playlists.length === 1 ? "" : "s"}`,
+            )
+        } catch (error) {
+            console.error(
+                `Error: ${error instanceof Error ? error.message : error}`,
+            )
+
+            process.exit(1)
         }
     })
 
