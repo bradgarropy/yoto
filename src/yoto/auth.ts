@@ -1,21 +1,18 @@
+import {decodeJwt} from "jose"
 import {deleteAuth, readAuth, writeAuth} from "~/yoto/config"
 
 type TokenStatus =
     | {valid: true; expiresIn: string; expiresAt: number}
     | {valid: false; reason: "not_logged_in" | "expired"}
 
-const parseToken = (token: string): {accessToken: string; expiresAt: number} => {
+const parseToken = (
+    token: string,
+): {accessToken: string; expiresAt: number} => {
     // Remove "Bearer " prefix if present
     const accessToken = token.replace(/^Bearer\s+/i, "").trim()
 
-    // Decode JWT to get expiration
-    const parts = accessToken.split(".")
-    if (parts.length !== 3) {
-        throw new Error("Invalid token format")
-    }
-
-    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString())
-    const expiresAt = payload.exp as number
+    const payload = decodeJwt(accessToken)
+    const expiresAt = payload.exp
 
     if (!expiresAt) {
         throw new Error("Token missing expiration")
