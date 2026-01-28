@@ -40,7 +40,12 @@ const readAuth = (): Auth | null => {
     }
 
     const content = readFileSync(AUTH_FILE, "utf-8")
-    return JSON.parse(content) as Auth
+
+    try {
+        return JSON.parse(content) as Auth
+    } catch {
+        throw new Error("Corrupted auth file. Run: yoto logout && yoto login")
+    }
 }
 
 const writeAuth = (auth: Auth): void => {
@@ -61,7 +66,12 @@ const readPlaylists = (): Playlists => {
     }
 
     const content = readFileSync(PLAYLISTS_FILE, "utf-8")
-    return JSON.parse(content) as Playlists
+
+    try {
+        return JSON.parse(content) as Playlists
+    } catch {
+        throw new Error("Corrupted playlists file: ~/.config/yoto/playlists.json")
+    }
 }
 
 const writePlaylists = (playlists: Playlists): void => {
