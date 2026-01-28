@@ -12,12 +12,19 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js"
   },
-  "keywords": ["youtube", "playlist", "downloader", "mp3", "yt-dlp"],
+  "keywords": [
+    "youtube",
+    "playlist",
+    "downloader",
+    "mp3",
+    "yt-dlp"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@types/node": "^25.0.10",
     "commander": "^14.0.2",
+    "jose": "^6.1.3",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

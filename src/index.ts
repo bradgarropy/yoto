@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import {createInterface} from "node:readline"
 import {program} from "commander"
 import {isUrl} from "~/url"
+import {login, logout, status} from "~/yoto/auth"
 import {downloadPlaylist, downloadVideo, isInstalled} from "~/ytdlp"
 
 type Options = {
@@ -39,11 +41,92 @@ const parseInput = (input: string): ParsedInput => {
     }
 }
 
+const prompt = (question: string): Promise<string> => {
+    const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    })
+
+    return new Promise(resolve => {
+        rl.question(question, answer => {
+            rl.close()
+            resolve(answer)
+        })
+    })
+}
+
 program
     .name("yoto")
-    .description("Download YouTube videos or playlists as audio files")
+    .description("Sync YouTube playlists to Yoto")
     .version("1.0.0")
-    .argument("<input>", "YouTube video/playlist URL or ID")
+
+// Login command
+program
+    .command("login")
+    .description("Authenticate with Yoto using a bearer token")
+    .action(async () => {
+        console.log("\nTo authenticate with Yoto:\n")
+        console.log("1. Open https://my.yotoplay.com in your browser")
+        console.log("2. Log in if needed")
+        console.log("3. Open DevTools (F12) → Network tab")
+        console.log("4. Refresh the page")
+        console.log("5. Click any request to api.yotoplay.com")
+        console.log(
+            '6. Copy the "authorization" header value (starts with "Bearer ey...")\n',
+        )
+
+        const token = await prompt("Paste your token: ")
+
+        if (!token.trim()) {
+            console.error("\nError: No token provided")
+            process.exit(1)
+        }
+
+        try {
+            const result = login(token)
+            console.log(
+                `\nLogged in successfully! Token expires in ${result.expiresIn}.`,
+            )
+        } catch (error) {
+            console.error(
+                `\nError: ${error instanceof Error ? error.message : error}`,
+            )
+            process.exit(1)
+        }
+    })
+
+// Logout command
+program
+    .command("logout")
+    .description("Clear stored authentication token")
+    .action(() => {
+        logout()
+        console.log("Logged out. Token cleared.")
+    })
+
+// Status command
+program
+    .command("status")
+    .description("Show login status and token expiry")
+    .action(() => {
+        const result = status()
+
+        if (result.valid) {
+            console.log("Logged in")
+            console.log(`  Token expires in ${result.expiresIn}`)
+        } else if (result.reason === "expired") {
+            console.log("Token expired")
+            console.log("  Run: yoto login")
+        } else {
+            console.log("Not logged in")
+            console.log("  Run: yoto login")
+        }
+    })
+
+// Download command (legacy functionality)
+program
+    .command("download <input>")
+    .description("Download YouTube video or playlist as audio files")
     .option("-d, --directory <dir>", "Output directory (defaults to ~/Desktop)")
     .action(async (input: string, options: Options) => {
         const isYtDlpInstalled = await isInstalled()
@@ -52,7 +135,6 @@ program
             console.error("Error: yt-dlp is not installed")
             console.error("\nInstall it with:")
             console.error("  brew install yt-dlp ffmpeg")
-
             process.exit(1)
         }
 
@@ -74,7 +156,6 @@ program
             console.error(
                 `\nError: ${error instanceof Error ? error.message : error}`,
             )
-
             process.exit(1)
         }
     })
