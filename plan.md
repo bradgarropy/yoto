@@ -374,6 +374,8 @@ yt-dlp \
 
 ## Future Tasks
 
+- [ ] Add bundler (tsup or esbuild) to handle path aliases
+- [ ] Make globally runnable as `yoto` (use `npm link` or publish to npm)
 - [ ] Add default icons for new tracks (requires uploading icon and getting `yoto:#<mediaId>` format)
 - [ ] Add default card cover image (currently uses `bee_grapefruit.gif`)
 - [ ] Add `--dry-run` flag to preview sync without making changes
