@@ -3,8 +3,9 @@
 import {createInterface} from "node:readline"
 import {program} from "commander"
 import {isUrl} from "~/url"
-import {listPlaylists} from "~/yoto/api"
+import {getPlaylist, listPlaylists} from "~/yoto/api"
 import {login, logout, status} from "~/yoto/auth"
+import {sync} from "~/yoto/sync"
 import {downloadPlaylist, downloadVideo, isInstalled} from "~/ytdlp"
 
 type Options = {
@@ -169,6 +170,50 @@ program
                 `Error: ${error instanceof Error ? error.message : error}`,
             )
 
+            process.exit(1)
+        }
+    })
+
+// Inspect command (debug)
+program
+    .command("inspect <cardId>")
+    .description("Inspect a Yoto playlist (debug)")
+    .action(async (cardId: string) => {
+        try {
+            const playlist = await getPlaylist(cardId)
+            console.log(JSON.stringify(playlist, null, 2))
+        } catch (error) {
+            console.error(
+                `Error: ${error instanceof Error ? error.message : error}`,
+            )
+            process.exit(1)
+        }
+    })
+
+// Sync command
+program
+    .command("sync <url>")
+    .description("Sync YouTube playlist to Yoto")
+    .option("-p, --playlist <name>", "Fuzzy match Yoto playlist by name")
+    .action(async (url: string, options: {playlist?: string}) => {
+        const isYtDlpInstalled = await isInstalled()
+
+        if (!isYtDlpInstalled) {
+            console.error("Error: yt-dlp is not installed")
+            console.error("\nInstall it with:")
+            console.error("  brew install yt-dlp ffmpeg")
+            process.exit(1)
+        }
+
+        try {
+            await sync(url, {playlistName: options.playlist})
+        } catch (error) {
+            if (error instanceof Error && error.message === "Sync cancelled") {
+                process.exit(0)
+            }
+            console.error(
+                `\nError: ${error instanceof Error ? error.message : error}`,
+            )
             process.exit(1)
         }
     })

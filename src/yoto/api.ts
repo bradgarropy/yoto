@@ -6,11 +6,29 @@ import {requireAuth} from "~/yoto/auth"
 const BASE_URL = "https://api.yotoplay.com"
 
 // Types for Yoto API responses
-type YotoChapter = {
-    title: string
+type YotoTrack = {
     key: string
+    title: string
+    format: string
+    trackUrl: string
+    type: string
     duration?: number
-    icon?: string
+    fileSize?: number
+    channels?: string
+    display?: {
+        icon16x16?: string
+    }
+}
+
+type YotoChapter = {
+    key: string
+    title: string
+    tracks: YotoTrack[]
+    display?: {
+        icon16x16?: string
+    }
+    duration?: number
+    fileSize?: number
 }
 
 type YotoContent = {
@@ -41,14 +59,25 @@ type YotoPlaylistSummary = {
 }
 
 type UploadUrlResponse = {
-    uploadUrl: string
-    key: string
+    upload: {
+        uploadId: string
+        uploadUrl: string
+    }
 }
 
 type TranscodeStatusResponse = {
-    status: "pending" | "processing" | "completed" | "failed"
-    key?: string
-    duration?: number
+    transcode: {
+        uploadId: string
+        transcodedSha256?: string
+        progress?: {
+            phase: "pending" | "processing" | "complete" | "failed"
+            percent: number
+        }
+        transcodedInfo?: {
+            duration: number
+            fileSize: number
+        }
+    }
 }
 
 // Helper for authenticated requests
@@ -58,13 +87,18 @@ const authFetch = async (
 ): Promise<Response> => {
     const token = requireAuth()
 
+    const headers = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json;charset=UTF-8",
+        Origin: "https://my.yotoplay.com",
+        Referer: "https://my.yotoplay.com/",
+    }
+
+
+
     const response = await fetch(`${BASE_URL}${path}`, {
         ...options,
-        headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            ...options.headers,
-        },
+        headers,
     })
 
     if (!response.ok) {
@@ -124,7 +158,7 @@ const createPlaylist = async (
     return data.card
 }
 
-// Update an existing playlist (PUT /content/{cardId})
+// Update an existing playlist (POST /content with cardId in body)
 const updatePlaylist = async (
     cardId: string,
     updates: {
@@ -135,18 +169,26 @@ const updatePlaylist = async (
     // First fetch the existing playlist to preserve other fields
     const existing = await getPlaylist(cardId)
 
+    // Build a clean update payload - only include necessary fields
+    // Include cardId in body for updates (Yoto uses POST for both create and update)
     const updatedCard = {
-        ...existing,
+        cardId: existing.cardId,
         title: updates.title ?? existing.title,
         content: {
-            ...existing.content,
+            activity: existing.content.activity,
             chapters: updates.chapters ?? existing.content.chapters,
+            restricted: existing.content.restricted,
+            config: existing.content.config,
+            version: existing.content.version,
         },
+        metadata: existing.metadata,
     }
 
-    const response = await authFetch(`/content/${cardId}`, {
-        method: "PUT",
-        body: JSON.stringify(updatedCard),
+    const body = JSON.stringify(updatedCard)
+
+    const response = await authFetch(`/content`, {
+        method: "POST",
+        body,
     })
 
     const data = (await response.json()) as {card: YotoCard}
@@ -157,12 +199,23 @@ const updatePlaylist = async (
 const getUploadUrl = async (
     sha256: string,
     filename: string,
-): Promise<UploadUrlResponse> => {
+): Promise<{uploadUrl: string; uploadId: string}> => {
     const params = new URLSearchParams({sha256, filename})
     const response = await authFetch(
         `/media/transcode/audio/uploadUrl?${params}`,
     )
-    return (await response.json()) as UploadUrlResponse
+    const data = (await response.json()) as UploadUrlResponse
+
+    if (!data.upload?.uploadUrl) {
+        throw new Error(
+            `Yoto API did not return upload URL. Response: ${JSON.stringify(data)}`,
+        )
+    }
+
+    return {
+        uploadUrl: data.upload.uploadUrl,
+        uploadId: data.upload.uploadId,
+    }
 }
 
 // Check transcode status (GET /media/upload/{sha256}/transcoded)
@@ -185,28 +238,30 @@ const calculateFileSha256 = (filePath: string): string => {
 const uploadAudio = async (
     filePath: string,
     onProgress?: (status: string) => void,
-): Promise<{key: string; duration: number}> => {
+): Promise<{key: string; duration: number; fileSize: number}> => {
     const sha256 = calculateFileSha256(filePath)
     const filename = basename(filePath)
-
-    onProgress?.("Getting upload URL...")
-
-    // Get upload URL
-    const {uploadUrl, key} = await getUploadUrl(sha256, filename)
 
     // Check if already transcoded (file was previously uploaded)
     try {
         const existingStatus = await checkTranscodeStatus(sha256)
-        if (existingStatus.status === "completed" && existingStatus.key) {
+        const transcode = existingStatus.transcode
+        if (transcode?.progress?.phase === "complete" && transcode.transcodedSha256) {
             onProgress?.("File already uploaded")
             return {
-                key: existingStatus.key,
-                duration: existingStatus.duration ?? 0,
+                key: transcode.transcodedSha256,
+                duration: transcode.transcodedInfo?.duration ?? 0,
+                fileSize: transcode.transcodedInfo?.fileSize ?? 0,
             }
         }
     } catch {
         // File doesn't exist yet, continue with upload
     }
+
+    onProgress?.("Getting upload URL...")
+
+    // Get upload URL
+    const {uploadUrl} = await getUploadUrl(sha256, filename)
 
     onProgress?.("Uploading...")
 
@@ -237,12 +292,17 @@ const uploadAudio = async (
         await new Promise(resolve => setTimeout(resolve, pollInterval))
 
         const status = await checkTranscodeStatus(sha256)
+        const transcode = status.transcode
 
-        if (status.status === "completed" && status.key) {
-            return {key: status.key, duration: status.duration ?? 0}
+        if (transcode?.progress?.phase === "complete" && transcode.transcodedSha256) {
+            return {
+                key: transcode.transcodedSha256,
+                duration: transcode.transcodedInfo?.duration ?? 0,
+                fileSize: transcode.transcodedInfo?.fileSize ?? 0,
+            }
         }
 
-        if (status.status === "failed") {
+        if (transcode?.progress?.phase === "failed") {
             throw new Error("Audio transcode failed")
         }
 
@@ -255,19 +315,33 @@ const uploadAudio = async (
 // Create a chapter from an uploaded audio file
 const createChapter = (
     title: string,
-    key: string,
+    transcodedSha256: string,
     position: number,
     duration?: number,
+    fileSize?: number,
 ): YotoChapter => {
-    // Use number icons for new tracks (1-20 available)
-    const iconNumber = Math.min(position, 20)
-    const icon = `https://cdn.yoto.io/preset-icon/number_${iconNumber}.gif`
+    // Chapter key is just the position as a string (0-indexed internally)
+    const chapterKey = String(position - 1).padStart(2, "0")
 
+    // Note: Icons must be in "yoto:#<43-char-mediaId>" format
+    // For now, we omit custom icons and let Yoto use defaults
     return {
+        key: chapterKey,
         title,
-        key,
+        tracks: [
+            {
+                key: "01",
+                title,
+                format: "opus",
+                trackUrl: `yoto:#${transcodedSha256}`,
+                type: "audio",
+                duration,
+                fileSize,
+                channels: "stereo",
+            },
+        ],
         duration,
-        icon,
+        fileSize,
     }
 }
 
@@ -290,4 +364,5 @@ export type {
     YotoContent,
     YotoMetadata,
     YotoPlaylistSummary,
+    YotoTrack,
 }
