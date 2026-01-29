@@ -14,7 +14,7 @@ Sync YouTube playlists to Yoto with a single command. Downloads songs from YouTu
 | `yoto list`                 | Show all Yoto playlists (table: ID, Name) |
 | `yoto sync <url> [-p name]` | Sync YouTube playlist to Yoto             |
 
-## Dependencies to Add
+## Dependencies
 
 ```bash
 npm install @inquirer/prompts fuse.js
@@ -28,8 +28,9 @@ npm install @inquirer/prompts fuse.js
 ```
 src/
 ├── index.ts              # CLI entry point with subcommands
-├── ytdlp.ts              # yt-dlp wrapper (existing)
-├── url.ts                # URL helpers (existing)
+├── youtube.ts            # YouTube playlist info & download
+├── ytdlp.ts              # yt-dlp wrapper (legacy download command)
+├── url.ts                # URL helpers
 └── yoto/
     ├── auth.ts           # Token storage, validation, login/logout
     ├── api.ts            # Yoto API client
@@ -85,21 +86,21 @@ To authenticate with Yoto:
 
 ? Paste your token: Bearer eyJhbG...
 
-✓ Logged in successfully! Token expires in 23 hours.
+Logged in successfully! Token expires in 23 hours.
 ```
 
 ### `yoto logout`
 
 ```
 $ yoto logout
-✓ Logged out. Token cleared.
+Logged out. Token cleared.
 ```
 
 ### `yoto status`
 
 ```
 $ yoto status
-✓ Logged in
+Logged in
   Token expires in 22 hours
 ```
 
@@ -136,36 +137,36 @@ Sync plan:
 
   #   Status   Track
   ──────────────────────────────────────
-  1   ✓        Sweet Home Alabama
-  2   +        Take It Easy
-  3   ✓        Hotel California
-  4   +        Free Bird
-  5   +        Ramblin' Man
-  -   -        Old Song
+   1   =        Sweet Home Alabama
+   2   +        Take It Easy
+   3   =        Hotel California
+   4   +        Free Bird
+   5   +        Ramblin' Man
+   -   -        Old Song
 
   Summary: 2 keep, 3 add, 1 remove
 
 ? Continue with sync? (y/n) y
 
 Downloading new songs...
-[1/3] Take It Easy ✓
-[2/3] Free Bird ✓
-[3/3] Ramblin' Man ✓
+[1/3] Take It Easy... done
+[2/3] Free Bird... done
+[3/3] Ramblin' Man... done
 
 Uploading to Yoto...
-[1/3] Take It Easy ✓
-[2/3] Free Bird ✓
-[3/3] Ramblin' Man ✓
+[1/3] Take It Easy... done
+[2/3] Free Bird... done
+[3/3] Ramblin' Man... done
 
 Updating playlist...
-✓ Playlist updated!
+Playlist updated!
   Opening https://my.yotoplay.com/card/abc123/edit
 ```
 
 #### Status Legend
 
-- `✓` = kept (existing track preserved with its icon)
-- `+` = added (new track with number icon)
+- `=` = kept (existing track preserved with its icon)
+- `+` = added (new track)
 - `-` = removed
 
 #### Options
@@ -199,7 +200,7 @@ For each track in YouTube playlist (preserves YouTube order):
 
 1. **Fuzzy match** track title against existing Yoto playlist tracks
 2. **If match found**: Keep existing Yoto track (preserves icon, metadata)
-3. **If no match**: Download from YouTube, upload to Yoto, assign number icon based on position
+3. **If no match**: Download from YouTube, upload to Yoto
 
 Tracks in Yoto but **not** in YouTube → **Removed** (with confirmation)
 
@@ -221,9 +222,9 @@ Tracks in Yoto but **not** in YouTube → **Removed** (with confirmation)
 **Result after sync:**
 
 1. Sweet Home Alabama (keeps guitar icon)
-2. Take It Easy (new, gets "2" number icon)
+2. Take It Easy (new)
 3. Hotel California (keeps star icon)
-4. Free Bird (new, gets "4" number icon)
+4. Free Bird (new)
 
 ## Key Behaviors
 
@@ -246,10 +247,13 @@ Tracks in Yoto but **not** in YouTube → **Removed** (with confirmation)
 
 ### Authentication
 
-Bearer token in `Authorization` header:
+Bearer token in `Authorization` header. Requires `Origin` and `Referer` headers for write operations:
 
 ```
 Authorization: Bearer eyJhbG...
+Origin: https://my.yotoplay.com
+Referer: https://my.yotoplay.com/
+Content-Type: application/json;charset=UTF-8
 ```
 
 ### Endpoints
@@ -266,52 +270,113 @@ GET /content/mine
 GET /content/{cardId}
 ```
 
-#### Create playlist
+#### Create/Update playlist
+
+Both create and update use POST to `/content`. Include `cardId` in body to update existing.
 
 ```
 POST /content
-Content-Type: application/json
+Content-Type: application/json;charset=UTF-8
 
 {
+  "cardId": "abc123",  // omit for create, include for update
   "title": "Playlist Name",
   "content": {
     "activity": "yoto_Player",
-    "chapters": [...],
+    "chapters": [{
+      "key": "00",
+      "title": "Track Title",
+      "tracks": [{
+        "key": "01",
+        "title": "Track Title",
+        "format": "opus",
+        "trackUrl": "yoto:#<transcodedSha256>",
+        "type": "audio",
+        "duration": 180,
+        "fileSize": 1234567,
+        "channels": "stereo"
+      }],
+      "duration": 180,
+      "fileSize": 1234567
+    }],
     "restricted": true,
     "config": {"onlineOnly": false},
     "version": "1"
   },
   "metadata": {
-    "cover": {"imageL": "https://cdn.yoto.io/myo-cover/bee_grapefruit.gif"},
-    "media": {...}
+    "cover": {"imageL": "https://cdn.yoto.io/myo-cover/bee_grapefruit.gif"}
   }
 }
-```
-
-#### Update playlist
-
-```
-PUT /content/{cardId}
 ```
 
 #### Get upload URL
 
 ```
 GET /media/transcode/audio/uploadUrl?sha256={sha256}&filename={filename}
+
+Response:
+{
+  "upload": {
+    "uploadId": "...",
+    "uploadUrl": "https://..."  // S3 presigned URL
+  }
+}
+```
+
+#### Upload audio file
+
+```
+PUT {uploadUrl from above}
+Content-Type: audio/mpeg
+Content-Length: {fileSize}
+
+<binary audio data>
 ```
 
 #### Check transcode status
 
 ```
 GET /media/upload/{sha256}/transcoded?loudnorm=false
+
+Response:
+{
+  "transcode": {
+    "uploadId": "...",
+    "transcodedSha256": "...",  // use this as trackUrl key
+    "progress": {
+      "phase": "complete",  // or "pending", "processing", "failed"
+      "percent": 100
+    },
+    "transcodedInfo": {
+      "duration": 180,
+      "fileSize": 1234567
+    }
+  }
+}
 ```
 
-## Implementation Order
+## YouTube Download Notes
 
-| Step | File                 | Description                                         |
-| ---- | -------------------- | --------------------------------------------------- |
-| 1    | `src/yoto/config.ts` | Config paths, read/write auth.json & playlists.json |
-| 2    | `src/yoto/auth.ts`   | login, logout, status, getToken() helper            |
-| 3    | `src/yoto/api.ts`    | Yoto API client (list, get, create, update, upload) |
-| 4    | `src/yoto/sync.ts`   | Sync orchestration with smart merge logic           |
-| 5    | `src/index.ts`       | Wire up all subcommands                             |
+Uses yt-dlp with these flags to handle YouTube restrictions:
+
+```bash
+yt-dlp \
+  --extract-audio \
+  --audio-format mp3 \
+  --audio-quality 0 \
+  --extractor-args "youtube:player_client=tv" \
+  --cookies-from-browser chrome \
+  <url>
+```
+
+- `player_client=tv` - Bypasses SABR streaming restrictions
+- `cookies-from-browser chrome` - Uses Chrome cookies for authentication
+
+## Future Tasks
+
+- [ ] Add default icons for new tracks (requires uploading icon and getting `yoto:#<mediaId>` format)
+- [ ] Add default card cover image (currently uses `bee_grapefruit.gif`)
+- [ ] Add `--dry-run` flag to preview sync without making changes
+- [ ] Add `--yes` flag to skip confirmation prompts
+- [ ] Support syncing single videos (not just playlists)
+- [ ] Add progress bars for downloads/uploads
