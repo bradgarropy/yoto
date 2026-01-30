@@ -3,7 +3,9 @@
 import {createInterface} from "node:readline"
 import {program} from "commander"
 import {isUrl} from "~/url"
+import {getPlaylist, listPlaylists} from "~/yoto/api"
 import {login, logout, status} from "~/yoto/auth"
+import {sync} from "~/yoto/sync"
 import {downloadPlaylist, downloadVideo, isInstalled} from "~/ytdlp"
 
 type Options = {
@@ -120,6 +122,99 @@ program
         } else {
             console.log("Not logged in")
             console.log("  Run: yoto login")
+        }
+    })
+
+// List command
+program
+    .command("list")
+    .description("Show all Yoto playlists")
+    .action(async () => {
+        try {
+            const playlists = await listPlaylists()
+
+            if (playlists.length === 0) {
+                console.log("No playlists found")
+                return
+            }
+
+            // Calculate column widths
+            const idWidth = Math.max(
+                "ID".length,
+                ...playlists.map(p => p.cardId.length),
+            )
+
+            const nameWidth = Math.max(
+                "Name".length,
+                ...playlists.map(p => p.title.length),
+            )
+
+            // Print header
+            console.log()
+            console.log(`${"ID".padEnd(idWidth)}  ${"Name".padEnd(nameWidth)}`)
+            console.log(`${"─".repeat(idWidth)}  ${"─".repeat(nameWidth)}`)
+
+            // Print playlists
+            for (const playlist of playlists) {
+                console.log(
+                    `${playlist.cardId.padEnd(idWidth)}  ${playlist.title}`,
+                )
+            }
+
+            console.log()
+            console.log(
+                `${playlists.length} playlist${playlists.length === 1 ? "" : "s"}`,
+            )
+        } catch (error) {
+            console.error(
+                `Error: ${error instanceof Error ? error.message : error}`,
+            )
+
+            process.exit(1)
+        }
+    })
+
+// Inspect command (debug)
+program
+    .command("inspect <cardId>")
+    .description("Inspect a Yoto playlist (debug)")
+    .action(async (cardId: string) => {
+        try {
+            const playlist = await getPlaylist(cardId)
+            console.log(JSON.stringify(playlist, null, 2))
+        } catch (error) {
+            console.error(
+                `Error: ${error instanceof Error ? error.message : error}`,
+            )
+            process.exit(1)
+        }
+    })
+
+// Sync command
+program
+    .command("sync <url>")
+    .description("Sync YouTube playlist to Yoto")
+    .option("-p, --playlist <name>", "Fuzzy match Yoto playlist by name")
+    .action(async (url: string, options: {playlist?: string}) => {
+        const isYtDlpInstalled = await isInstalled()
+
+        if (!isYtDlpInstalled) {
+            console.error("Error: yt-dlp is not installed")
+            console.error("\nInstall it with:")
+            console.error("  brew install yt-dlp ffmpeg")
+            process.exit(1)
+        }
+
+        try {
+            await sync(url, {playlistName: options.playlist})
+        } catch (error) {
+            if (error instanceof Error && error.message === "Sync cancelled") {
+                process.exit(0)
+            }
+            console.error(
+                `\nError: ${error instanceof Error ? error.message : error}`,
+            )
+            process.exit(1)
         }
     })
 
