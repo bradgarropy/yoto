@@ -30,6 +30,8 @@
     "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@bradgarropy/eslint-config": "^3.1.2",
+    "eslint": "^9.39.2",
     "tsx": "^4.21.0"
   }
 }
