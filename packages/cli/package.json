@@ -1,0 +1,35 @@
+{
+  "name": "@yoto/cli",
+  "version": "1.0.0",
+  "description": "Sync YouTube playlists to Yoto",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "yoto": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "youtube",
+    "playlist",
+    "yoto",
+    "sync",
+    "yt-dlp"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.0",
+    "@types/node": "^25.0.10",
+    "commander": "^14.0.2",
+    "fuse.js": "^7.1.0",
+    "jose": "^6.1.3",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
