@@ -174,6 +174,33 @@ export const syncJobs = sqliteTable('sync_jobs', {
 
 ---
 
+### Phase 1.5: Testing & CI Setup
+
+#### ESLint Setup
+- [ ] Install `eslint` and `@bradgarropy/eslint-config` in CLI package
+- [ ] Create `packages/cli/eslint.config.js`
+- [ ] Add `lint` script to CLI package
+
+#### Vitest Setup
+- [ ] Install `vitest` in CLI package
+- [ ] Create `packages/cli/vitest.config.ts` with `~` alias
+- [ ] Add `test`, `test:watch`, and `typecheck` scripts to CLI package
+
+#### Unit Tests
+- [ ] Create `src/url.test.ts` - test URL parsing functions
+- [ ] Create `src/yoto/config.test.ts` - test config file operations
+- [ ] Create `src/yoto/auth.test.ts` - test auth logic
+
+#### Root Scripts
+- [ ] Add `lint` script to root package.json
+- [ ] Add `test` script to root package.json
+
+#### GitHub Actions CI
+- [ ] Create `.github/workflows/ci.yml`
+- [ ] Verify CI passes on push
+
+---
+
 ### Phase 2: CLI Refactor
 
 Replace custom Yoto API code with official packages.
