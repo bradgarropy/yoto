@@ -158,19 +158,19 @@ export const syncJobs = sqliteTable('sync_jobs', {
 
 ### Phase 1: Monorepo Setup
 
-- [ ] Update root `package.json` with npm workspaces configuration:
+- [x] Update root `package.json` with npm workspaces configuration:
   ```json
   {
     "workspaces": ["packages/*"]
   }
   ```
-- [ ] Create `packages/cli/` directory
-- [ ] Move existing `src/` files to `packages/cli/src/`
-- [ ] Create `packages/cli/package.json` with existing dependencies
-- [ ] Create `packages/cli/tsconfig.json`
-- [ ] Update import paths (replace `~/` alias or reconfigure)
-- [ ] Verify `npm install` at root works
-- [ ] Verify CLI still runs (`npm run dev -w packages/cli`)
+- [x] Create `packages/cli/` directory
+- [x] Move existing `src/` files to `packages/cli/src/`
+- [x] Create `packages/cli/package.json` with existing dependencies
+- [x] Create `packages/cli/tsconfig.json`
+- [x] Update import paths (replace `~/` alias or reconfigure)
+- [x] Verify `npm install` at root works
+- [x] Verify CLI still runs (`npm run dev -w packages/cli`)
 
 ---
 
