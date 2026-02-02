@@ -98,9 +98,9 @@ const setPlaylistAssociation = (
 export {
     AUTH_FILE,
     CONFIG_PATH,
-    PLAYLISTS_FILE,
     deleteAuth,
     getPlaylistAssociation,
+    PLAYLISTS_FILE,
     readAuth,
     readPlaylists,
     setPlaylistAssociation,

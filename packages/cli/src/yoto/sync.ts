@@ -3,10 +3,11 @@ import {existsSync, rmSync} from "node:fs"
 import {mkdir} from "node:fs/promises"
 import {homedir} from "node:os"
 import {join} from "node:path"
+
 import {confirm, input, select} from "@inquirer/prompts"
 import Fuse from "fuse.js"
-import {downloadTrack, extractPlaylistId, getPlaylistInfo} from "~/youtube"
-import type {YouTubePlaylistInfo, YouTubeTrack} from "~/youtube"
+
+import type {YotoChapter, YotoPlaylistSummary} from "~/yoto/api"
 import {
     createChapter,
     createPlaylist,
@@ -15,11 +16,12 @@ import {
     updatePlaylist,
     uploadAudio,
 } from "~/yoto/api"
-import type {YotoChapter, YotoPlaylistSummary} from "~/yoto/api"
 import {
     getPlaylistAssociation,
     setPlaylistAssociation,
 } from "~/yoto/config"
+import type {YouTubePlaylistInfo, YouTubeTrack} from "~/youtube"
+import {downloadTrack, extractPlaylistId, getPlaylistInfo} from "~/youtube"
 
 type SyncAction = "keep" | "add" | "remove"
 
@@ -153,8 +155,6 @@ const printSyncPlan = (plan: SyncPlan): void => {
     for (const item of sortedItems) {
         const posStr =
             item.position > 0 ? item.position.toString().padStart(2) : " -"
-        const statusSymbol =
-            item.action === "keep" ? "+" : item.action === "add" ? "+" : "-"
         const statusColor =
             item.action === "keep" ? "=" : item.action === "add" ? "+" : "-"
 

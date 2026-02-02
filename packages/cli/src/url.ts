@@ -15,4 +15,4 @@ const isVideoUrl = (input: string): boolean => {
     return isUrl(input) && !isPlaylistUrl(input)
 }
 
-export {isUrl, isPlaylistUrl, isVideoUrl}
+export {isPlaylistUrl, isUrl, isVideoUrl}

@@ -1,6 +1,7 @@
 import {createHash} from "node:crypto"
 import {readFileSync, statSync} from "node:fs"
 import {basename} from "node:path"
+
 import {requireAuth} from "~/yoto/auth"
 
 const BASE_URL = "https://api.yotoplay.com"
