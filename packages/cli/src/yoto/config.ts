@@ -70,7 +70,9 @@ const readPlaylists = (): Playlists => {
     try {
         return JSON.parse(content) as Playlists
     } catch {
-        throw new Error("Corrupted playlists file: ~/.config/yoto/playlists.json")
+        throw new Error(
+            "Corrupted playlists file: ~/.config/yoto/playlists.json",
+        )
     }
 }
 
@@ -98,9 +100,9 @@ const setPlaylistAssociation = (
 export {
     AUTH_FILE,
     CONFIG_PATH,
-    PLAYLISTS_FILE,
     deleteAuth,
     getPlaylistAssociation,
+    PLAYLISTS_FILE,
     readAuth,
     readPlaylists,
     setPlaylistAssociation,

@@ -8,11 +8,14 @@ const isUrl = (input: string): boolean => {
 }
 
 const isPlaylistUrl = (input: string): boolean => {
-    return isUrl(input) && (input.includes("playlist?list=") || input.includes("&list=PL"))
+    return (
+        isUrl(input) &&
+        (input.includes("playlist?list=") || input.includes("&list=PL"))
+    )
 }
 
 const isVideoUrl = (input: string): boolean => {
     return isUrl(input) && !isPlaylistUrl(input)
 }
 
-export {isUrl, isPlaylistUrl, isVideoUrl}
+export {isPlaylistUrl, isUrl, isVideoUrl}

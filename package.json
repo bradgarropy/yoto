@@ -1,13 +1,23 @@
 {
-  "name": "yoto",
-  "version": "1.0.0",
-  "description": "Monorepo for Yoto sync tools",
-  "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
-  "scripts": {},
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+    "name": "yoto",
+    "version": "1.0.0",
+    "description": "Monorepo for Yoto sync tools",
+    "private": true,
+    "workspaces": [
+        "packages/*"
+    ],
+    "scripts": {
+        "format": "prettier --check .",
+        "format:fix": "prettier --write .",
+        "lint": "npm run lint --workspaces --if-present",
+        "lint:fix": "npm run lint:fix --workspaces --if-present",
+        "test": "npm run test --workspaces --if-present",
+        "typecheck": "npm run typecheck --workspaces --if-present"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "prettier": "^3.8.1"
+    }
 }

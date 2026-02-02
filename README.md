@@ -119,8 +119,8 @@ Playlist updated!
 
 #### Options
 
-| Flag | Description |
-|------|-------------|
+| Flag                    | Description                       |
+| ----------------------- | --------------------------------- |
 | `-p, --playlist <name>` | Fuzzy match Yoto playlist by name |
 
 #### Examples
@@ -146,8 +146,8 @@ yoto download xxxxx    # video ID
 
 #### Options
 
-| Flag | Description |
-|------|-------------|
+| Flag                    | Description                              |
+| ----------------------- | ---------------------------------------- |
 | `-d, --directory <dir>` | Output directory (defaults to ~/Desktop) |
 
 ## Smart Merge

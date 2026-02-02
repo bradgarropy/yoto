@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import {createInterface} from "node:readline"
+
 import {program} from "commander"
+
 import {isUrl} from "~/url"
 import {getPlaylist, listPlaylists} from "~/yoto/api"
 import {login, logout, status} from "~/yoto/auth"

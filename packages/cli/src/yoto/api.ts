@@ -1,6 +1,7 @@
 import {createHash} from "node:crypto"
 import {readFileSync, statSync} from "node:fs"
 import {basename} from "node:path"
+
 import {requireAuth} from "~/yoto/auth"
 
 const BASE_URL = "https://api.yotoplay.com"
@@ -88,13 +89,11 @@ const authFetch = async (
     const token = requireAuth()
 
     const headers = {
-        Authorization: `Bearer ${token}`,
+        "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json;charset=UTF-8",
-        Origin: "https://my.yotoplay.com",
-        Referer: "https://my.yotoplay.com/",
+        "Origin": "https://my.yotoplay.com",
+        "Referer": "https://my.yotoplay.com/",
     }
-
-
 
     const response = await fetch(`${BASE_URL}${path}`, {
         ...options,
@@ -246,7 +245,10 @@ const uploadAudio = async (
     try {
         const existingStatus = await checkTranscodeStatus(sha256)
         const transcode = existingStatus.transcode
-        if (transcode?.progress?.phase === "complete" && transcode.transcodedSha256) {
+        if (
+            transcode?.progress?.phase === "complete" &&
+            transcode.transcodedSha256
+        ) {
             onProgress?.("File already uploaded")
             return {
                 key: transcode.transcodedSha256,
@@ -294,7 +296,10 @@ const uploadAudio = async (
         const status = await checkTranscodeStatus(sha256)
         const transcode = status.transcode
 
-        if (transcode?.progress?.phase === "complete" && transcode.transcodedSha256) {
+        if (
+            transcode?.progress?.phase === "complete" &&
+            transcode.transcodedSha256
+        ) {
             return {
                 key: transcode.transcodedSha256,
                 duration: transcode.transcodedInfo?.duration ?? 0,
