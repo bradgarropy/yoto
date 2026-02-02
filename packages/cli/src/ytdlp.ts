@@ -1,7 +1,7 @@
 import {spawn} from "child_process"
 import {mkdir} from "fs/promises"
 import {homedir} from "os"
-import {join,resolve} from "path"
+import {join, resolve} from "path"
 
 import type {Options} from "~/index"
 
@@ -155,4 +155,4 @@ const downloadVideo = async (url: string, options: Options): Promise<void> => {
     })
 }
 
-export {downloadPlaylist, downloadVideo,getPlaylistTitle, isInstalled}
+export {downloadPlaylist, downloadVideo, getPlaylistTitle, isInstalled}

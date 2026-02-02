@@ -70,7 +70,9 @@ const readPlaylists = (): Playlists => {
     try {
         return JSON.parse(content) as Playlists
     } catch {
-        throw new Error("Corrupted playlists file: ~/.config/yoto/playlists.json")
+        throw new Error(
+            "Corrupted playlists file: ~/.config/yoto/playlists.json",
+        )
     }
 }
 

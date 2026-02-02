@@ -63,7 +63,9 @@ const getPlaylistInfo = async (url: string): Promise<YouTubePlaylistInfo> => {
 
         ytDlp.on("close", code => {
             if (code !== 0) {
-                reject(new Error(`yt-dlp failed (exit code ${code}): ${stderr}`))
+                reject(
+                    new Error(`yt-dlp failed (exit code ${code}): ${stderr}`),
+                )
                 return
             }
 
@@ -131,7 +133,9 @@ const downloadTrack = async (
 
         ytDlp.on("error", error => {
             reject(
-                new Error(`Failed to download ${track.title}: ${error.message}`),
+                new Error(
+                    `Failed to download ${track.title}: ${error.message}`,
+                ),
             )
         })
 
@@ -140,7 +144,9 @@ const downloadTrack = async (
                 resolve(outputPath)
             } else {
                 const errorMsg = stderr.trim() || `exit code ${code}`
-                reject(new Error(`Failed to download ${track.title}: ${errorMsg}`))
+                reject(
+                    new Error(`Failed to download ${track.title}: ${errorMsg}`),
+                )
             }
         })
     })

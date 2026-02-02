@@ -16,10 +16,7 @@ import {
     updatePlaylist,
     uploadAudio,
 } from "~/yoto/api"
-import {
-    getPlaylistAssociation,
-    setPlaylistAssociation,
-} from "~/yoto/config"
+import {getPlaylistAssociation, setPlaylistAssociation} from "~/yoto/config"
 import type {YouTubePlaylistInfo, YouTubeTrack} from "~/youtube"
 import {downloadTrack, extractPlaylistId, getPlaylistInfo} from "~/youtube"
 
@@ -197,11 +194,19 @@ const resolveYotoPlaylist = async (
             })
 
             const newPlaylist = await createPlaylist(newTitle)
-            return {cardId: newPlaylist.cardId, title: newPlaylist.title, isNew: true}
+            return {
+                cardId: newPlaylist.cardId,
+                title: newPlaylist.title,
+                isNew: true,
+            }
         }
 
         if (matches.length === 1) {
-            return {cardId: matches[0].cardId, title: matches[0].title, isNew: false}
+            return {
+                cardId: matches[0].cardId,
+                title: matches[0].title,
+                isNew: false,
+            }
         }
 
         // Multiple matches, prompt selection
@@ -220,7 +225,9 @@ const resolveYotoPlaylist = async (
     const association = getPlaylistAssociation(youtubePlaylistId)
 
     if (association) {
-        console.log(`Found linked Yoto playlist: "${association.yotoName}" (${association.yotoId})`)
+        console.log(
+            `Found linked Yoto playlist: "${association.yotoName}" (${association.yotoId})`,
+        )
 
         const useExisting = await confirm({
             message: "Use this playlist?",
@@ -228,7 +235,11 @@ const resolveYotoPlaylist = async (
         })
 
         if (useExisting) {
-            return {cardId: association.yotoId, title: association.yotoName, isNew: false}
+            return {
+                cardId: association.yotoId,
+                title: association.yotoName,
+                isNew: false,
+            }
         }
     }
 
@@ -251,7 +262,11 @@ const resolveYotoPlaylist = async (
         })
 
         const newPlaylist = await createPlaylist(newTitle)
-        return {cardId: newPlaylist.cardId, title: newPlaylist.title, isNew: true}
+        return {
+            cardId: newPlaylist.cardId,
+            title: newPlaylist.title,
+            isNew: true,
+        }
     }
 
     const selected = yotoPlaylists.find(p => p.cardId === action)!
@@ -270,7 +285,9 @@ const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
         const youtubeInfo = await getPlaylistInfo(url)
         const youtubePlaylistId = extractPlaylistId(url)
 
-        console.log(`Found: "${youtubeInfo.title}" (${youtubeInfo.tracks.length} songs)`)
+        console.log(
+            `Found: "${youtubeInfo.title}" (${youtubeInfo.tracks.length} songs)`,
+        )
         console.log()
 
         // 2. Resolve target Yoto playlist
@@ -317,7 +334,9 @@ const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
                 const item = tracksToAdd[i]
                 const track = item.youtubeTrack!
 
-                process.stdout.write(`[${i + 1}/${tracksToAdd.length}] ${track.title}...`)
+                process.stdout.write(
+                    `[${i + 1}/${tracksToAdd.length}] ${track.title}...`,
+                )
 
                 try {
                     const filePath = await downloadTrack(track, tempDir)
@@ -332,14 +351,19 @@ const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
             // 7. Upload to Yoto
             console.log("\nUploading to Yoto...")
 
-            const uploadedTracks: Map<string, {key: string; duration: number; fileSize: number}> = new Map()
+            const uploadedTracks: Map<
+                string,
+                {key: string; duration: number; fileSize: number}
+            > = new Map()
 
             for (let i = 0; i < tracksToAdd.length; i++) {
                 const item = tracksToAdd[i]
                 const track = item.youtubeTrack!
                 const filePath = downloadedTracks.get(track.id)!
 
-                process.stdout.write(`[${i + 1}/${tracksToAdd.length}] ${track.title}...`)
+                process.stdout.write(
+                    `[${i + 1}/${tracksToAdd.length}] ${track.title}...`,
+                )
 
                 try {
                     const result = await uploadAudio(filePath)
@@ -394,13 +418,19 @@ const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
         })
 
         console.log("Playlist updated!")
-        console.log(`  Opening https://my.yotoplay.com/card/${yotoTarget.cardId}/edit`)
+        console.log(
+            `  Opening https://my.yotoplay.com/card/${yotoTarget.cardId}/edit`,
+        )
 
         // Open in browser (macOS)
-        spawn("open", [`https://my.yotoplay.com/card/${yotoTarget.cardId}/edit`], {
-            detached: true,
-            stdio: "ignore",
-        }).unref()
+        spawn(
+            "open",
+            [`https://my.yotoplay.com/card/${yotoTarget.cardId}/edit`],
+            {
+                detached: true,
+                stdio: "ignore",
+            },
+        ).unref()
     } finally {
         // Clean up temp directory
         if (existsSync(tempDir)) {
@@ -410,4 +440,10 @@ const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
 }
 
 export {sync}
-export type {SyncOptions, SyncPlan, SyncPlanItem, YouTubePlaylistInfo, YouTubeTrack}
+export type {
+    SyncOptions,
+    SyncPlan,
+    SyncPlanItem,
+    YouTubePlaylistInfo,
+    YouTubeTrack,
+}
