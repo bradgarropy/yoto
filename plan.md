@@ -186,31 +186,39 @@ export const syncJobs = sqliteTable("sync_jobs", {
 
 #### ESLint Setup
 
-- [ ] Install `eslint` and `@bradgarropy/eslint-config` in CLI package
-- [ ] Create `packages/cli/eslint.config.js`
-- [ ] Add `lint` script to CLI package
+- [x] Install `eslint` and `@bradgarropy/eslint-config` in CLI package
+- [x] Create `packages/cli/eslint.config.js`
+- [x] Add `lint` script to CLI package
+
+#### Prettier Setup
+
+- [x] Install `prettier` at root
+- [x] Add `format` and `format:fix` scripts to root package.json
+- [x] Create `.prettierignore` to exclude `dist/` and `node_modules/`
 
 #### Vitest Setup
 
-- [ ] Install `vitest` in CLI package
-- [ ] Create `packages/cli/vitest.config.ts` with `~` alias
-- [ ] Add `test`, `test:watch`, and `typecheck` scripts to CLI package
+- [x] Install `vitest` and `memfs` in CLI package
+- [x] Create `packages/cli/vitest.config.ts` with `~` alias
+- [x] Add `test`, `test:watch`, and `typecheck` scripts to CLI package
 
 #### Unit Tests
 
-- [ ] Create `src/url.test.ts` - test URL parsing functions
-- [ ] Create `src/yoto/config.test.ts` - test config file operations
-- [ ] Create `src/yoto/auth.test.ts` - test auth logic
+- [x] Create `src/url.test.ts` - test URL parsing functions (9 tests)
+- [x] Create `src/yoto/config.test.ts` - test config file operations using `memfs` (12 tests)
+- [x] Create `src/yoto/auth.test.ts` - test auth logic by mocking config module (17 tests)
 
 #### Root Scripts
 
-- [ ] Add `lint` script to root package.json
-- [ ] Add `test` script to root package.json
+- [x] Add `lint` script to root package.json
+- [x] Add `test` script to root package.json
+- [x] Add `format` script to root package.json
+- [x] Add `typecheck` script to root package.json
 
 #### GitHub Actions CI
 
-- [ ] Create `.github/workflows/ci.yml`
-- [ ] Verify CI passes on push
+- [x] Create `.github/workflows/ci.yml` (runs format, lint, typecheck, test)
+- [x] Verify CI passes on push
 
 ---
 
