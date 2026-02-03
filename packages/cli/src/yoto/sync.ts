@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process"
 import {createHash} from "node:crypto"
-import {existsSync, readFileSync, rmSync} from "node:fs"
+import {existsSync, readFileSync, rmSync, statSync} from "node:fs"
 import {mkdir} from "node:fs/promises"
 import {homedir} from "node:os"
 import {basename, join} from "node:path"
@@ -121,20 +121,29 @@ const uploadAudio = async (
     const sha256 = calculateFileSha256(filePath)
     const filename = basename(filePath)
 
+    // Type for the actual API response (differs from SDK types)
+    type TranscodeResult = {
+        progress?: {phase: string}
+        transcodedSha256?: string
+        transcodedInfo?: {duration: number; fileSize: number}
+    }
+
     // Check if already transcoded (file was previously uploaded)
     try {
-        const existingStatus = await sdk.media.getTranscodedUpload(
+        const existingStatus = (await sdk.media.getTranscodedUpload(
             sha256,
             false,
-        )
-        if (existingStatus?.status === "complete" && existingStatus.url) {
+        )) as unknown as TranscodeResult
+
+        if (
+            existingStatus?.progress?.phase === "complete" &&
+            existingStatus.transcodedSha256
+        ) {
             onProgress?.("File already uploaded")
-            // Extract the transcoded sha256 from the URL or use original
-            // The URL format is typically the transcoded file reference
             return {
-                key: sha256, // Use original sha256 as key
-                duration: 0,
-                fileSize: 0,
+                key: existingStatus.transcodedSha256,
+                duration: existingStatus.transcodedInfo?.duration ?? 0,
+                fileSize: existingStatus.transcodedInfo?.fileSize ?? 0,
             }
         }
     } catch {
@@ -143,17 +152,35 @@ const uploadAudio = async (
 
     onProgress?.("Getting upload URL...")
 
-    // Get upload URL
-    const uploadInfo = await sdk.media.getUploadUrlForTranscode(
+    // Get upload URL - SDK types say 'url' but API returns 'uploadUrl'
+    const uploadInfo = (await sdk.media.getUploadUrlForTranscode(
         sha256,
         filename,
-    )
+    )) as unknown as {uploadId: string; uploadUrl: string | null}
 
-    onProgress?.("Uploading...")
+    // If uploadUrl is null, the file was already uploaded - skip to polling
+    if (uploadInfo.uploadUrl) {
+        onProgress?.("Uploading...")
 
-    // Upload file to S3
-    const fileContent = readFileSync(filePath)
-    await sdk.media.uploadFile(uploadInfo.url, fileContent)
+        // Upload file to S3 using direct fetch (more reliable than SDK's axios-based upload)
+        const fileContent = readFileSync(filePath)
+        const fileStats = statSync(filePath)
+
+        const uploadResponse = await fetch(uploadInfo.uploadUrl, {
+            method: "PUT",
+            body: fileContent,
+            headers: {
+                "Content-Type": "audio/mpeg",
+                "Content-Length": fileStats.size.toString(),
+            },
+        })
+
+        if (!uploadResponse.ok) {
+            throw new Error(`Upload failed: ${uploadResponse.statusText}`)
+        }
+    } else {
+        onProgress?.("Already uploaded, processing...")
+    }
 
     onProgress?.("Processing...")
 
@@ -165,13 +192,20 @@ const uploadAudio = async (
         await new Promise(resolve => setTimeout(resolve, pollInterval))
 
         try {
-            const status = await sdk.media.getTranscodedUpload(sha256, false)
+            const transcodeStatus = (await sdk.media.getTranscodedUpload(
+                sha256,
+                false,
+            )) as unknown as TranscodeResult
 
-            if (status?.status === "complete") {
+            // Check for completion
+            if (
+                transcodeStatus?.progress?.phase === "complete" &&
+                transcodeStatus.transcodedSha256
+            ) {
                 return {
-                    key: sha256,
-                    duration: 0,
-                    fileSize: 0,
+                    key: transcodeStatus.transcodedSha256,
+                    duration: transcodeStatus.transcodedInfo?.duration ?? 0,
+                    fileSize: transcodeStatus.transcodedInfo?.fileSize ?? 0,
                 }
             }
         } catch {
