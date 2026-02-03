@@ -228,57 +228,63 @@ Replace custom Yoto API code with official packages.
 
 #### Dependencies to Add
 
-- [ ] `@yotoplay/yoto-sdk`
-- [ ] `@yotoplay/oauth-device-code-flow`
+- [x] `@yotoplay/yoto-sdk`
+- [x] `@yotoplay/oauth-device-code-flow`
 
 #### Commands to Refactor
 
 **login.ts**
 
-- [ ] Use `DeviceCodeAuth` from `@yotoplay/oauth-device-code-flow`
-- [ ] Initiate device code flow with `initiateDeviceCodeFlow()`
-- [ ] Display verification URL and user code to terminal
-- [ ] Poll for token with `pollForToken()`
-- [ ] Save tokens with `TokenManager`
+- [x] Use `DeviceCodeAuth` from `@yotoplay/oauth-device-code-flow`
+- [x] Initiate device code flow with `initiateDeviceCodeFlow()`
+- [x] Display verification URL and user code to terminal
+- [x] Poll for token with `pollForToken()`
+- [x] Save tokens with `TokenManager`
 
 **logout.ts**
 
-- [ ] Clear tokens using `TokenManager.clearTokens()`
+- [x] Clear tokens using `TokenManager.clearTokens()`
 
 **status.ts**
 
-- [ ] Check token validity with `TokenManager.areTokensValid()`
-- [ ] Display expiry information
+- [x] Check token validity with `TokenManager.areTokensValid()`
+- [x] Display expiry information
 
 **list.ts**
 
-- [ ] Use `yotoSdk.content.getMyCards()` instead of custom API
+- [x] Use `yotoSdk.content.getMyCards()` instead of custom API
 
 **sync.ts**
 
-- [ ] Use `yotoSdk.content.*` for card operations
-- [ ] Use `yotoSdk.media.*` for audio uploads
-- [ ] Keep existing yt-dlp YouTube download logic
-- [ ] Keep playlist association storage in `~/.config/yoto/`
+- [x] Use `yotoSdk.content.*` for card operations
+- [x] Use `yotoSdk.media.*` for audio uploads
+- [x] Keep existing yt-dlp YouTube download logic
+- [x] Keep playlist association storage in `~/.config/yoto/`
 
 #### Files to Remove
 
-- [ ] `src/yoto/api.ts` (replaced by SDK)
-- [ ] `src/yoto/auth.ts` (replaced by Device Code Flow package)
+- [x] `src/yoto/api.ts` (replaced by SDK)
+- [x] `src/yoto/auth.ts` (refactored, not removed - now uses OAuth package)
 
 #### Files to Keep
 
-- [ ] `src/yoto/config.ts` (playlist associations)
-- [ ] `src/youtube.ts` (yt-dlp wrapper)
-- [ ] `src/ytdlp.ts` (legacy download)
+- [x] `src/yoto/config.ts` (playlist associations only, auth removed)
+- [x] `src/youtube.ts` (yt-dlp wrapper)
+- [x] `src/ytdlp.ts` (legacy download)
 
 #### Testing
 
-- [ ] Test `yoto login` - should open browser prompt
-- [ ] Test `yoto status` - should show token expiry
-- [ ] Test `yoto list` - should show cards
-- [ ] Test `yoto sync` - full sync flow
-- [ ] Test `yoto logout` - should clear tokens
+- [x] Test `yoto login` - device code flow working
+- [x] Test `yoto status` - shows token expiry
+- [x] Test `yoto list` - shows cards via SDK
+- [x] Test `yoto sync` - full sync flow working
+- [x] Test `yoto logout` - clears tokens
+
+#### Notes
+
+- Created Public Client in Yoto developer dashboard (client ID: `PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77`)
+- SDK types don't match actual API responses in some places, required type assertions
+- Auth tokens stored in `~/.config/yoto/auth.json` via `TokenManager`
 
 ---
 
