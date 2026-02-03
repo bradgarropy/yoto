@@ -186,31 +186,39 @@ export const syncJobs = sqliteTable("sync_jobs", {
 
 #### ESLint Setup
 
-- [ ] Install `eslint` and `@bradgarropy/eslint-config` in CLI package
-- [ ] Create `packages/cli/eslint.config.js`
-- [ ] Add `lint` script to CLI package
+- [x] Install `eslint` and `@bradgarropy/eslint-config` in CLI package
+- [x] Create `packages/cli/eslint.config.js`
+- [x] Add `lint` script to CLI package
+
+#### Prettier Setup
+
+- [x] Install `prettier` at root
+- [x] Add `format` and `format:fix` scripts to root package.json
+- [x] Create `.prettierignore` to exclude `dist/` and `node_modules/`
 
 #### Vitest Setup
 
-- [ ] Install `vitest` in CLI package
-- [ ] Create `packages/cli/vitest.config.ts` with `~` alias
-- [ ] Add `test`, `test:watch`, and `typecheck` scripts to CLI package
+- [x] Install `vitest` and `memfs` in CLI package
+- [x] Create `packages/cli/vitest.config.ts` with `~` alias
+- [x] Add `test`, `test:watch`, and `typecheck` scripts to CLI package
 
 #### Unit Tests
 
-- [ ] Create `src/url.test.ts` - test URL parsing functions
-- [ ] Create `src/yoto/config.test.ts` - test config file operations
-- [ ] Create `src/yoto/auth.test.ts` - test auth logic
+- [x] Create `src/url.test.ts` - test URL parsing functions (9 tests)
+- [x] Create `src/yoto/config.test.ts` - test config file operations using `memfs` (12 tests)
+- [x] Create `src/yoto/auth.test.ts` - test auth logic by mocking config module (17 tests)
 
 #### Root Scripts
 
-- [ ] Add `lint` script to root package.json
-- [ ] Add `test` script to root package.json
+- [x] Add `lint` script to root package.json
+- [x] Add `test` script to root package.json
+- [x] Add `format` script to root package.json
+- [x] Add `typecheck` script to root package.json
 
 #### GitHub Actions CI
 
-- [ ] Create `.github/workflows/ci.yml`
-- [ ] Verify CI passes on push
+- [x] Create `.github/workflows/ci.yml` (runs format, lint, typecheck, test)
+- [x] Verify CI passes on push
 
 ---
 
@@ -220,57 +228,63 @@ Replace custom Yoto API code with official packages.
 
 #### Dependencies to Add
 
-- [ ] `@yotoplay/yoto-sdk`
-- [ ] `@yotoplay/oauth-device-code-flow`
+- [x] `@yotoplay/yoto-sdk`
+- [x] `@yotoplay/oauth-device-code-flow`
 
 #### Commands to Refactor
 
 **login.ts**
 
-- [ ] Use `DeviceCodeAuth` from `@yotoplay/oauth-device-code-flow`
-- [ ] Initiate device code flow with `initiateDeviceCodeFlow()`
-- [ ] Display verification URL and user code to terminal
-- [ ] Poll for token with `pollForToken()`
-- [ ] Save tokens with `TokenManager`
+- [x] Use `DeviceCodeAuth` from `@yotoplay/oauth-device-code-flow`
+- [x] Initiate device code flow with `initiateDeviceCodeFlow()`
+- [x] Display verification URL and user code to terminal
+- [x] Poll for token with `pollForToken()`
+- [x] Save tokens with `TokenManager`
 
 **logout.ts**
 
-- [ ] Clear tokens using `TokenManager.clearTokens()`
+- [x] Clear tokens using `TokenManager.clearTokens()`
 
 **status.ts**
 
-- [ ] Check token validity with `TokenManager.areTokensValid()`
-- [ ] Display expiry information
+- [x] Check token validity with `TokenManager.areTokensValid()`
+- [x] Display expiry information
 
 **list.ts**
 
-- [ ] Use `yotoSdk.content.getMyCards()` instead of custom API
+- [x] Use `yotoSdk.content.getMyCards()` instead of custom API
 
 **sync.ts**
 
-- [ ] Use `yotoSdk.content.*` for card operations
-- [ ] Use `yotoSdk.media.*` for audio uploads
-- [ ] Keep existing yt-dlp YouTube download logic
-- [ ] Keep playlist association storage in `~/.config/yoto/`
+- [x] Use `yotoSdk.content.*` for card operations
+- [x] Use `yotoSdk.media.*` for audio uploads
+- [x] Keep existing yt-dlp YouTube download logic
+- [x] Keep playlist association storage in `~/.config/yoto/`
 
 #### Files to Remove
 
-- [ ] `src/yoto/api.ts` (replaced by SDK)
-- [ ] `src/yoto/auth.ts` (replaced by Device Code Flow package)
+- [x] `src/yoto/api.ts` (replaced by SDK)
+- [x] `src/yoto/auth.ts` (refactored, not removed - now uses OAuth package)
 
 #### Files to Keep
 
-- [ ] `src/yoto/config.ts` (playlist associations)
-- [ ] `src/youtube.ts` (yt-dlp wrapper)
-- [ ] `src/ytdlp.ts` (legacy download)
+- [x] `src/yoto/config.ts` (playlist associations only, auth removed)
+- [x] `src/youtube.ts` (yt-dlp wrapper)
+- [x] `src/ytdlp.ts` (legacy download)
 
 #### Testing
 
-- [ ] Test `yoto login` - should open browser prompt
-- [ ] Test `yoto status` - should show token expiry
-- [ ] Test `yoto list` - should show cards
-- [ ] Test `yoto sync` - full sync flow
-- [ ] Test `yoto logout` - should clear tokens
+- [x] Test `yoto login` - device code flow working
+- [x] Test `yoto status` - shows token expiry
+- [x] Test `yoto list` - shows cards via SDK
+- [x] Test `yoto sync` - full sync flow working
+- [x] Test `yoto logout` - clears tokens
+
+#### Notes
+
+- Created Public Client in Yoto developer dashboard (client ID: `PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77`)
+- SDK types don't match actual API responses in some places, required type assertions
+- Auth tokens stored in `~/.config/yoto/auth.json` via `TokenManager`
 
 ---
 

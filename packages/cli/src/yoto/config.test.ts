@@ -1,16 +1,12 @@
 import {vol} from "memfs"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {Auth, Playlists} from "~/yoto/config"
+import type {Playlists} from "~/yoto/config"
 import {
-    AUTH_FILE,
-    deleteAuth,
     getPlaylistAssociation,
     PLAYLISTS_FILE,
-    readAuth,
     readPlaylists,
     setPlaylistAssociation,
-    writeAuth,
     writePlaylists,
 } from "~/yoto/config"
 
@@ -31,50 +27,6 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks()
-})
-
-describe("auth functions", () => {
-    it("writeAuth and readAuth should work together", () => {
-        const auth: Auth = {
-            accessToken: "test-token-123",
-            expiresAt: Math.floor(Date.now() / 1000) + 3600,
-        }
-
-        writeAuth(auth)
-        const result = readAuth()
-
-        expect(result).toEqual(auth)
-    })
-
-    it("deleteAuth should remove the auth file", () => {
-        const auth: Auth = {
-            accessToken: "test-token-456",
-            expiresAt: Math.floor(Date.now() / 1000) + 3600,
-        }
-
-        writeAuth(auth)
-        expect(readAuth()).toEqual(auth)
-
-        deleteAuth()
-
-        expect(readAuth()).toBeNull()
-    })
-
-    it("deleteAuth should not throw when file does not exist", () => {
-        expect(() => deleteAuth()).not.toThrow()
-    })
-
-    it("readAuth should return null when no auth file exists", () => {
-        expect(readAuth()).toBeNull()
-    })
-
-    it("readAuth should throw on corrupted JSON", () => {
-        vol.fromJSON({
-            [AUTH_FILE]: "not valid json {{{",
-        })
-
-        expect(() => readAuth()).toThrow("Corrupted auth file")
-    })
 })
 
 describe("playlist functions", () => {

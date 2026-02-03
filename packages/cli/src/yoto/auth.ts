@@ -1,26 +1,46 @@
-import {decodeJwt} from "jose"
+import {join} from "node:path"
 
-import {deleteAuth, readAuth, writeAuth} from "~/yoto/config"
+import {
+    DeviceCodeAuth,
+    type DeviceCodeResult,
+    type StoredTokens,
+    TokenManager,
+} from "@yotoplay/oauth-device-code-flow"
+import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
+
+import {CONFIG_PATH, ensureConfigDir} from "~/yoto/config"
+
+// Auth0 configuration for Yoto
+const AUTH_CONFIG = {
+    domain: "login.yotoplay.com",
+    clientId: "PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77",
+    audience: "https://api.yotoplay.com",
+}
+
+const TOKEN_PATH = join(CONFIG_PATH, "auth.json")
+
+// Lazy-initialized singletons
+let _auth: DeviceCodeAuth | null = null
+let _tokenManager: TokenManager | null = null
+
+const getAuth = (): DeviceCodeAuth => {
+    if (!_auth) {
+        _auth = new DeviceCodeAuth(AUTH_CONFIG)
+    }
+    return _auth
+}
+
+const getTokenManager = (): TokenManager => {
+    if (!_tokenManager) {
+        ensureConfigDir()
+        _tokenManager = new TokenManager(TOKEN_PATH)
+    }
+    return _tokenManager
+}
 
 type TokenStatus =
     | {valid: true; expiresIn: string; expiresAt: number}
     | {valid: false; reason: "not_logged_in" | "expired"}
-
-const parseToken = (
-    token: string,
-): {accessToken: string; expiresAt: number} => {
-    // Remove "Bearer " prefix if present
-    const accessToken = token.replace(/^Bearer\s+/i, "").trim()
-
-    const payload = decodeJwt(accessToken)
-    const expiresAt = payload.exp
-
-    if (!expiresAt) {
-        throw new Error("Token missing expiration")
-    }
-
-    return {accessToken, expiresAt}
-}
 
 const formatTimeRemaining = (seconds: number): string => {
     if (seconds < 60) {
@@ -42,61 +62,128 @@ const formatTimeRemaining = (seconds: number): string => {
     return `${hours} hour${hours === 1 ? "" : "s"}, ${remainingMinutes} minute${remainingMinutes === 1 ? "" : "s"}`
 }
 
-const login = (token: string): {success: true; expiresIn: string} => {
-    const {accessToken, expiresAt} = parseToken(token)
+// Initiates device code flow - returns info for user to complete auth
+const initiateLogin = async (): Promise<DeviceCodeResult> => {
+    const auth = getAuth()
+    return auth.initiate()
+}
 
-    const now = Math.floor(Date.now() / 1000)
-    if (expiresAt <= now) {
-        throw new Error("Token is already expired")
+// Polls for token after user completes auth in browser
+const completeLogin = async (
+    deviceCode: string,
+    interval: number,
+    timeout: number = 300000, // 5 minutes default
+): Promise<
+    {success: true; expiresIn: string} | {success: false; error: string}
+> => {
+    const auth = getAuth()
+    const tokenManager = getTokenManager()
+
+    const result = await auth.pollForToken(deviceCode, interval, timeout)
+
+    if (!result.success || !result.tokens) {
+        return {success: false, error: result.error ?? "Authentication failed"}
     }
 
-    writeAuth({accessToken, expiresAt})
+    await tokenManager.saveTokens(result.tokens)
 
-    const expiresIn = formatTimeRemaining(expiresAt - now)
+    const timeRemaining = tokenManager.getTimeUntilExpiry(result.tokens)
+    const expiresIn = formatTimeRemaining(timeRemaining)
+
     return {success: true, expiresIn}
 }
 
-const logout = (): void => {
-    deleteAuth()
+// Clears stored tokens
+const logout = async (): Promise<void> => {
+    const tokenManager = getTokenManager()
+    await tokenManager.clearTokens()
 }
 
-const status = (): TokenStatus => {
-    const auth = readAuth()
+// Returns token status
+const status = async (): Promise<TokenStatus> => {
+    const tokenManager = getTokenManager()
+    const tokens = await tokenManager.loadTokens()
 
-    if (!auth) {
+    if (!tokens) {
         return {valid: false, reason: "not_logged_in"}
     }
 
-    const now = Math.floor(Date.now() / 1000)
-    if (auth.expiresAt <= now) {
+    if (tokenManager.isTokenExpired(tokens)) {
+        // Try to refresh if we have a refresh token
+        if (tokens.refreshToken) {
+            const refreshed = await tryRefreshToken(tokens.refreshToken)
+            if (refreshed) {
+                const timeRemaining = tokenManager.getTimeUntilExpiry(refreshed)
+                return {
+                    valid: true,
+                    expiresIn: formatTimeRemaining(timeRemaining),
+                    expiresAt: refreshed.expiresAt,
+                }
+            }
+        }
         return {valid: false, reason: "expired"}
     }
 
-    const expiresIn = formatTimeRemaining(auth.expiresAt - now)
-    return {valid: true, expiresIn, expiresAt: auth.expiresAt}
+    const timeRemaining = tokenManager.getTimeUntilExpiry(tokens)
+    return {
+        valid: true,
+        expiresIn: formatTimeRemaining(timeRemaining),
+        expiresAt: tokens.expiresAt,
+    }
 }
 
-const getToken = (): string | null => {
-    const auth = readAuth()
+// Attempts to refresh the token, returns new tokens or null
+const tryRefreshToken = async (
+    refreshToken: string,
+): Promise<StoredTokens | null> => {
+    const auth = getAuth()
+    const tokenManager = getTokenManager()
 
-    if (!auth) {
+    try {
+        const result = await auth.refreshToken(refreshToken)
+        if (result.success && result.tokens) {
+            await tokenManager.saveTokens(result.tokens)
+            return result.tokens
+        }
+    } catch {
+        // Refresh failed, token is invalid
+    }
+
+    return null
+}
+
+// Gets valid access token, refreshing if needed
+const getToken = async (): Promise<string | null> => {
+    const tokenManager = getTokenManager()
+    const tokens = await tokenManager.loadTokens()
+
+    if (!tokens) {
         return null
     }
 
-    const now = Math.floor(Date.now() / 1000)
-    if (auth.expiresAt <= now) {
+    // If token is expired or about to expire (within 5 minutes), try to refresh
+    const timeRemaining = tokenManager.getTimeUntilExpiry(tokens)
+    if (timeRemaining < 300 && tokens.refreshToken) {
+        const refreshed = await tryRefreshToken(tokens.refreshToken)
+        if (refreshed) {
+            return refreshed.accessToken
+        }
+    }
+
+    if (tokenManager.isTokenExpired(tokens)) {
         return null
     }
 
-    return auth.accessToken
+    return tokens.accessToken
 }
 
-const requireAuth = (): string => {
-    const token = getToken()
+// Gets valid token or throws (for use in API calls)
+const requireAuth = async (): Promise<string> => {
+    const token = await getToken()
 
     if (!token) {
-        const authStatus = status()
-        if (authStatus.valid === false && authStatus.reason === "expired") {
+        const tokenStatus = await status()
+        if (tokenStatus.valid === false && tokenStatus.reason === "expired") {
             throw new Error("Token expired. Please run: yoto login")
         }
         throw new Error("Not logged in. Please run: yoto login")
@@ -105,5 +192,20 @@ const requireAuth = (): string => {
     return token
 }
 
-export {getToken, login, logout, requireAuth, status}
-export type {TokenStatus}
+// Creates an authenticated Yoto SDK instance
+const getYotoSdk = async (): Promise<YotoSdk> => {
+    const token = await requireAuth()
+    return createYotoSdk({jwt: token})
+}
+
+export {
+    completeLogin,
+    getToken,
+    getYotoSdk,
+    initiateLogin,
+    logout,
+    requireAuth,
+    status,
+}
+
+export type {DeviceCodeResult, TokenStatus}

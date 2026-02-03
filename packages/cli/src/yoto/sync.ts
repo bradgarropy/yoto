@@ -1,24 +1,58 @@
 import {spawn} from "node:child_process"
-import {existsSync, rmSync} from "node:fs"
+import {createHash} from "node:crypto"
+import {existsSync, readFileSync, rmSync, statSync} from "node:fs"
 import {mkdir} from "node:fs/promises"
 import {homedir} from "node:os"
-import {join} from "node:path"
+import {basename, join} from "node:path"
 
 import {confirm, input, select} from "@inquirer/prompts"
+import type {UserCard, YotoJson} from "@yotoplay/yoto-sdk"
 import Fuse from "fuse.js"
 
-import type {YotoChapter, YotoPlaylistSummary} from "~/yoto/api"
-import {
-    createChapter,
-    createPlaylist,
-    getPlaylist,
-    listPlaylists,
-    updatePlaylist,
-    uploadAudio,
-} from "~/yoto/api"
+import {getYotoSdk} from "~/yoto/auth"
 import {getPlaylistAssociation, setPlaylistAssociation} from "~/yoto/config"
 import type {YouTubePlaylistInfo, YouTubeTrack} from "~/youtube"
 import {downloadTrack, extractPlaylistId, getPlaylistInfo} from "~/youtube"
+
+// Yoto card content types (SDK uses generic YotoJson)
+type YotoTrack = {
+    key: string
+    title: string
+    format: string
+    trackUrl: string
+    type: string
+    duration?: number
+    fileSize?: number
+    channels?: string
+}
+
+type YotoChapter = {
+    key: string
+    title: string
+    tracks: YotoTrack[]
+    duration?: number
+    fileSize?: number
+}
+
+type YotoContent = {
+    activity: string
+    chapters: YotoChapter[]
+    restricted: boolean
+    config: {onlineOnly: boolean}
+    version: string
+}
+
+type YotoMetadata = {
+    cover?: {imageL: string}
+    media?: Record<string, unknown>
+}
+
+type YotoCard = YotoJson & {
+    cardId?: string
+    title?: string
+    content: YotoContent
+    metadata: YotoMetadata
+}
 
 type SyncAction = "keep" | "add" | "remove"
 
@@ -39,6 +73,149 @@ type SyncPlan = {
 
 type SyncOptions = {
     playlistName?: string
+}
+
+// Create a chapter from an uploaded audio file
+const createChapter = (
+    title: string,
+    transcodedSha256: string,
+    position: number,
+    duration?: number,
+    fileSize?: number,
+): YotoChapter => {
+    // Chapter key is just the position as a string (0-indexed internally)
+    const chapterKey = String(position - 1).padStart(2, "0")
+
+    return {
+        key: chapterKey,
+        title,
+        tracks: [
+            {
+                key: "01",
+                title,
+                format: "opus",
+                trackUrl: `yoto:#${transcodedSha256}`,
+                type: "audio",
+                duration,
+                fileSize,
+                channels: "stereo",
+            },
+        ],
+        duration,
+        fileSize,
+    }
+}
+
+// Calculate SHA256 hash of a file
+const calculateFileSha256 = (filePath: string): string => {
+    const content = readFileSync(filePath)
+    return createHash("sha256").update(content).digest("hex")
+}
+
+// Upload audio file and wait for transcode using SDK
+const uploadAudio = async (
+    filePath: string,
+    onProgress?: (status: string) => void,
+): Promise<{key: string; duration: number; fileSize: number}> => {
+    const sdk = await getYotoSdk()
+    const sha256 = calculateFileSha256(filePath)
+    const filename = basename(filePath)
+
+    // Type for the actual API response (differs from SDK types)
+    type TranscodeResult = {
+        progress?: {phase: string}
+        transcodedSha256?: string
+        transcodedInfo?: {duration: number; fileSize: number}
+    }
+
+    // Check if already transcoded (file was previously uploaded)
+    try {
+        const existingStatus = (await sdk.media.getTranscodedUpload(
+            sha256,
+            false,
+        )) as unknown as TranscodeResult
+
+        if (
+            existingStatus?.progress?.phase === "complete" &&
+            existingStatus.transcodedSha256
+        ) {
+            onProgress?.("File already uploaded")
+            return {
+                key: existingStatus.transcodedSha256,
+                duration: existingStatus.transcodedInfo?.duration ?? 0,
+                fileSize: existingStatus.transcodedInfo?.fileSize ?? 0,
+            }
+        }
+    } catch {
+        // File doesn't exist yet, continue with upload
+    }
+
+    onProgress?.("Getting upload URL...")
+
+    // Get upload URL - SDK types say 'url' but API returns 'uploadUrl'
+    const uploadInfo = (await sdk.media.getUploadUrlForTranscode(
+        sha256,
+        filename,
+    )) as unknown as {uploadId: string; uploadUrl: string | null}
+
+    // If uploadUrl is null, the file was already uploaded - skip to polling
+    if (uploadInfo.uploadUrl) {
+        onProgress?.("Uploading...")
+
+        // Upload file to S3 using direct fetch (more reliable than SDK's axios-based upload)
+        const fileContent = readFileSync(filePath)
+        const fileStats = statSync(filePath)
+
+        const uploadResponse = await fetch(uploadInfo.uploadUrl, {
+            method: "PUT",
+            body: fileContent,
+            headers: {
+                "Content-Type": "audio/mpeg",
+                "Content-Length": fileStats.size.toString(),
+            },
+        })
+
+        if (!uploadResponse.ok) {
+            throw new Error(`Upload failed: ${uploadResponse.statusText}`)
+        }
+    } else {
+        onProgress?.("Already uploaded, processing...")
+    }
+
+    onProgress?.("Processing...")
+
+    // Poll for transcode completion
+    const maxAttempts = 60 // 5 minutes max
+    const pollInterval = 5000 // 5 seconds
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+
+        try {
+            const transcodeStatus = (await sdk.media.getTranscodedUpload(
+                sha256,
+                false,
+            )) as unknown as TranscodeResult
+
+            // Check for completion
+            if (
+                transcodeStatus?.progress?.phase === "complete" &&
+                transcodeStatus.transcodedSha256
+            ) {
+                return {
+                    key: transcodeStatus.transcodedSha256,
+                    duration: transcodeStatus.transcodedInfo?.duration ?? 0,
+                    fileSize: transcodeStatus.transcodedInfo?.fileSize ?? 0,
+                }
+            }
+        } catch {
+            // Continue polling
+        }
+
+        onProgress?.(`Processing... (${attempt + 1}/${maxAttempts})`)
+    }
+
+    throw new Error("Audio transcode timed out")
 }
 
 // Fuzzy match track titles
@@ -71,8 +248,8 @@ const fuzzyMatchTrack = (
 // Fuzzy match playlist by name
 const fuzzyMatchPlaylist = (
     name: string,
-    playlists: YotoPlaylistSummary[],
-): YotoPlaylistSummary[] => {
+    playlists: UserCard[],
+): UserCard[] => {
     const fuse = new Fuse(playlists, {
         keys: ["title"],
         threshold: 0.4,
@@ -165,13 +342,77 @@ const printSyncPlan = (plan: SyncPlan): void => {
     console.log()
 }
 
+// Create a new playlist using SDK
+const createPlaylist = async (
+    title: string,
+    chapters: YotoChapter[] = [],
+): Promise<{cardId: string; title: string}> => {
+    const sdk = await getYotoSdk()
+
+    const cardData: YotoCard = {
+        content: {
+            activity: "yoto_Player",
+            chapters,
+            restricted: true,
+            config: {onlineOnly: false},
+            version: "1",
+        },
+        metadata: {
+            cover: {
+                imageL: "https://cdn.yoto.io/myo-cover/bee_grapefruit.gif",
+            },
+            media: {},
+        },
+    }
+
+    // Add title to the card data
+    const cardWithTitle = {...cardData, title} as YotoJson
+
+    const result = await sdk.content.updateCard(cardWithTitle)
+    const resultCard = result as YotoCard
+
+    return {
+        cardId: resultCard.cardId ?? "",
+        title: resultCard.title ?? title,
+    }
+}
+
+// Update an existing playlist using SDK
+const updatePlaylist = async (
+    cardId: string,
+    updates: {
+        title?: string
+        chapters?: YotoChapter[]
+    },
+): Promise<void> => {
+    const sdk = await getYotoSdk()
+
+    // Fetch existing card
+    const existing = (await sdk.content.getCard(cardId)) as YotoCard
+
+    // Build updated card
+    const updatedCard: YotoCard = {
+        ...existing,
+        cardId,
+        title: updates.title ?? existing.title,
+        content: {
+            ...existing.content,
+            chapters: updates.chapters ?? existing.content.chapters,
+        },
+        metadata: existing.metadata,
+    }
+
+    await sdk.content.updateCard(updatedCard as YotoJson)
+}
+
 // Resolve target Yoto playlist
 const resolveYotoPlaylist = async (
     youtubePlaylistId: string,
     youtubePlaylistTitle: string,
     options: SyncOptions,
 ): Promise<{cardId: string; title: string; isNew: boolean}> => {
-    const yotoPlaylists = await listPlaylists()
+    const sdk = await getYotoSdk()
+    const yotoPlaylists = await sdk.content.getMyCards()
 
     // 1. If --playlist flag provided, fuzzy match
     if (options.playlistName) {
@@ -275,6 +516,8 @@ const resolveYotoPlaylist = async (
 
 // Main sync function
 const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
+    const sdk = await getYotoSdk()
+
     // Create temp directory for downloads (on Desktop for easy debugging)
     const tempDir = join(homedir(), "Desktop", "yoto-temp")
     await mkdir(tempDir, {recursive: true})
@@ -299,8 +542,10 @@ const sync = async (url: string, options: SyncOptions = {}): Promise<void> => {
 
         // 3. Get current Yoto playlist tracks
         console.log("Fetching current tracks...")
-        const yotoPlaylist = await getPlaylist(yotoTarget.cardId)
-        const currentChapters = yotoPlaylist.content.chapters || []
+        const yotoPlaylist = (await sdk.content.getCard(
+            yotoTarget.cardId,
+        )) as YotoCard
+        const currentChapters = yotoPlaylist.content?.chapters || []
 
         // 4. Generate and display sync plan
         const plan = generateSyncPlan(youtubeInfo.tracks, currentChapters)
