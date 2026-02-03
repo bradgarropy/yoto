@@ -14,7 +14,7 @@ import {CONFIG_PATH, ensureConfigDir} from "~/yoto/config"
 // Auth0 configuration for Yoto
 const AUTH_CONFIG = {
     domain: "login.yotoplay.com",
-    clientId: "90v6OFRB0bKTtpSCqT7edO7rlu9je8nb",
+    clientId: "PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77",
     audience: "https://api.yotoplay.com",
 }
 

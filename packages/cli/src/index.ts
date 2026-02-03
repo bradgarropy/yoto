@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 
-import {createInterface} from "node:readline"
-
 import {program} from "commander"
 
 import {isUrl} from "~/url"
-import {getPlaylist, listPlaylists} from "~/yoto/api"
-import {login, logout, status} from "~/yoto/auth"
+import {
+    completeLogin,
+    getYotoSdk,
+    initiateLogin,
+    logout,
+    status,
+} from "~/yoto/auth"
 import {sync} from "~/yoto/sync"
 import {downloadPlaylist, downloadVideo, isInstalled} from "~/ytdlp"
 
@@ -45,20 +48,6 @@ const parseInput = (input: string): ParsedInput => {
     }
 }
 
-const prompt = (question: string): Promise<string> => {
-    const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    })
-
-    return new Promise(resolve => {
-        rl.question(question, answer => {
-            rl.close()
-            resolve(answer)
-        })
-    })
-}
-
 program
     .name("yoto")
     .description("Sync YouTube playlists to Yoto")
@@ -67,30 +56,35 @@ program
 // Login command
 program
     .command("login")
-    .description("Authenticate with Yoto using a bearer token")
+    .description("Authenticate with Yoto using Device Code Flow")
     .action(async () => {
-        console.log("\nTo authenticate with Yoto:\n")
-        console.log("1. Open https://my.yotoplay.com in your browser")
-        console.log("2. Log in if needed")
-        console.log("3. Open DevTools (F12) → Network tab")
-        console.log("4. Refresh the page")
-        console.log("5. Click any request to api.yotoplay.com")
-        console.log(
-            '6. Copy the "authorization" header value (starts with "Bearer ey...")\n',
-        )
-
-        const token = await prompt("Paste your token: ")
-
-        if (!token.trim()) {
-            console.error("\nError: No token provided")
-            process.exit(1)
-        }
-
         try {
-            const result = login(token)
-            console.log(
-                `\nLogged in successfully! Token expires in ${result.expiresIn}.`,
+            console.log("Starting authentication...\n")
+
+            const result = await initiateLogin()
+
+            if (!result.success) {
+                console.error(`Error: ${result.error}`)
+                process.exit(1)
+            }
+
+            console.log(`Go to: ${result.verificationUri}`)
+            console.log(`Enter code: ${result.userCode}\n`)
+            console.log("Waiting for authentication...")
+
+            const completion = await completeLogin(
+                result.deviceCode!,
+                result.interval!,
             )
+
+            if (completion.success) {
+                console.log(
+                    `\nLogged in successfully! Token expires in ${completion.expiresIn}.`,
+                )
+            } else {
+                console.error(`\nError: ${completion.error}`)
+                process.exit(1)
+            }
         } catch (error) {
             console.error(
                 `\nError: ${error instanceof Error ? error.message : error}`,
@@ -103,8 +97,8 @@ program
 program
     .command("logout")
     .description("Clear stored authentication token")
-    .action(() => {
-        logout()
+    .action(async () => {
+        await logout()
         console.log("Logged out. Token cleared.")
     })
 
@@ -112,8 +106,8 @@ program
 program
     .command("status")
     .description("Show login status and token expiry")
-    .action(() => {
-        const result = status()
+    .action(async () => {
+        const result = await status()
 
         if (result.valid) {
             console.log("Logged in")
@@ -133,9 +127,10 @@ program
     .description("Show all Yoto playlists")
     .action(async () => {
         try {
-            const playlists = await listPlaylists()
+            const sdk = await getYotoSdk()
+            const cards = await sdk.content.getMyCards()
 
-            if (playlists.length === 0) {
+            if (cards.length === 0) {
                 console.log("No playlists found")
                 return
             }
@@ -143,12 +138,12 @@ program
             // Calculate column widths
             const idWidth = Math.max(
                 "ID".length,
-                ...playlists.map(p => p.cardId.length),
+                ...cards.map(c => c.cardId.length),
             )
 
             const nameWidth = Math.max(
                 "Name".length,
-                ...playlists.map(p => p.title.length),
+                ...cards.map(c => c.title.length),
             )
 
             // Print header
@@ -157,15 +152,13 @@ program
             console.log(`${"─".repeat(idWidth)}  ${"─".repeat(nameWidth)}`)
 
             // Print playlists
-            for (const playlist of playlists) {
-                console.log(
-                    `${playlist.cardId.padEnd(idWidth)}  ${playlist.title}`,
-                )
+            for (const card of cards) {
+                console.log(`${card.cardId.padEnd(idWidth)}  ${card.title}`)
             }
 
             console.log()
             console.log(
-                `${playlists.length} playlist${playlists.length === 1 ? "" : "s"}`,
+                `${cards.length} playlist${cards.length === 1 ? "" : "s"}`,
             )
         } catch (error) {
             console.error(
@@ -182,8 +175,9 @@ program
     .description("Inspect a Yoto playlist (debug)")
     .action(async (cardId: string) => {
         try {
-            const playlist = await getPlaylist(cardId)
-            console.log(JSON.stringify(playlist, null, 2))
+            const sdk = await getYotoSdk()
+            const card = await sdk.content.getCard(cardId)
+            console.log(JSON.stringify(card, null, 2))
         } catch (error) {
             console.error(
                 `Error: ${error instanceof Error ? error.message : error}`,
