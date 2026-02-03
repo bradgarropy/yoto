@@ -1,22 +1,10 @@
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    unlinkSync,
-    writeFileSync,
-} from "node:fs"
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs"
 import {homedir} from "node:os"
 import {join} from "node:path"
 
 // Config directory: ~/.config/yoto/
 const CONFIG_PATH = join(homedir(), ".config", "yoto")
-const AUTH_FILE = join(CONFIG_PATH, "auth.json")
 const PLAYLISTS_FILE = join(CONFIG_PATH, "playlists.json")
-
-type Auth = {
-    accessToken: string
-    expiresAt: number
-}
 
 type PlaylistAssociation = {
     yotoId: string
@@ -30,32 +18,6 @@ type Playlists = Record<string, PlaylistAssociation>
 const ensureConfigDir = (): void => {
     if (!existsSync(CONFIG_PATH)) {
         mkdirSync(CONFIG_PATH, {recursive: true})
-    }
-}
-
-// Auth functions
-const readAuth = (): Auth | null => {
-    if (!existsSync(AUTH_FILE)) {
-        return null
-    }
-
-    const content = readFileSync(AUTH_FILE, "utf-8")
-
-    try {
-        return JSON.parse(content) as Auth
-    } catch {
-        throw new Error("Corrupted auth file. Run: yoto logout && yoto login")
-    }
-}
-
-const writeAuth = (auth: Auth): void => {
-    ensureConfigDir()
-    writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 4))
-}
-
-const deleteAuth = (): void => {
-    if (existsSync(AUTH_FILE)) {
-        unlinkSync(AUTH_FILE)
     }
 }
 
@@ -98,16 +60,13 @@ const setPlaylistAssociation = (
 }
 
 export {
-    AUTH_FILE,
     CONFIG_PATH,
-    deleteAuth,
+    ensureConfigDir,
     getPlaylistAssociation,
     PLAYLISTS_FILE,
-    readAuth,
     readPlaylists,
     setPlaylistAssociation,
-    writeAuth,
     writePlaylists,
 }
 
-export type {Auth, PlaylistAssociation, Playlists}
+export type {PlaylistAssociation, Playlists}
