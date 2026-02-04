@@ -33,41 +33,47 @@ yoto/
 ├── package.json                      # Workspace root
 ├── plan.md                           # This file
 ├── packages/
+│   ├── core/                         # Shared library (@yoto/core)
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       ├── auth.ts               # Token management, getYotoSdk()
+│   │       ├── playlists.ts          # YouTube → Yoto card associations
+│   │       ├── tracks.ts             # Synced track history per card
+│   │       ├── paths.ts              # Shared config paths
+│   │       ├── youtube.ts            # yt-dlp wrapper
+│   │       ├── url.ts                # URL parsing utilities
+│   │       └── *.test.ts             # Unit tests (48 total)
+│   │
 │   ├── cli/
 │   │   ├── package.json
 │   │   ├── tsconfig.json
 │   │   └── src/
 │   │       ├── index.ts              # CLI entry (commander)
-│   │       ├── commands/
-│   │       │   ├── login.ts          # Device code flow auth
-│   │       │   ├── logout.ts
-│   │       │   ├── status.ts
-│   │       │   ├── list.ts           # List Yoto cards
-│   │       │   ├── sync.ts           # Sync YouTube → Yoto
-│   │       │   └── download.ts       # Download only (legacy)
-│   │       ├── youtube.ts            # yt-dlp wrapper (existing)
-│   │       └── config.ts             # Local storage (playlist associations)
+│   │       ├── ytdlp.ts              # Legacy download command
+│   │       └── yoto/
+│   │           └── sync.ts           # Sync YouTube → Yoto
 │   │
 │   └── web/                          # React Router + Node.js (local)
 │       ├── package.json
 │       ├── vite.config.ts
 │       ├── react-router.config.ts
 │       ├── app/
-│       │   ├── root.tsx
-│       │   ├── routes.ts
+│       │   ├── root.tsx              # Layout with header navigation
+│       │   ├── routes.ts             # Route definitions
 │       │   ├── routes/
-│       │   │   ├── _index.tsx        # Dashboard
+│       │   │   ├── home.tsx          # Dashboard (card grid)
 │       │   │   ├── login.tsx         # Device code flow
-│       │   │   ├── cards.$id.tsx     # Card detail
+│       │   │   ├── cards.$id.tsx     # Card detail (track list)
 │       │   │   └── sync.tsx          # Sync form
 │       │   ├── components/
 │       │   │   └── ui/               # shadcn components
 │       │   └── lib/
-│       │       ├── auth.server.ts    # Read/refresh tokens from CLI config
-│       │       ├── yoto.server.ts    # SDK wrapper
-│       │       ├── youtube.server.ts # Import yt-dlp wrapper from CLI
-│       │       └── tracks.server.ts  # tracks.json read/write
-│       └── server.ts                 # Node adapter entry
+│       │       ├── auth.server.ts    # Auth helpers + re-exports
+│       │       ├── sync.server.ts    # Sync logic (server-only)
+│       │       └── tracks.server.ts  # tracks.json re-exports
+│       └── server/
+│           └── app.ts                # Node adapter entry
 ```
 
 ---
@@ -306,15 +312,26 @@ Replace custom Yoto API code with official packages.
 - [x] Basic responsive layout
 - [x] Navigation between routes (header with Cards/Sync links)
 
-#### Testing
+#### Testing (Manual)
 
 - [x] Login via device code flow (redirects if already logged in)
-- [x] View cards on dashboard (7 cards displayed)
-- [x] View card detail with track list (23 tracks with durations)
-- [ ] Sync single video to existing card (UI ready, not tested)
-- [ ] Sync playlist to existing card (UI ready, not tested)
-- [ ] Sync to new card (create card flow) (UI ready, not tested)
+- [x] View cards on dashboard (8 cards displayed)
+- [x] View card detail with track list (23 tracks with durations on "Discover")
+- [x] Sync single video to new card ("Me at the zoo" → "Test Card - Delete Me")
+- [ ] Sync playlist to existing card
+- [ ] Sync playlist to new card
 - [ ] Verify "skip existing" works (re-sync same playlist)
+
+#### Unit Tests
+
+- [ ] No web package tests yet (packages/web has no test files)
+- [ ] Core package has 48 tests (auth, playlists, tracks, url modules)
+
+#### Notes
+
+- Fixed Node.js module bundling issue: moved `node:fs`, `node:crypto` imports to `.server.ts` files
+- Fixed single video URL support: added `isPlaylistUrl()`, `extractVideoId()`, `getVideoInfo()` to `@yoto/core/youtube`
+- Server-only re-exports in `app/lib/*.server.ts` prevent client bundling of Node.js modules
 
 ---
 
