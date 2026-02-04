@@ -31,7 +31,14 @@ export async function loader({params}: {params: {id: string}}) {
         const cardData = card as unknown as {
             cardId: string
             title?: string
-            metadata?: {coverImageUrl?: string}
+            metadata?: {
+                coverImageUrl?: string
+                cover?: {
+                    imageL?: string
+                    imageM?: string
+                    imageS?: string
+                }
+            }
             content?: {
                 chapters?: Array<{
                     key?: string
@@ -58,11 +65,18 @@ export async function loader({params}: {params: {id: string}}) {
 
         const chapters = cardData.content?.chapters ?? []
 
+        // Get cover URL - check metadata.cover first, then coverImageUrl as fallback
+        const coverUrl =
+            cardData.metadata?.cover?.imageL ??
+            cardData.metadata?.cover?.imageM ??
+            cardData.metadata?.cover?.imageS ??
+            cardData.metadata?.coverImageUrl
+
         return {
             card: {
                 id: cardData.cardId ?? cardId,
                 title: cardData.title ?? "Untitled Card",
-                coverUrl: cardData.metadata?.coverImageUrl,
+                coverUrl,
             },
             tracks: chapters.map(
                 (chapter: {

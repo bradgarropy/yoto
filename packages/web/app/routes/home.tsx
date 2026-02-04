@@ -25,18 +25,56 @@ export async function loader() {
         const cards = await sdk.content.getMyCards()
 
         // SDK returns array of UserCard directly
+        // The actual API response includes metadata.cover, not cover directly
+        type CardWithMetadata = (typeof cards)[0] & {
+            metadata?: {
+                cover?: {imageL?: string; imageM?: string; imageS?: string}
+            }
+        }
+
+        // Fetch full card details in parallel to get track counts
+        const cardsWithDetails = await Promise.all(
+            cards.map(async card => {
+                const cardWithMeta = card as CardWithMetadata
+                try {
+                    const fullCard = (await sdk.content.getCard(
+                        card.cardId,
+                    )) as {
+                        content?: {chapters?: Array<unknown>}
+                    }
+                    return {
+                        id: card.cardId,
+                        title: card.title ?? "Untitled Card",
+                        coverUrl:
+                            cardWithMeta.metadata?.cover?.imageL ??
+                            cardWithMeta.metadata?.cover?.imageM ??
+                            cardWithMeta.metadata?.cover?.imageS ??
+                            card.cover?.imageL ??
+                            card.cover?.imageM ??
+                            card.cover?.imageS,
+                        trackCount: fullCard.content?.chapters?.length ?? 0,
+                    }
+                } catch {
+                    // Fallback if we can't fetch full card
+                    return {
+                        id: card.cardId,
+                        title: card.title ?? "Untitled Card",
+                        coverUrl:
+                            cardWithMeta.metadata?.cover?.imageL ??
+                            cardWithMeta.metadata?.cover?.imageM ??
+                            cardWithMeta.metadata?.cover?.imageS ??
+                            card.cover?.imageL ??
+                            card.cover?.imageM ??
+                            card.cover?.imageS,
+                        trackCount: 0,
+                    }
+                }
+            }),
+        )
+
         return {
             authenticated: true as const,
-            cards: cards.map(card => ({
-                id: card.cardId,
-                title: card.title ?? "Untitled Card",
-                coverUrl: (
-                    card as unknown as {metadata?: {coverImageUrl?: string}}
-                ).metadata?.coverImageUrl,
-                trackCount:
-                    (card as unknown as {content?: {chapters?: Array<unknown>}})
-                        .content?.chapters?.length ?? 0,
-            })),
+            cards: cardsWithDetails,
         }
     } catch (error) {
         console.error("Failed to fetch cards:", error)
