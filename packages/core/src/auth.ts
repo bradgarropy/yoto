@@ -8,7 +8,7 @@ import {
 } from "@yotoplay/oauth-device-code-flow"
 import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
 
-import {CONFIG_PATH, ensureConfigDir} from "./config.js"
+import {CONFIG_PATH, ensureConfigDir} from "./paths.js"
 
 // Auth0 configuration for Yoto
 const AUTH_CONFIG = {

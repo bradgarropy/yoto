@@ -1,14 +1,13 @@
 import {vol} from "memfs"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {Playlists} from "./config.js"
+import type {Playlists} from "./playlists.js"
 import {
     getPlaylistAssociation,
-    PLAYLISTS_FILE,
     readPlaylists,
     setPlaylistAssociation,
     writePlaylists,
-} from "./config.js"
+} from "./playlists.js"
 
 // Mock node:fs with memfs
 vi.mock("node:fs", async () => {
@@ -20,6 +19,8 @@ vi.mock("node:fs", async () => {
 vi.mock("node:os", () => ({
     homedir: () => "/home/testuser",
 }))
+
+const PLAYLISTS_FILE = "/home/testuser/.config/yoto/playlists.json"
 
 beforeEach(() => {
     vol.reset()

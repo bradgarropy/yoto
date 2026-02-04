@@ -1,10 +1,6 @@
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs"
-import {homedir} from "node:os"
-import {join} from "node:path"
+import {existsSync, readFileSync, writeFileSync} from "node:fs"
 
-// Config directory: ~/.config/yoto/
-const CONFIG_PATH = join(homedir(), ".config", "yoto")
-const PLAYLISTS_FILE = join(CONFIG_PATH, "playlists.json")
+import {ensureConfigDir, PLAYLISTS_FILE} from "./paths.js"
 
 type PlaylistAssociation = {
     yotoId: string
@@ -15,13 +11,6 @@ type PlaylistAssociation = {
 
 type Playlists = Record<string, PlaylistAssociation>
 
-const ensureConfigDir = (): void => {
-    if (!existsSync(CONFIG_PATH)) {
-        mkdirSync(CONFIG_PATH, {recursive: true})
-    }
-}
-
-// Playlist functions
 const readPlaylists = (): Playlists => {
     if (!existsSync(PLAYLISTS_FILE)) {
         return {}
@@ -60,10 +49,7 @@ const setPlaylistAssociation = (
 }
 
 export {
-    CONFIG_PATH,
-    ensureConfigDir,
     getPlaylistAssociation,
-    PLAYLISTS_FILE,
     readPlaylists,
     setPlaylistAssociation,
     writePlaylists,

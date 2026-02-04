@@ -38,8 +38,8 @@ vi.mock("@yotoplay/yoto-sdk", () => ({
     createYotoSdk: vi.fn(() => ({content: {}, media: {}})),
 }))
 
-// Mock config
-vi.mock("./config.js", () => ({
+// Mock paths
+vi.mock("./paths.js", () => ({
     CONFIG_PATH: "/mock/config/path",
     ensureConfigDir: vi.fn(),
 }))

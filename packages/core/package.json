@@ -8,9 +8,17 @@
             "types": "./src/youtube.ts",
             "import": "./src/youtube.ts"
         },
-        "./config": {
-            "types": "./src/config.ts",
-            "import": "./src/config.ts"
+        "./playlists": {
+            "types": "./src/playlists.ts",
+            "import": "./src/playlists.ts"
+        },
+        "./tracks": {
+            "types": "./src/tracks.ts",
+            "import": "./src/tracks.ts"
+        },
+        "./paths": {
+            "types": "./src/paths.ts",
+            "import": "./src/paths.ts"
         },
         "./auth": {
             "types": "./src/auth.ts",
