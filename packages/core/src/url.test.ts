@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {isPlaylistUrl, isUrl, isVideoUrl} from "~/url"
+import {isPlaylistUrl, isUrl, isVideoUrl} from "./url.js"
 
 describe("isUrl", () => {
     it("should return true for valid URLs", () => {

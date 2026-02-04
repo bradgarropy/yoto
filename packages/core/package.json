@@ -1,0 +1,51 @@
+{
+    "name": "@yoto/core",
+    "version": "1.0.0",
+    "description": "Shared core functionality for Yoto sync",
+    "type": "module",
+    "exports": {
+        "./youtube": {
+            "types": "./src/youtube.ts",
+            "import": "./src/youtube.ts"
+        },
+        "./playlists": {
+            "types": "./src/playlists.ts",
+            "import": "./src/playlists.ts"
+        },
+        "./tracks": {
+            "types": "./src/tracks.ts",
+            "import": "./src/tracks.ts"
+        },
+        "./paths": {
+            "types": "./src/paths.ts",
+            "import": "./src/paths.ts"
+        },
+        "./auth": {
+            "types": "./src/auth.ts",
+            "import": "./src/auth.ts"
+        },
+        "./url": {
+            "types": "./src/url.ts",
+            "import": "./src/url.ts"
+        }
+    },
+    "scripts": {
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@yotoplay/oauth-device-code-flow": "^1.2.1",
+        "@yotoplay/yoto-sdk": "^1.2.0"
+    },
+    "devDependencies": {
+        "@bradgarropy/eslint-config": "^3.1.2",
+        "@types/node": "^25.0.10",
+        "eslint": "^9.39.2",
+        "memfs": "^4.56.10",
+        "typescript": "^5.9.3",
+        "vitest": "^4.0.18"
+    }
+}

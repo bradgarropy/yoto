@@ -1,2 +1,8 @@
 dist/
 node_modules/
+
+# React Router generated types
+.react-router/
+
+# Build output
+build/

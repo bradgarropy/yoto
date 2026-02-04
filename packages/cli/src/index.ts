@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
-import {program} from "commander"
-
-import {isUrl} from "~/url"
 import {
     completeLogin,
     getYotoSdk,
     initiateLogin,
     logout,
     status,
-} from "~/yoto/auth"
+} from "@yoto/core/auth"
+import {isUrl} from "@yoto/core/url"
+import {program} from "commander"
+
 import {sync} from "~/yoto/sync"
 import {downloadPlaylist, downloadVideo, isInstalled} from "~/ytdlp"
 

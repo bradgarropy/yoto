@@ -38,8 +38,8 @@ vi.mock("@yotoplay/yoto-sdk", () => ({
     createYotoSdk: vi.fn(() => ({content: {}, media: {}})),
 }))
 
-// Mock config
-vi.mock("~/yoto/config", () => ({
+// Mock paths
+vi.mock("./paths.js", () => ({
     CONFIG_PATH: "/mock/config/path",
     ensureConfigDir: vi.fn(),
 }))
@@ -52,7 +52,7 @@ import {
     logout,
     requireAuth,
     status,
-} from "~/yoto/auth"
+} from "./auth.js"
 
 beforeEach(() => {
     vi.clearAllMocks()

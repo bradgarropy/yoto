@@ -14,6 +14,13 @@ type YouTubePlaylistInfo = {
     tracks: YouTubeTrack[]
 }
 
+// Check if URL is a playlist
+const isPlaylistUrl = (url: string): boolean => {
+    const urlObj = new URL(url)
+    const listParam = urlObj.searchParams.get("list")
+    return !!listParam || url.includes("playlist?list=")
+}
+
 // Extract playlist ID from URL
 const extractPlaylistId = (url: string): string => {
     const urlObj = new URL(url)
@@ -34,8 +41,84 @@ const extractPlaylistId = (url: string): string => {
     throw new Error("Could not extract playlist ID from URL")
 }
 
+// Extract video ID from URL
+const extractVideoId = (url: string): string => {
+    const urlObj = new URL(url)
+
+    // youtube.com/watch?v=ID format
+    const vParam = urlObj.searchParams.get("v")
+    if (vParam) {
+        return vParam
+    }
+
+    // youtu.be/ID format
+    if (urlObj.hostname === "youtu.be") {
+        return urlObj.pathname.slice(1)
+    }
+
+    throw new Error("Could not extract video ID from URL")
+}
+
+// Get single video info using yt-dlp
+const getVideoInfo = async (url: string): Promise<YouTubePlaylistInfo> => {
+    return new Promise((resolve, reject) => {
+        const args = ["--print", "%(id)s\t%(title)s", "--no-playlist", url]
+
+        const ytDlp = spawn("yt-dlp", args)
+
+        let output = ""
+        let stderr = ""
+
+        ytDlp.stdout.on("data", data => {
+            output += data.toString()
+        })
+
+        ytDlp.stderr.on("data", data => {
+            stderr += data.toString()
+        })
+
+        ytDlp.on("error", error => {
+            reject(new Error(`Failed to get video info: ${error.message}`))
+        })
+
+        ytDlp.on("close", code => {
+            if (code !== 0) {
+                reject(
+                    new Error(`yt-dlp failed (exit code ${code}): ${stderr}`),
+                )
+                return
+            }
+
+            const line = output.trim()
+            if (!line) {
+                reject(new Error("No video info found"))
+                return
+            }
+
+            const [videoId, title] = line.split("\t")
+
+            resolve({
+                id: videoId, // Use video ID as the "playlist" ID for single videos
+                title: title,
+                tracks: [
+                    {
+                        id: videoId,
+                        title: title,
+                        url: `https://www.youtube.com/watch?v=${videoId}`,
+                    },
+                ],
+            })
+        })
+    })
+}
+
 // YouTube playlist info extraction using yt-dlp
 const getPlaylistInfo = async (url: string): Promise<YouTubePlaylistInfo> => {
+    // If it's not a playlist URL, get single video info
+    if (!isPlaylistUrl(url)) {
+        return getVideoInfo(url)
+    }
+
     return new Promise((resolve, reject) => {
         const args = [
             "--flat-playlist",
@@ -152,5 +235,12 @@ const downloadTrack = async (
     })
 }
 
-export {downloadTrack, extractPlaylistId, getPlaylistInfo}
+export {
+    downloadTrack,
+    extractPlaylistId,
+    extractVideoId,
+    getPlaylistInfo,
+    getVideoInfo,
+    isPlaylistUrl,
+}
 export type {YouTubePlaylistInfo, YouTubeTrack}
