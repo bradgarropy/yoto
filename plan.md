@@ -318,7 +318,7 @@ Replace custom Yoto API code with official packages.
 - [x] View cards on dashboard (8 cards displayed)
 - [x] View card detail with track list (23 tracks with durations on "Discover")
 - [x] Sync single video to new card ("Me at the zoo" → "Test Card - Delete Me")
-- [ ] Sync playlist to existing card
+- [ ] Sync playlist to existing card (**BLOCKED - 400 error, see notes below**)
 - [ ] Sync playlist to new card
 - [ ] Verify "skip existing" works (re-sync same playlist)
 
@@ -332,6 +332,36 @@ Replace custom Yoto API code with official packages.
 - Fixed Node.js module bundling issue: moved `node:fs`, `node:crypto` imports to `.server.ts` files
 - Fixed single video URL support: added `isPlaylistUrl()`, `extractVideoId()`, `getVideoInfo()` to `@yoto/core/youtube`
 - Server-only re-exports in `app/lib/*.server.ts` prevent client bundling of Node.js modules
+- Fixed tracks.json recording: moved `addSyncedTrack()` calls to AFTER card update succeeds (was recording before confirming update)
+
+#### Current Bug: 400 Error on Playlist Sync to Existing Card
+
+**Status**: Debugging in progress
+
+**Symptoms**:
+
+- Single video sync to NEW card works ✅
+- Playlist sync to EXISTING card returns 400 from Yoto API ❌
+
+**Test case**:
+
+- Playlist: `https://www.youtube.com/watch?v=0SerIcOFgME&list=PL6Mu1AMmTL-sdIbeD3_Ho6YRs-t8hB5Hm` (3 videos)
+- Target: "Test Card - Delete Me" (cardId: `diw2v`)
+
+**Investigation**:
+
+- Added error logging to `packages/web/app/lib/sync.server.ts` to capture full card data being sent
+- Need to compare with CLI's working `updatePlaylist()` function in `packages/cli/src/yoto/sync.ts`
+- Possible issues:
+    1. Extra fields from `getCard()` response being sent back (`userId`, `createdAt`, `updatedAt`, etc.)
+    2. Chapter key conflicts when appending to existing chapters
+    3. Content structure differences between web and CLI implementations
+
+**Next steps**:
+
+1. Run a sync and check server console for detailed error log
+2. Compare card structure being sent vs CLI's working implementation
+3. Strip extra fields before calling `updateCard()` if needed
 
 ---
 

@@ -56,6 +56,26 @@ type YotoCard = {
     metadata: YotoMetadata
 }
 
+// Recursively strip null values from an object (Yoto API rejects null values)
+const stripNullValues = <T>(obj: T): T => {
+    if (obj === null || obj === undefined) {
+        return obj
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(stripNullValues) as T
+    }
+    if (typeof obj === "object") {
+        const result: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(obj)) {
+            if (value !== null) {
+                result[key] = stripNullValues(value)
+            }
+        }
+        return result as T
+    }
+    return obj
+}
+
 // Calculate SHA256 hash of a file
 const calculateFileSha256 = (filePath: string): string => {
     const content = readFileSync(filePath)
@@ -272,7 +292,10 @@ export async function performSync(
 
         // 5. Download and upload new tracks
         const newChapters: YotoChapter[] = [...existingChapters]
-        let addedCount = 0
+        const uploadedTracks: Array<{
+            track: (typeof tracksToAdd)[0]
+            chapter: YotoChapter
+        }> = []
 
         for (const track of tracksToAdd) {
             // Download
@@ -290,28 +313,25 @@ export async function performSync(
                 uploaded.fileSize,
             )
             newChapters.push(chapter)
-
-            // Record synced track
-            addSyncedTrack(targetCardId!, {
-                youtubeVideoId: track.id,
-                title: track.title,
-                syncedAt: new Date().toISOString(),
-                yotoTrackKey: chapter.key,
-            })
-
-            addedCount++
+            uploadedTracks.push({track, chapter})
         }
 
         // 6. Update card with new chapters
-        if (cardResponse) {
-            const updatedCard = {
-                ...cardResponse,
+        if (cardResponse && targetCardId) {
+            // Strip null values from chapters (Yoto API rejects null values)
+            const cleanedChapters = stripNullValues(newChapters)
+
+            // Only include fields that the API accepts (match CLI implementation)
+            const updatedCard: YotoCard = {
                 cardId: targetCardId,
+                title: cardResponse.title,
                 content: {
                     ...cardResponse.content,
-                    chapters: newChapters,
+                    chapters: cleanedChapters,
                 },
+                metadata: cardResponse.metadata,
             }
+
             await sdk.content.updateCard(
                 updatedCard as unknown as Parameters<
                     typeof sdk.content.updateCard
@@ -319,7 +339,19 @@ export async function performSync(
             )
         }
 
-        // 7. Save playlist association
+        // 7. Record synced tracks AFTER card update succeeds
+        for (const {track, chapter} of uploadedTracks) {
+            addSyncedTrack(targetCardId!, {
+                youtubeVideoId: track.id,
+                title: track.title,
+                syncedAt: new Date().toISOString(),
+                yotoTrackKey: chapter.key,
+            })
+        }
+
+        const addedCount = uploadedTracks.length
+
+        // 8. Save playlist association
         setPlaylistAssociation(youtubePlaylistId, {
             yotoId: targetCardId!,
             yotoName: targetCardTitle,
