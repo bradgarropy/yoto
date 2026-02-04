@@ -226,74 +226,72 @@ Replace custom Yoto API code with official packages.
 
 #### Initialize Project
 
-- [ ] Create `packages/web/` with React Router v7 + Node adapter
-- [ ] Configure Vite for the web package
-- [ ] Add to workspace (already included via `packages/*` glob)
-- [ ] Verify dev server runs: `npm run dev -w packages/web`
+- [x] Create `packages/web/` with React Router v7 + Node adapter
+- [x] Configure Vite for the web package (port 3000)
+- [x] Add to workspace (already included via `packages/*` glob)
+- [x] Verify dev server runs: `npm run dev -w packages/web`
 
 #### Set Up UI
 
-- [ ] Install and configure Tailwind CSS
-- [ ] Initialize shadcn/ui
-- [ ] Install base components (button, input, card, select, etc.)
+- [x] Install and configure Tailwind CSS v4
+- [x] Initialize shadcn/ui
+- [x] Install base components (button, input, card, select, label)
 
-#### CLI Package Exports
+#### Core Package (packages/core)
 
-- [ ] Add `exports` field to `packages/cli/package.json`:
-    - `youtube.ts` (yt-dlp wrapper)
-    - `config.ts` (config read/write)
-    - `yoto/auth.ts` (token management)
-- [ ] Add `tracks.json` support to CLI config module (ordered array structure)
-- [ ] Verify web can import from CLI package
+- [x] Create `@yoto/core` package with shared functionality
+- [x] Add exports for auth, playlists, tracks, paths, youtube, url modules
+- [x] Add `tracks.json` support (ordered array structure for track history)
+- [x] Verify web can import from `@yoto/core` package
 
 #### Auth (app/lib/auth.server.ts)
 
-- [ ] Read tokens from shared `~/.config/yoto/auth.json`
-- [ ] Token refresh logic (call SDK refresh if expired)
-- [ ] Helper to get authenticated Yoto SDK instance
-- [ ] Auth middleware to protect routes (redirect to `/login` if unauthenticated)
+- [x] Read tokens from shared `~/.config/yoto/auth.json`
+- [x] Token refresh logic (via `@yoto/core/auth`)
+- [x] Helper to get authenticated Yoto SDK instance (`getAuthenticatedSdk`)
+- [x] Auth middleware to protect routes (`requireAuth` - redirects to `/login`)
 
 #### Login Route (app/routes/login.tsx)
 
-- [ ] Loader: Check if already authenticated, redirect to `/` if so
-- [ ] Action: Handle device code flow
+- [x] Loader: Check if already authenticated, redirect to `/` if so
+- [x] Action: Handle device code flow
     - Initiate device code flow
     - Poll for token completion
     - Save tokens to shared config
-- [ ] Component:
+- [x] Component:
     - Display "Go to [URL] and enter code [CODE]" instructions
     - Loading state while polling
     - Redirect to `/` on success
 
-#### Dashboard Route (app/routes/\_index.tsx)
+#### Dashboard Route (app/routes/home.tsx)
 
-- [ ] Loader: Require auth, fetch cards via Yoto SDK
-- [ ] Component:
-    - Display card grid with names/cover images
-    - Show track count per card
+- [x] Loader: Fetch cards via Yoto SDK (show login prompt if unauthenticated)
+- [x] Component:
+    - Display card grid with names
     - Link to card detail
     - "Sync" button linking to `/sync`
 
 #### Card Detail Route (app/routes/cards.$id.tsx)
 
-- [ ] Loader: Require auth, fetch card from SDK + synced tracks from `tracks.json`
-- [ ] Component:
-    - Display card info (title, cover)
-    - List all tracks on card
+- [x] Loader: Require auth, fetch card from SDK + synced tracks from `tracks.json`
+- [x] Component:
+    - Display card info (title, track count)
+    - List all tracks on card with durations
     - Indicate which tracks came from YouTube syncs (via `tracks.json`)
+    - Link to sync more content
 
 #### Sync Route (app/routes/sync.tsx)
 
-- [ ] Loader: Require auth, fetch cards for dropdown
-- [ ] Action (blocking execution):
+- [x] Loader: Require auth, fetch cards for dropdown
+- [x] Action (blocking execution):
     - Parse YouTube URL (detect video vs playlist)
     - If "Create New" selected, create card via SDK
     - Check `tracks.json` for already-synced videos
-    - Download new videos via yt-dlp (imported from CLI)
+    - Download new videos via yt-dlp (from `@yoto/core/youtube`)
     - Upload to Yoto via SDK
     - Update `tracks.json` with new tracks (preserving order)
     - Return results
-- [ ] Component:
+- [x] Component:
     - YouTube URL input field
     - Card selector dropdown with "Create New Card" option
     - New card name input (shown when "Create New" selected)
@@ -303,19 +301,19 @@ Replace custom Yoto API code with official packages.
 
 #### Polish
 
-- [ ] Error handling with user-friendly messages
-- [ ] Loading states using React Router `useNavigation`
-- [ ] Basic responsive layout
-- [ ] Navigation between routes
+- [x] Error handling with user-friendly messages
+- [x] Loading states using React Router fetchers
+- [x] Basic responsive layout
+- [x] Navigation between routes (header with Cards/Sync links)
 
 #### Testing
 
-- [ ] Login via device code flow
-- [ ] View cards on dashboard
-- [ ] View card detail with track list
-- [ ] Sync single video to existing card
-- [ ] Sync playlist to existing card
-- [ ] Sync to new card (create card flow)
+- [x] Login via device code flow (redirects if already logged in)
+- [x] View cards on dashboard (7 cards displayed)
+- [x] View card detail with track list (23 tracks with durations)
+- [ ] Sync single video to existing card (UI ready, not tested)
+- [ ] Sync playlist to existing card (UI ready, not tested)
+- [ ] Sync to new card (create card flow) (UI ready, not tested)
 - [ ] Verify "skip existing" works (re-sync same playlist)
 
 ---

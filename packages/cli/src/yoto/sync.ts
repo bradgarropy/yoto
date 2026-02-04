@@ -5,14 +5,20 @@ import {mkdir} from "node:fs/promises"
 import {homedir} from "node:os"
 import {basename, join} from "node:path"
 
+import {getYotoSdk} from "@yoto/core/auth"
+import {
+    getPlaylistAssociation,
+    setPlaylistAssociation,
+} from "@yoto/core/playlists"
+import type {YouTubePlaylistInfo, YouTubeTrack} from "@yoto/core/youtube"
+import {
+    downloadTrack,
+    extractPlaylistId,
+    getPlaylistInfo,
+} from "@yoto/core/youtube"
 import {confirm, input, select} from "@inquirer/prompts"
 import type {UserCard, YotoJson} from "@yotoplay/yoto-sdk"
 import Fuse from "fuse.js"
-
-import {getYotoSdk} from "~/yoto/auth"
-import {getPlaylistAssociation, setPlaylistAssociation} from "~/yoto/config"
-import type {YouTubePlaylistInfo, YouTubeTrack} from "~/youtube"
-import {downloadTrack, extractPlaylistId, getPlaylistInfo} from "~/youtube"
 
 // Yoto card content types (SDK uses generic YotoJson)
 type YotoTrack = {

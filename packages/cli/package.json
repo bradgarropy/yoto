@@ -13,8 +13,7 @@
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "start": "node dist/index.js",
-        "test": "vitest run",
-        "test:watch": "vitest",
+        "test": "echo 'No tests - see @yoto/core'",
         "typecheck": "tsc --noEmit"
     },
     "keywords": [
@@ -29,8 +28,7 @@
     "dependencies": {
         "@inquirer/prompts": "^8.2.0",
         "@types/node": "^25.0.10",
-        "@yotoplay/oauth-device-code-flow": "^1.2.1",
-        "@yotoplay/yoto-sdk": "^1.2.0",
+        "@yoto/core": "*",
         "commander": "^14.0.2",
         "fuse.js": "^7.1.0",
         "typescript": "^5.9.3"
@@ -38,9 +36,7 @@
     "devDependencies": {
         "@bradgarropy/eslint-config": "^3.1.2",
         "eslint": "^9.39.2",
-        "memfs": "^4.56.10",
         "prettier": "^3.8.1",
-        "tsx": "^4.21.0",
-        "vitest": "^4.0.18"
+        "tsx": "^4.21.0"
     }
 }
