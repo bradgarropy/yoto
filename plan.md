@@ -324,7 +324,7 @@ Replace custom Yoto API code with official packages.
 
 #### Unit Tests
 
-- [ ] No web package tests yet (packages/web has no test files)
+- [x] Web package has 17 tests (stripNullValues, createChapter helpers)
 - [x] Core package has 48 tests (auth, playlists, tracks, url modules)
 
 #### Notes

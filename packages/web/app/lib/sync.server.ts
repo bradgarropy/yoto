@@ -14,27 +14,8 @@ import {
 } from "@yoto/core/youtube"
 
 import {getAuthenticatedSdk} from "./auth.server"
+import {createChapter, stripNullValues, type YotoChapter} from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
-
-// Yoto types for card content
-type YotoTrack = {
-    key: string
-    title: string
-    format: string
-    trackUrl: string
-    type: string
-    duration?: number
-    fileSize?: number
-    channels?: string
-}
-
-type YotoChapter = {
-    key: string
-    title: string
-    tracks: YotoTrack[]
-    duration?: number
-    fileSize?: number
-}
 
 type YotoContent = {
     activity: string
@@ -54,26 +35,6 @@ type YotoCard = {
     title?: string
     content: YotoContent
     metadata: YotoMetadata
-}
-
-// Recursively strip null values from an object (Yoto API rejects null values)
-const stripNullValues = <T>(obj: T): T => {
-    if (obj === null || obj === undefined) {
-        return obj
-    }
-    if (Array.isArray(obj)) {
-        return obj.map(stripNullValues) as T
-    }
-    if (typeof obj === "object") {
-        const result: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(obj)) {
-            if (value !== null) {
-                result[key] = stripNullValues(value)
-            }
-        }
-        return result as T
-    }
-    return obj
 }
 
 // Calculate SHA256 hash of a file
@@ -170,36 +131,6 @@ const uploadAudio = async (
     }
 
     throw new Error("Audio transcode timed out")
-}
-
-// Create a chapter from an uploaded audio file
-const createChapter = (
-    title: string,
-    transcodedSha256: string,
-    position: number,
-    duration?: number,
-    fileSize?: number,
-): YotoChapter => {
-    const chapterKey = String(position - 1).padStart(2, "0")
-
-    return {
-        key: chapterKey,
-        title,
-        tracks: [
-            {
-                key: "01",
-                title,
-                format: "opus",
-                trackUrl: `yoto:#${transcodedSha256}`,
-                type: "audio",
-                duration,
-                fileSize,
-                channels: "stereo",
-            },
-        ],
-        duration,
-        fileSize,
-    }
 }
 
 type SyncResult =
