@@ -318,20 +318,22 @@ Replace custom Yoto API code with official packages.
 - [x] View cards on dashboard (8 cards displayed)
 - [x] View card detail with track list (23 tracks with durations on "Discover")
 - [x] Sync single video to new card ("Me at the zoo" → "Test Card - Delete Me")
-- [ ] Sync playlist to existing card
-- [ ] Sync playlist to new card
-- [ ] Verify "skip existing" works (re-sync same playlist)
+- [x] Sync playlist to existing card
+- [x] Sync playlist to new card
+- [x] Verify "skip existing" works (re-sync same playlist)
 
 #### Unit Tests
 
-- [ ] No web package tests yet (packages/web has no test files)
-- [ ] Core package has 48 tests (auth, playlists, tracks, url modules)
+- [x] Web package has 17 tests (stripNullValues, createChapter helpers)
+- [x] Core package has 48 tests (auth, playlists, tracks, url modules)
 
 #### Notes
 
 - Fixed Node.js module bundling issue: moved `node:fs`, `node:crypto` imports to `.server.ts` files
 - Fixed single video URL support: added `isPlaylistUrl()`, `extractVideoId()`, `getVideoInfo()` to `@yoto/core/youtube`
 - Server-only re-exports in `app/lib/*.server.ts` prevent client bundling of Node.js modules
+- Fixed tracks.json recording: moved `addSyncedTrack()` calls to AFTER card update succeeds (was recording before confirming update)
+- Fixed 400 error on playlist sync: Yoto API rejects `null` values in chapter fields (`display`, `ambient`, etc.) - added `stripNullValues()` helper to remove nulls before sending updates
 
 ---
 

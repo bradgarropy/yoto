@@ -14,27 +14,8 @@ import {
 } from "@yoto/core/youtube"
 
 import {getAuthenticatedSdk} from "./auth.server"
+import {createChapter, stripNullValues, type YotoChapter} from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
-
-// Yoto types for card content
-type YotoTrack = {
-    key: string
-    title: string
-    format: string
-    trackUrl: string
-    type: string
-    duration?: number
-    fileSize?: number
-    channels?: string
-}
-
-type YotoChapter = {
-    key: string
-    title: string
-    tracks: YotoTrack[]
-    duration?: number
-    fileSize?: number
-}
 
 type YotoContent = {
     activity: string
@@ -152,36 +133,6 @@ const uploadAudio = async (
     throw new Error("Audio transcode timed out")
 }
 
-// Create a chapter from an uploaded audio file
-const createChapter = (
-    title: string,
-    transcodedSha256: string,
-    position: number,
-    duration?: number,
-    fileSize?: number,
-): YotoChapter => {
-    const chapterKey = String(position - 1).padStart(2, "0")
-
-    return {
-        key: chapterKey,
-        title,
-        tracks: [
-            {
-                key: "01",
-                title,
-                format: "opus",
-                trackUrl: `yoto:#${transcodedSha256}`,
-                type: "audio",
-                duration,
-                fileSize,
-                channels: "stereo",
-            },
-        ],
-        duration,
-        fileSize,
-    }
-}
-
 type SyncResult =
     | {
           success: true
@@ -272,7 +223,10 @@ export async function performSync(
 
         // 5. Download and upload new tracks
         const newChapters: YotoChapter[] = [...existingChapters]
-        let addedCount = 0
+        const uploadedTracks: Array<{
+            track: (typeof tracksToAdd)[0]
+            chapter: YotoChapter
+        }> = []
 
         for (const track of tracksToAdd) {
             // Download
@@ -290,28 +244,25 @@ export async function performSync(
                 uploaded.fileSize,
             )
             newChapters.push(chapter)
-
-            // Record synced track
-            addSyncedTrack(targetCardId!, {
-                youtubeVideoId: track.id,
-                title: track.title,
-                syncedAt: new Date().toISOString(),
-                yotoTrackKey: chapter.key,
-            })
-
-            addedCount++
+            uploadedTracks.push({track, chapter})
         }
 
         // 6. Update card with new chapters
-        if (cardResponse) {
-            const updatedCard = {
-                ...cardResponse,
+        if (cardResponse && targetCardId) {
+            // Strip null values from chapters (Yoto API rejects null values)
+            const cleanedChapters = stripNullValues(newChapters)
+
+            // Only include fields that the API accepts (match CLI implementation)
+            const updatedCard: YotoCard = {
                 cardId: targetCardId,
+                title: cardResponse.title,
                 content: {
                     ...cardResponse.content,
-                    chapters: newChapters,
+                    chapters: cleanedChapters,
                 },
+                metadata: cardResponse.metadata,
             }
+
             await sdk.content.updateCard(
                 updatedCard as unknown as Parameters<
                     typeof sdk.content.updateCard
@@ -319,7 +270,19 @@ export async function performSync(
             )
         }
 
-        // 7. Save playlist association
+        // 7. Record synced tracks AFTER card update succeeds
+        for (const {track, chapter} of uploadedTracks) {
+            addSyncedTrack(targetCardId!, {
+                youtubeVideoId: track.id,
+                title: track.title,
+                syncedAt: new Date().toISOString(),
+                yotoTrackKey: chapter.key,
+            })
+        }
+
+        const addedCount = uploadedTracks.length
+
+        // 8. Save playlist association
         setPlaylistAssociation(youtubePlaylistId, {
             yotoId: targetCardId!,
             yotoName: targetCardTitle,
