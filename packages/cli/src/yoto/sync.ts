@@ -5,6 +5,7 @@ import {mkdir} from "node:fs/promises"
 import {homedir} from "node:os"
 import {basename, join} from "node:path"
 
+import {confirm, input, select} from "@inquirer/prompts"
 import {getYotoSdk} from "@yoto/core/auth"
 import {
     getPlaylistAssociation,
@@ -16,7 +17,6 @@ import {
     extractPlaylistId,
     getPlaylistInfo,
 } from "@yoto/core/youtube"
-import {confirm, input, select} from "@inquirer/prompts"
 import type {UserCard, YotoJson} from "@yotoplay/yoto-sdk"
 import Fuse from "fuse.js"
 
