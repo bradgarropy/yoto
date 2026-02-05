@@ -8,6 +8,7 @@ export {
     getSyncedVideoIds,
     isVideoSynced,
     readTracks,
+    removeCardTracks,
     setCardTracks,
     writeTracks,
 } from "@yoto/core/tracks"

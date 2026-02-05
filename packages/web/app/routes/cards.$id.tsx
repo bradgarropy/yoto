@@ -1,9 +1,21 @@
+import {redirect, useFetcher} from "react-router"
 import {Link} from "react-router"
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
-import {getCardTracks} from "~/lib/tracks.server"
+import {getCardTracks, removeCardTracks} from "~/lib/tracks.server"
 
 export function meta({
     data,
@@ -103,6 +115,25 @@ export async function loader({params}: {params: {id: string}}) {
     }
 }
 
+export async function action({params}: {params: {id: string}}) {
+    await requireAuth()
+
+    const cardId = params.id
+
+    try {
+        const sdk = await getAuthenticatedSdk()
+        await sdk.content.deleteCard(cardId)
+
+        // Clean up local tracks data
+        removeCardTracks(cardId)
+
+        return redirect("/")
+    } catch (error) {
+        console.error("Failed to delete card:", error)
+        return {error: "Failed to delete card"}
+    }
+}
+
 function formatDuration(seconds?: number): string {
     if (!seconds) return ""
     const mins = Math.floor(seconds / 60)
@@ -122,6 +153,8 @@ export default function CardDetail({
 }) {
     const {card, tracks, syncedCount, youtubePlaylistId, lastSynced} =
         loaderData
+    const fetcher = useFetcher()
+    const isDeleting = fetcher.state !== "idle"
 
     return (
         <div className="min-h-screen p-8">
@@ -181,9 +214,52 @@ export default function CardDetail({
                             </p>
                         )}
 
-                        <Link to={`/sync?cardId=${card.id}`}>
-                            <Button>Sync More Content</Button>
-                        </Link>
+                        <div className="flex gap-2">
+                            <Link to={`/sync?cardId=${card.id}`}>
+                                <Button>Sync More Content</Button>
+                            </Link>
+
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button
+                                        variant="destructive"
+                                        disabled={isDeleting}
+                                    >
+                                        {isDeleting
+                                            ? "Deleting..."
+                                            : "Delete Card"}
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>
+                                            Delete Card
+                                        </AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Are you sure you want to delete
+                                            &ldquo;{card.title}&rdquo;? This
+                                            will permanently remove the card and
+                                            all its tracks from your Yoto
+                                            account. This action cannot be
+                                            undone.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>
+                                            Cancel
+                                        </AlertDialogCancel>
+                                        <fetcher.Form method="post">
+                                            <AlertDialogAction
+                                                type="submit"
+                                                className="bg-destructive text-white hover:bg-destructive/90"
+                                            >
+                                                Delete
+                                            </AlertDialogAction>
+                                        </fetcher.Form>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </div>
                     </div>
                 </div>
 

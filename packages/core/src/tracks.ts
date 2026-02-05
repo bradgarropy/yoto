@@ -84,12 +84,19 @@ const getSyncedVideoIds = (cardId: string): Set<string> => {
     return new Set(cardTracks.videos.map(v => v.youtubeVideoId))
 }
 
+const removeCardTracks = (cardId: string): void => {
+    const tracks = readTracks()
+    delete tracks[cardId]
+    writeTracks(tracks)
+}
+
 export {
     addSyncedTrack,
     getCardTracks,
     getSyncedVideoIds,
     isVideoSynced,
     readTracks,
+    removeCardTracks,
     setCardTracks,
     writeTracks,
 }
