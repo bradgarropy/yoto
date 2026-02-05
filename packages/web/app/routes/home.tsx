@@ -138,7 +138,7 @@ export default function Home({
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {cards.map(card => (
                             <Link key={card.id} to={`/cards/${card.id}`}>
-                                <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full">
+                                <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full py-0 rounded-2xl">
                                     {card.coverUrl ? (
                                         <div className="aspect-square bg-muted">
                                             <img

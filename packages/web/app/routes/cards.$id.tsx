@@ -138,10 +138,10 @@ export default function CardDetail({
                         <img
                             src={card.coverUrl}
                             alt={card.title}
-                            className="w-48 h-48 object-cover rounded-lg shadow-md"
+                            className="w-48 h-48 object-cover rounded-2xl shadow-md"
                         />
                     ) : (
-                        <div className="w-48 h-48 bg-muted rounded-lg flex items-center justify-center">
+                        <div className="w-48 h-48 bg-muted rounded-2xl flex items-center justify-center">
                             <span className="text-6xl text-muted-foreground">
                                 ?
                             </span>
