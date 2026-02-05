@@ -6,6 +6,7 @@ import {readTracks} from "~/lib/tracks.server"
 
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {CardCover} from "~/components/CardCover"
 import {
     Select,
     SelectContent,
@@ -210,21 +211,10 @@ export default function Home({
                         {sortedCards.map(card => (
                             <Link key={card.id} to={`/cards/${card.id}`}>
                                 <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full py-0 gap-0 rounded-2xl">
-                                    {card.coverUrl ? (
-                                        <div className="rounded-2xl overflow-hidden shadow-md">
-                                            <img
-                                                src={card.coverUrl}
-                                                alt={card.title}
-                                                className="w-full h-auto"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="aspect-square bg-muted rounded-2xl flex items-center justify-center shadow-md">
-                                            <span className="text-4xl text-muted-foreground">
-                                                ?
-                                            </span>
-                                        </div>
-                                    )}
+                                    <CardCover
+                                        coverUrl={card.coverUrl}
+                                        title={card.title}
+                                    />
                                     <CardContent className="p-4">
                                         <h3 className="font-semibold truncate">
                                             {card.title}
