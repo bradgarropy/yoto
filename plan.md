@@ -348,6 +348,7 @@ Replace custom Yoto API code with official packages.
 - [ ] Add reorder capability to tracks on the /cards/:cardId page
 - [ ] Make the destination card select a combobox on the /sync page
 - [x] Sort cards by title, number of tracks, or last updated
+- [ ] Add search box to filter cards on the home page
 
 ---
 
