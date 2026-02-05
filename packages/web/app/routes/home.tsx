@@ -7,6 +7,7 @@ import {readTracks} from "~/lib/tracks.server"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {CardCover} from "~/components/CardCover"
+import {Input} from "~/components/ui/input"
 import {
     Select,
     SelectContent,
@@ -132,8 +133,12 @@ export default function Home({
 }) {
     const {authenticated, cards} = loaderData
     const [sortBy, setSortBy] = useState<SortOption>("title")
+    const [searchQuery, setSearchQuery] = useState("")
 
-    const sortedCards = sortCards(cards, sortBy)
+    const filteredCards = cards.filter(card =>
+        card.title.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    const sortedCards = sortCards(filteredCards, sortBy)
 
     if (!authenticated) {
         return (
@@ -164,6 +169,13 @@ export default function Home({
                 <div className="flex justify-between items-center mb-8">
                     <h1 className="text-3xl font-bold">My Yoto Cards</h1>
                     <div className="flex items-center gap-4">
+                        <Input
+                            type="text"
+                            placeholder="Search cards..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-48"
+                        />
                         <div className="flex items-center gap-2">
                             <span className="text-sm text-muted-foreground">
                                 Sort by
@@ -204,6 +216,14 @@ export default function Home({
                             <Link to="/sync">
                                 <Button>Sync Your First Content</Button>
                             </Link>
+                        </CardContent>
+                    </Card>
+                ) : sortedCards.length === 0 ? (
+                    <Card>
+                        <CardContent className="py-8 text-center">
+                            <p className="text-muted-foreground">
+                                No cards match "{searchQuery}"
+                            </p>
                         </CardContent>
                     </Card>
                 ) : (
