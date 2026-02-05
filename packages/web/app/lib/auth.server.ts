@@ -1,8 +1,8 @@
+import {getYotoSdk, status} from "@yoto/core/auth"
 import {redirect} from "react-router"
 
-import {getYotoSdk, status} from "@yoto/core/auth"
-
 // Re-export for server-side use
+export type {DeviceCodeResult, TokenStatus} from "@yoto/core/auth"
 export {
     completeLogin,
     getToken,
@@ -12,8 +12,6 @@ export {
     requireAuth as requireAuthCore,
     status,
 } from "@yoto/core/auth"
-
-export type {DeviceCodeResult, TokenStatus} from "@yoto/core/auth"
 
 // Helper to require authentication in loaders
 // Redirects to /login if not authenticated

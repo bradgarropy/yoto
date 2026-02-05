@@ -1,5 +1,5 @@
-import {useRef} from "react"
 import {motion, useMotionValue, useSpring} from "motion/react"
+import {useRef} from "react"
 
 function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     const containerRef = useRef<HTMLDivElement>(null)

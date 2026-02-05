@@ -1,12 +1,9 @@
 import {useState} from "react"
 import {Link} from "react-router"
 
-import {getAuthenticatedSdk, status} from "~/lib/auth.server"
-import {readTracks} from "~/lib/tracks.server"
-
+import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
-import {CardCover} from "~/components/CardCover"
 import {Input} from "~/components/ui/input"
 import {
     Select,
@@ -15,6 +12,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from "~/components/ui/select"
+import {getAuthenticatedSdk, status} from "~/lib/auth.server"
+import {readTracks} from "~/lib/tracks.server"
 
 type SortOption = "title" | "tracks" | "updated"
 
@@ -222,7 +221,7 @@ export default function Home({
                     <Card>
                         <CardContent className="py-8 text-center">
                             <p className="text-muted-foreground">
-                                No cards match "{searchQuery}"
+                                No cards match &ldquo;{searchQuery}&rdquo;
                             </p>
                         </CardContent>
                     </Card>
