@@ -1,9 +1,20 @@
+import {useState} from "react"
 import {Link} from "react-router"
 
 import {getAuthenticatedSdk, status} from "~/lib/auth.server"
+import {readTracks} from "~/lib/tracks.server"
 
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "~/components/ui/select"
+
+type SortOption = "title" | "tracks" | "updated"
 
 export function meta() {
     return [
@@ -23,6 +34,7 @@ export async function loader() {
     try {
         const sdk = await getAuthenticatedSdk()
         const cards = await sdk.content.getMyCards()
+        const tracksData = readTracks()
 
         // SDK returns array of UserCard directly
         // The actual API response includes metadata.cover, not cover directly
@@ -36,6 +48,7 @@ export async function loader() {
         const cardsWithDetails = await Promise.all(
             cards.map(async card => {
                 const cardWithMeta = card as CardWithMetadata
+                const cardTracks = tracksData[card.cardId]
                 try {
                     const fullCard = (await sdk.content.getCard(
                         card.cardId,
@@ -53,6 +66,7 @@ export async function loader() {
                             card.cover?.imageM ??
                             card.cover?.imageS,
                         trackCount: fullCard.content?.chapters?.length ?? 0,
+                        lastSynced: cardTracks?.lastSynced ?? null,
                     }
                 } catch {
                     // Fallback if we can't fetch full card
@@ -67,6 +81,7 @@ export async function loader() {
                             card.cover?.imageM ??
                             card.cover?.imageS,
                         trackCount: 0,
+                        lastSynced: cardTracks?.lastSynced ?? null,
                     }
                 }
             }),
@@ -82,12 +97,42 @@ export async function loader() {
     }
 }
 
+const sortCards = (
+    cards: Awaited<ReturnType<typeof loader>>["cards"],
+    sortBy: SortOption,
+) => {
+    return [...cards].sort((a, b) => {
+        switch (sortBy) {
+            case "title":
+                return a.title.localeCompare(b.title)
+            case "tracks":
+                return b.trackCount - a.trackCount
+            case "updated":
+                // Cards with lastSynced come first, sorted by most recent
+                if (a.lastSynced && b.lastSynced) {
+                    return (
+                        new Date(b.lastSynced).getTime() -
+                        new Date(a.lastSynced).getTime()
+                    )
+                }
+                if (a.lastSynced) return -1
+                if (b.lastSynced) return 1
+                return 0
+            default:
+                return 0
+        }
+    })
+}
+
 export default function Home({
     loaderData,
 }: {
     loaderData: Awaited<ReturnType<typeof loader>>
 }) {
     const {authenticated, cards} = loaderData
+    const [sortBy, setSortBy] = useState<SortOption>("title")
+
+    const sortedCards = sortCards(cards, sortBy)
 
     if (!authenticated) {
         return (
@@ -117,9 +162,35 @@ export default function Home({
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-8">
                     <h1 className="text-3xl font-bold">My Yoto Cards</h1>
-                    <Link to="/sync">
-                        <Button>Sync New Content</Button>
-                    </Link>
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">
+                                Sort by
+                            </span>
+                            <Select
+                                value={sortBy}
+                                onValueChange={value =>
+                                    setSortBy(value as SortOption)
+                                }
+                            >
+                                <SelectTrigger className="w-35">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="title">Title</SelectItem>
+                                    <SelectItem value="tracks">
+                                        Track Count
+                                    </SelectItem>
+                                    <SelectItem value="updated">
+                                        Last Synced
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <Link to="/sync">
+                            <Button>Sync New Content</Button>
+                        </Link>
+                    </div>
                 </div>
 
                 {cards.length === 0 ? (
@@ -136,7 +207,7 @@ export default function Home({
                     </Card>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {cards.map(card => (
+                        {sortedCards.map(card => (
                             <Link key={card.id} to={`/cards/${card.id}`}>
                                 <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full py-0 gap-0 rounded-2xl">
                                     {card.coverUrl ? (
