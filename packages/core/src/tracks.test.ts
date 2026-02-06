@@ -8,6 +8,7 @@ import {
     getSyncedVideoIds,
     isVideoSynced,
     readTracks,
+    removeCardTracks,
     setCardTracks,
     writeTracks,
 } from "./tracks.js"
@@ -309,5 +310,88 @@ describe("tracks functions", () => {
 
         const result = getSyncedVideoIds("nocard")
         expect(result).toEqual(new Set())
+    })
+
+    it("removeCardTracks should remove card from tracks", () => {
+        const tracks: Tracks = {
+            card1: {
+                videos: [
+                    {
+                        youtubeVideoId: "vid1",
+                        title: "Video 1",
+                        syncedAt: "2026-02-03T12:00:00Z",
+                        yotoTrackKey: "key1",
+                    },
+                ],
+                lastSynced: "2026-02-03T12:00:00Z",
+            },
+            card2: {
+                videos: [
+                    {
+                        youtubeVideoId: "vid2",
+                        title: "Video 2",
+                        syncedAt: "2026-02-03T13:00:00Z",
+                        yotoTrackKey: "key2",
+                    },
+                ],
+                lastSynced: "2026-02-03T13:00:00Z",
+            },
+        }
+
+        writeTracks(tracks)
+
+        removeCardTracks("card1")
+
+        const result = readTracks()
+        expect(result.card1).toBeUndefined()
+        expect(result.card2).toBeDefined()
+    })
+
+    it("removeCardTracks should handle non-existent card gracefully", () => {
+        const tracks: Tracks = {
+            existingcard: {
+                videos: [
+                    {
+                        youtubeVideoId: "vid1",
+                        title: "Video 1",
+                        syncedAt: "2026-02-03T12:00:00Z",
+                        yotoTrackKey: "key1",
+                    },
+                ],
+                lastSynced: "2026-02-03T12:00:00Z",
+            },
+        }
+
+        writeTracks(tracks)
+
+        // Should not throw
+        removeCardTracks("nonexistent")
+
+        const result = readTracks()
+        expect(result.existingcard).toBeDefined()
+    })
+
+    it("removeCardTracks should persist changes to file", () => {
+        const cardTracks: CardTracks = {
+            videos: [
+                {
+                    youtubeVideoId: "vid1",
+                    title: "Video 1",
+                    syncedAt: "2026-02-03T12:00:00Z",
+                    yotoTrackKey: "key1",
+                },
+            ],
+            lastSynced: "2026-02-03T12:00:00Z",
+        }
+
+        writeTracks({cardToRemove: cardTracks})
+
+        // Verify card exists
+        expect(getCardTracks("cardToRemove")).not.toBeNull()
+
+        removeCardTracks("cardToRemove")
+
+        // Verify card is removed and change is persisted
+        expect(getCardTracks("cardToRemove")).toBeNull()
     })
 })
