@@ -1,17 +1,19 @@
+import {ArrowDownNarrowWide} from "lucide-react"
 import {useState} from "react"
 import {Link} from "react-router"
 
 import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
-import {Input} from "~/components/ui/input"
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "~/components/ui/select"
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu"
+import {Input} from "~/components/ui/input"
 import {getAuthenticatedSdk, status} from "~/lib/auth.server"
 import {readTracks} from "~/lib/tracks.server"
 
@@ -166,44 +168,51 @@ export default function Home({
         <div className="min-h-screen p-8">
             <div className="max-w-6xl mx-auto">
                 <h1 className="text-3xl font-bold mb-6">My Cards</h1>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
-                        <Input
-                            type="text"
-                            placeholder="Search cards..."
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                            className="w-full sm:w-64"
-                        />
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground whitespace-nowrap">
-                                Sort by
-                            </span>
-                            <Select
-                                value={sortBy}
-                                onValueChange={value =>
-                                    setSortBy(value as SortOption)
-                                }
+                <div className="flex items-center gap-3 mb-8">
+                    <Input
+                        type="text"
+                        placeholder="Search cards..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="flex-1"
+                    />
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="icon">
+                                <ArrowDownNarrowWide className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onClick={() => setSortBy("title")}
                             >
-                                <SelectTrigger className="w-36">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="title">Title</SelectItem>
-                                    <SelectItem value="tracks">
-                                        Track Count
-                                    </SelectItem>
-                                    <SelectItem value="updated">
-                                        Last Synced
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                    <Link to="/sync" className="w-full sm:w-auto">
-                        <Button className="w-full sm:w-auto">
-                            Sync New Content
-                        </Button>
+                                Title
+                                {sortBy === "title" && (
+                                    <span className="ml-auto">✓</span>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onClick={() => setSortBy("tracks")}
+                            >
+                                Track Count
+                                {sortBy === "tracks" && (
+                                    <span className="ml-auto">✓</span>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onClick={() => setSortBy("updated")}
+                            >
+                                Last Synced
+                                {sortBy === "updated" && (
+                                    <span className="ml-auto">✓</span>
+                                )}
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    <Link to="/sync">
+                        <Button>Sync New Content</Button>
                     </Link>
                 </div>
 
