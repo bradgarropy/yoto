@@ -344,7 +344,7 @@ Replace custom Yoto API code with official packages.
 - [x] Show card cover art on the home page
 - [x] Show card track count on the home page
 - [x] Show card cover art on the /cards/:cardId page
-- [ ] Add delete track functionality to the /cards/:cardId page
+- [x] Add delete track functionality to the /cards/:cardId page
 - [ ] Add reorder capability to tracks on the /cards/:cardId page
 - [ ] Make the destination card select a combobox on the /sync page
 - [x] Sort cards by title, number of tracks, or last updated
