@@ -270,7 +270,7 @@ export default function Home({
     }
 
     return (
-        <div className="min-h-screen p-8">
+        <div className="min-h-screen p-8 pb-32">
             <div className="max-w-6xl mx-auto">
                 <h1 className="text-3xl font-bold mb-6">My Cards</h1>
                 <div className="flex items-center gap-3 mb-8">
