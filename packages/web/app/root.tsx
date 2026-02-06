@@ -39,14 +39,6 @@ function Header() {
                 <Link to="/" className="font-bold text-lg">
                     Yoto
                 </Link>
-                <nav className="flex items-center gap-4">
-                    <Link
-                        to="/sync"
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                    >
-                        Sync
-                    </Link>
-                </nav>
             </div>
         </header>
     )
