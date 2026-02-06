@@ -185,7 +185,7 @@ export default function Home({
                                     setSortBy(value as SortOption)
                                 }
                             >
-                                <SelectTrigger className="w-35">
+                                <SelectTrigger className="w-36">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
