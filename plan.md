@@ -351,7 +351,7 @@ Replace custom Yoto API code with official packages.
 - [x] Add search box to filter cards on the home page
 - [x] Add option to delete card on the /cards/:cardId page
 - [x] Add favicon (https://www.datocms-assets.com/48136/1621005108-yoto-favicon.png)
-- [ ] Redesign home page header: move title up, spread search/sort/sync controls underneath
+- [x] Redesign home page header: move title up, spread search/sort/sync controls underneath
 
 ---
 

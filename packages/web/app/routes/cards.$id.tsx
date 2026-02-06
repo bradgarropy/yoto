@@ -24,7 +24,7 @@ export function meta({
 }) {
     const title = data?.card?.title ?? "Card"
     return [
-        {title: `${title} - Yoto Sync`},
+        {title: `Yoto - ${title}`},
         {name: "description", content: `View ${title} card details`},
     ]
 }

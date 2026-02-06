@@ -19,7 +19,7 @@ type SortOption = "title" | "tracks" | "updated"
 
 export function meta() {
     return [
-        {title: "Yoto Sync"},
+        {title: "Yoto"},
         {name: "description", content: "Sync YouTube playlists to Yoto"},
     ]
 }
@@ -165,18 +165,18 @@ export default function Home({
     return (
         <div className="min-h-screen p-8">
             <div className="max-w-6xl mx-auto">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-3xl font-bold">My Yoto Cards</h1>
-                    <div className="flex items-center gap-4">
+                <h1 className="text-3xl font-bold mb-6">My Cards</h1>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
                         <Input
                             type="text"
                             placeholder="Search cards..."
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
-                            className="w-48"
+                            className="w-full sm:w-64"
                         />
                         <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground">
+                            <span className="text-sm text-muted-foreground whitespace-nowrap">
                                 Sort by
                             </span>
                             <Select
@@ -199,10 +199,12 @@ export default function Home({
                                 </SelectContent>
                             </Select>
                         </div>
-                        <Link to="/sync">
-                            <Button>Sync New Content</Button>
-                        </Link>
                     </div>
+                    <Link to="/sync" className="w-full sm:w-auto">
+                        <Button className="w-full sm:w-auto">
+                            Sync New Content
+                        </Button>
+                    </Link>
                 </div>
 
                 {cards.length === 0 ? (
