@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto"
 import {existsSync, readFileSync, rmSync, statSync} from "node:fs"
-import {mkdir} from "node:fs/promises"
-import {homedir} from "node:os"
+import {mkdtemp} from "node:fs/promises"
+import {tmpdir} from "node:os"
 import {basename, join} from "node:path"
 
 import type {getYotoSdk} from "@yoto/core/auth"
@@ -159,8 +159,7 @@ export async function performSync(
     newCardName: string | null,
 ): Promise<SyncResult> {
     const sdk = await getAuthenticatedSdk()
-    const tempDir = join(homedir(), "Desktop", "yoto-temp")
-    await mkdir(tempDir, {recursive: true})
+    const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
 
     try {
         // 1. Fetch YouTube playlist/video info
@@ -332,8 +331,7 @@ export async function performSyncToCard(
     cardId: string,
 ): Promise<SyncToCardResult> {
     const sdk = await getAuthenticatedSdk()
-    const tempDir = join(homedir(), "Desktop", "yoto-temp")
-    await mkdir(tempDir, {recursive: true})
+    const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
 
     try {
         // 1. Fetch YouTube playlist/video info
