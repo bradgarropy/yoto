@@ -15,7 +15,9 @@ import {
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {Input} from "~/components/ui/input"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
+import {performSyncToCard} from "~/lib/sync.server"
 import {stripNullValues} from "~/lib/sync-utils"
 import {
     getCardTracks,
@@ -195,6 +197,17 @@ export async function action({
             return redirect("/")
         }
 
+        if (intent === "addTracks") {
+            const youtubeUrl = formData.get("youtubeUrl") as string
+
+            if (!youtubeUrl) {
+                return {error: "YouTube URL is required"}
+            }
+
+            const result = await performSyncToCard(youtubeUrl, cardId)
+            return result
+        }
+
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -212,6 +225,73 @@ function formatDuration(seconds?: number): string {
 function formatDate(dateStr?: string): string {
     if (!dateStr) return ""
     return new Date(dateStr).toLocaleDateString()
+}
+
+type AddTracksActionData = {
+    error?: string
+    success?: boolean
+    message?: string
+    added?: number
+    skipped?: number
+}
+
+function AddTracksForm({isDisabled}: {isDisabled: boolean}) {
+    const fetcher = useFetcher<AddTracksActionData>()
+    const isSubmitting = fetcher.state !== "idle"
+    const data = fetcher.data
+
+    return (
+        <Card className="mt-6">
+            <CardHeader>
+                <CardTitle className="text-lg">Add Tracks</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <fetcher.Form method="post" className="space-y-4">
+                    <input type="hidden" name="intent" value="addTracks" />
+
+                    <div className="flex gap-2">
+                        <Input
+                            name="youtubeUrl"
+                            type="url"
+                            placeholder="https://www.youtube.com/watch?v=abc123"
+                            required
+                            disabled={isSubmitting || isDisabled}
+                            className="flex-1"
+                        />
+                        <Button
+                            type="submit"
+                            disabled={isSubmitting || isDisabled}
+                        >
+                            {isSubmitting ? "Importing..." : "Import"}
+                        </Button>
+                    </div>
+
+                    {data?.success && (
+                        <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <p className="text-green-700 dark:text-green-300 font-medium">
+                                {data.message}
+                            </p>
+                        </div>
+                    )}
+
+                    {data?.error && (
+                        <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                            <p className="text-red-700 dark:text-red-300">
+                                {data.error}
+                            </p>
+                        </div>
+                    )}
+
+                    {isSubmitting && (
+                        <p className="text-sm text-muted-foreground">
+                            Downloading from YouTube and uploading to Yoto. This
+                            can take several minutes for large playlists.
+                        </p>
+                    )}
+                </fetcher.Form>
+            </CardContent>
+        </Card>
+    )
 }
 
 export default function CardDetail({
@@ -252,7 +332,7 @@ export default function CardDetail({
                         <h1 className="text-3xl font-bold mb-2">
                             {card.title}
                         </h1>
-                        <p className="text-muted-foreground mb-4">
+                        <p className="text-muted-foreground">
                             {tracks.length} track
                             {tracks.length !== 1 ? "s" : ""}
                             {syncedCount > 0 && (
@@ -263,7 +343,7 @@ export default function CardDetail({
                         </p>
 
                         {youtubePlaylistId && (
-                            <p className="text-sm text-muted-foreground mb-2">
+                            <p className="text-sm text-muted-foreground">
                                 YouTube Playlist:{" "}
                                 <a
                                     href={`https://www.youtube.com/playlist?list=${youtubePlaylistId}`}
@@ -277,16 +357,12 @@ export default function CardDetail({
                         )}
 
                         {lastSynced && (
-                            <p className="text-sm text-muted-foreground mb-4">
+                            <p className="text-sm text-muted-foreground">
                                 Last synced: {formatDate(lastSynced)}
                             </p>
                         )}
 
-                        <div className="flex gap-2">
-                            <Link to={`/sync?cardId=${card.id}`}>
-                                <Button>Sync More Content</Button>
-                            </Link>
-
+                        <div className="flex gap-2 mt-4">
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button
@@ -337,9 +413,6 @@ export default function CardDetail({
                 </div>
 
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Tracks</CardTitle>
-                    </CardHeader>
                     <CardContent>
                         {tracks.length === 0 ? (
                             <p className="text-muted-foreground text-center py-4">
@@ -443,6 +516,8 @@ export default function CardDetail({
                         )}
                     </CardContent>
                 </Card>
+
+                <AddTracksForm isDisabled={isDeleting} />
             </div>
         </div>
     )
