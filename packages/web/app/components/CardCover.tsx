@@ -47,7 +47,7 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
                 <motion.img
                     src={coverUrl}
                     alt={title}
-                    className="w-full h-auto"
+                    className="w-full h-full object-cover"
                     style={{
                         x: springX,
                         y: springY,
