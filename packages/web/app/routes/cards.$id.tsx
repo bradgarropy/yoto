@@ -393,6 +393,7 @@ export default function CardDetail({
                                                     variant="ghost"
                                                     size="sm"
                                                     className="text-muted-foreground hover:text-destructive"
+                                                    disabled={isDeleting}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>
