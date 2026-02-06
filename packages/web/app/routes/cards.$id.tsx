@@ -1,3 +1,4 @@
+import {Trash2} from "lucide-react"
 import {redirect, useFetcher} from "react-router"
 import {Link} from "react-router"
 
@@ -15,7 +16,12 @@ import {
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
-import {getCardTracks, removeCardTracks} from "~/lib/tracks.server"
+import {stripNullValues} from "~/lib/sync-utils"
+import {
+    getCardTracks,
+    removeCardTracks,
+    removeSyncedTrack,
+} from "~/lib/tracks.server"
 
 export function meta({
     data,
@@ -115,22 +121,84 @@ export async function loader({params}: {params: {id: string}}) {
     }
 }
 
-export async function action({params}: {params: {id: string}}) {
+export async function action({
+    params,
+    request,
+}: {
+    params: {id: string}
+    request: Request
+}) {
     await requireAuth()
 
     const cardId = params.id
+    const formData = await request.formData()
+    const intent = formData.get("intent")
 
     try {
         const sdk = await getAuthenticatedSdk()
-        await sdk.content.deleteCard(cardId)
 
-        // Clean up local tracks data
-        removeCardTracks(cardId)
+        if (intent === "deleteTrack") {
+            const trackKey = formData.get("trackKey") as string
 
-        return redirect("/")
+            if (!trackKey) {
+                return {error: "Track key is required"}
+            }
+
+            // Get current card
+            const card = (await sdk.content.getCard(cardId)) as unknown as {
+                cardId: string
+                title?: string
+                content: {
+                    activity: string
+                    chapters: Array<{key?: string; [key: string]: unknown}>
+                    restricted: boolean
+                    config: {onlineOnly: boolean}
+                    version: string
+                }
+                metadata: Record<string, unknown>
+            }
+
+            // Filter out the track to delete
+            const updatedChapters = card.content.chapters.filter(
+                chapter => chapter.key !== trackKey,
+            )
+
+            // Update card with remaining chapters
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: {
+                    ...card.content,
+                    chapters: stripNullValues(updatedChapters),
+                },
+                metadata: card.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            // Remove from local tracks.json
+            removeSyncedTrack(cardId, trackKey)
+
+            return {success: true, deleted: trackKey}
+        }
+
+        if (intent === "deleteCard") {
+            await sdk.content.deleteCard(cardId)
+
+            // Clean up local tracks data
+            removeCardTracks(cardId)
+
+            return redirect("/")
+        }
+
+        return {error: "Invalid intent"}
     } catch (error) {
-        console.error("Failed to delete card:", error)
-        return {error: "Failed to delete card"}
+        console.error("Failed to perform action:", error)
+        return {error: "Operation failed"}
     }
 }
 
@@ -249,6 +317,11 @@ export default function CardDetail({
                                             Cancel
                                         </AlertDialogCancel>
                                         <fetcher.Form method="post">
+                                            <input
+                                                type="hidden"
+                                                name="intent"
+                                                value="deleteCard"
+                                            />
                                             <AlertDialogAction
                                                 type="submit"
                                                 className="bg-destructive text-white hover:bg-destructive/90"
@@ -314,6 +387,54 @@ export default function CardDetail({
                                                 {formatDuration(track.duration)}
                                             </span>
                                         )}
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-muted-foreground hover:text-destructive"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>
+                                                        Delete Track
+                                                    </AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        Are you sure you want to
+                                                        delete &ldquo;
+                                                        {track.title}&rdquo;?
+                                                        This will remove the
+                                                        track from the card.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>
+                                                        Cancel
+                                                    </AlertDialogCancel>
+                                                    <fetcher.Form method="post">
+                                                        <input
+                                                            type="hidden"
+                                                            name="intent"
+                                                            value="deleteTrack"
+                                                        />
+                                                        <input
+                                                            type="hidden"
+                                                            name="trackKey"
+                                                            value={track.key}
+                                                        />
+                                                        <AlertDialogAction
+                                                            type="submit"
+                                                            className="bg-destructive text-white hover:bg-destructive/90"
+                                                        >
+                                                            Delete
+                                                        </AlertDialogAction>
+                                                    </fetcher.Form>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
                                     </div>
                                 ))}
                             </div>
