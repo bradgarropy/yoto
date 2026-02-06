@@ -80,12 +80,11 @@ yoto/
 
 ## Web App Routes
 
-| Route        | Purpose               | Loader                     | Action                           |
-| ------------ | --------------------- | -------------------------- | -------------------------------- |
-| `/login`     | Device code auth flow | Check if authenticated     | Initiate device code, poll token |
-| `/`          | Dashboard, list cards | Fetch cards from Yoto      | -                                |
-| `/cards/:id` | Card detail           | Fetch card + synced tracks | -                                |
-| `/sync`      | Sync form             | Fetch cards for dropdown   | Execute sync (blocking)          |
+| Route        | Purpose               | Loader                     | Action                                             |
+| ------------ | --------------------- | -------------------------- | -------------------------------------------------- |
+| `/login`     | Device code auth flow | Check if authenticated     | Initiate device code, poll token                   |
+| `/`          | Dashboard, list cards | Fetch cards from Yoto      | Create new card                                    |
+| `/cards/:id` | Card detail           | Fetch card + synced tracks | Delete track, delete card, add tracks from YouTube |
 
 ---
 
@@ -350,7 +349,7 @@ Replace custom Yoto API code with official packages.
 - [x] Add import tracks from YouTube button on the /cards/:cardId page
 - [ ] Add toast notifications for action feedback
 - [ ] Add track import loading indicators
-- [x] Remove /sync page
+- [x] Remove /sync page (route, navigation link, and performSync server function)
 - [x] Sort cards by title, number of tracks, or last updated
 - [x] Add search box to filter cards on the home page
 - [x] Add option to delete card on the /cards/:cardId page
