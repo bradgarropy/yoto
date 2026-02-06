@@ -9,6 +9,7 @@ import {
     isVideoSynced,
     readTracks,
     removeCardTracks,
+    removeSyncedTrack,
     setCardTracks,
     writeTracks,
 } from "./tracks.js"
@@ -393,5 +394,95 @@ describe("tracks functions", () => {
 
         // Verify card is removed and change is persisted
         expect(getCardTracks("cardToRemove")).toBeNull()
+    })
+
+    it("removeSyncedTrack should remove a single track by yotoTrackKey", () => {
+        const cardTracks: CardTracks = {
+            videos: [
+                {
+                    youtubeVideoId: "vid1",
+                    title: "Video 1",
+                    syncedAt: "2026-02-03T12:00:00Z",
+                    yotoTrackKey: "key1",
+                },
+                {
+                    youtubeVideoId: "vid2",
+                    title: "Video 2",
+                    syncedAt: "2026-02-03T12:01:00Z",
+                    yotoTrackKey: "key2",
+                },
+                {
+                    youtubeVideoId: "vid3",
+                    title: "Video 3",
+                    syncedAt: "2026-02-03T12:02:00Z",
+                    yotoTrackKey: "key3",
+                },
+            ],
+            lastSynced: "2026-02-03T12:02:00Z",
+        }
+
+        writeTracks({removetrack: cardTracks})
+
+        removeSyncedTrack("removetrack", "key2")
+
+        const result = getCardTracks("removetrack")
+        expect(result?.videos).toHaveLength(2)
+        expect(result?.videos.map(v => v.yotoTrackKey)).toEqual([
+            "key1",
+            "key3",
+        ])
+    })
+
+    it("removeSyncedTrack should delete card entry when last track is removed", () => {
+        const cardTracks: CardTracks = {
+            videos: [
+                {
+                    youtubeVideoId: "vid1",
+                    title: "Video 1",
+                    syncedAt: "2026-02-03T12:00:00Z",
+                    yotoTrackKey: "key1",
+                },
+            ],
+            lastSynced: "2026-02-03T12:00:00Z",
+        }
+
+        writeTracks({singletrack: cardTracks})
+
+        removeSyncedTrack("singletrack", "key1")
+
+        const result = getCardTracks("singletrack")
+        expect(result).toBeNull()
+    })
+
+    it("removeSyncedTrack should handle non-existent card gracefully", () => {
+        writeTracks({})
+
+        // Should not throw
+        removeSyncedTrack("nonexistent", "key1")
+
+        const result = readTracks()
+        expect(result).toEqual({})
+    })
+
+    it("removeSyncedTrack should handle non-existent track gracefully", () => {
+        const cardTracks: CardTracks = {
+            videos: [
+                {
+                    youtubeVideoId: "vid1",
+                    title: "Video 1",
+                    syncedAt: "2026-02-03T12:00:00Z",
+                    yotoTrackKey: "key1",
+                },
+            ],
+            lastSynced: "2026-02-03T12:00:00Z",
+        }
+
+        writeTracks({existingcard: cardTracks})
+
+        // Should not throw
+        removeSyncedTrack("existingcard", "nonexistent-key")
+
+        const result = getCardTracks("existingcard")
+        expect(result?.videos).toHaveLength(1)
     })
 })
