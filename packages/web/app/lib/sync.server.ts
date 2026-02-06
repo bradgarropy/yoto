@@ -14,6 +14,7 @@ import {
 } from "@yoto/core/youtube"
 
 import {getAuthenticatedSdk} from "./auth.server"
+import {DEFAULT_CARD_COVER_URL} from "./constants"
 import {createChapter, stripNullValues, type YotoChapter} from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
 
@@ -177,7 +178,7 @@ export async function performSync(
                 },
                 metadata: {
                     cover: {
-                        imageL: "https://cdn.yoto.io/myo-cover/bee_grapefruit.gif",
+                        imageL: DEFAULT_CARD_COVER_URL,
                     },
                     media: {},
                 },
