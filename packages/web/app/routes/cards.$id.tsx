@@ -520,11 +520,7 @@ export default function CardDetail({
                     </CardContent>
                 </Card>
 
-                <AddTracksForm
-                    isBusy={isBusy}
-                    isImporting={isImporting}
-                    actionData={actionData}
-                />
+                <AddTracksForm isBusy={isBusy} isImporting={isImporting} />
             </div>
         </div>
     )
