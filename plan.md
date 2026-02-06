@@ -350,7 +350,7 @@ Replace custom Yoto API code with official packages.
 - [x] Add import tracks from YouTube button on the /cards/:cardId page
 - [ ] Add toast notifications for action feedback
 - [ ] Add track import loading indicators
-- [ ] Remove /sync page
+- [x] Remove /sync page
 - [x] Sort cards by title, number of tracks, or last updated
 - [x] Add search box to filter cards on the home page
 - [x] Add option to delete card on the /cards/:cardId page
