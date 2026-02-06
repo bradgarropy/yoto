@@ -41,12 +41,6 @@ function Header() {
                 </Link>
                 <nav className="flex items-center gap-4">
                     <Link
-                        to="/"
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                    >
-                        Cards
-                    </Link>
-                    <Link
                         to="/sync"
                         className="text-sm text-muted-foreground hover:text-foreground"
                     >
