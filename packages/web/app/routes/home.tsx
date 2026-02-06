@@ -1,10 +1,19 @@
-import {ArrowDownNarrowWide} from "lucide-react"
-import {useState} from "react"
-import {Link} from "react-router"
+import {ArrowDownNarrowWide, Plus} from "lucide-react"
+import {useEffect, useState} from "react"
+import {Link, useFetcher, useNavigate} from "react-router"
 
 import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "~/components/ui/dialog"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -14,10 +23,32 @@ import {
     DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu"
 import {Input} from "~/components/ui/input"
-import {getAuthenticatedSdk, status} from "~/lib/auth.server"
+import {Label} from "~/components/ui/label"
+import {getAuthenticatedSdk, requireAuth, status} from "~/lib/auth.server"
+import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
 import {readTracks} from "~/lib/tracks.server"
 
 type SortOption = "title" | "tracks" | "updated"
+
+type YotoContent = {
+    activity: string
+    chapters: never[]
+    restricted: boolean
+    config: {onlineOnly: boolean}
+    version: string
+}
+
+type YotoMetadata = {
+    cover?: {imageL: string}
+    media?: Record<string, unknown>
+}
+
+type YotoCard = {
+    cardId?: string
+    title?: string
+    content: YotoContent
+    metadata: YotoMetadata
+}
 
 export function meta() {
     return [
@@ -100,6 +131,59 @@ export async function loader() {
     }
 }
 
+export async function action({request}: {request: Request}) {
+    await requireAuth()
+
+    const formData = await request.formData()
+    const intent = formData.get("intent") as string
+
+    if (intent === "createCard") {
+        const cardName = formData.get("cardName") as string
+
+        if (!cardName?.trim()) {
+            return {error: "Card name is required"}
+        }
+
+        try {
+            const sdk = await getAuthenticatedSdk()
+            const cardData = {
+                title: cardName.trim(),
+                content: {
+                    activity: "yoto_Player",
+                    chapters: [],
+                    restricted: true,
+                    config: {onlineOnly: false},
+                    version: "1",
+                },
+                metadata: {
+                    cover: {
+                        imageL: DEFAULT_CARD_COVER_URL,
+                    },
+                    media: {},
+                },
+            }
+
+            const result = (await sdk.content.updateCard(
+                cardData as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )) as YotoCard
+
+            return {success: true, cardId: result.cardId}
+        } catch (error) {
+            console.error("Failed to create card:", error)
+            return {
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to create card",
+            }
+        }
+    }
+
+    return {error: "Unknown action"}
+}
+
 const sortCards = (
     cards: Awaited<ReturnType<typeof loader>>["cards"],
     sortBy: SortOption,
@@ -127,6 +211,12 @@ const sortCards = (
     })
 }
 
+type ActionData = {
+    success?: boolean
+    cardId?: string
+    error?: string
+}
+
 export default function Home({
     loaderData,
 }: {
@@ -135,6 +225,21 @@ export default function Home({
     const {authenticated, cards} = loaderData
     const [sortBy, setSortBy] = useState<SortOption>("title")
     const [searchQuery, setSearchQuery] = useState("")
+    const [dialogOpen, setDialogOpen] = useState(false)
+    const [cardName, setCardName] = useState("")
+    const fetcher = useFetcher<ActionData>()
+    const navigate = useNavigate()
+
+    const isCreating = fetcher.state !== "idle"
+
+    // Navigate to the new card on success
+    useEffect(() => {
+        if (fetcher.data?.success && fetcher.data?.cardId) {
+            setDialogOpen(false)
+            setCardName("")
+            navigate(`/cards/${fetcher.data.cardId}`)
+        }
+    }, [fetcher.data, navigate])
 
     const filteredCards = cards.filter(card =>
         card.title.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -215,21 +320,83 @@ export default function Home({
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
-                    <Link to="/sync">
-                        <Button>Sync New Content</Button>
-                    </Link>
+                    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button>
+                                <Plus className="h-4 w-4" />
+                                Create Card
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Create New Card</DialogTitle>
+                                <DialogDescription>
+                                    Create a new Yoto card to add tracks to.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <fetcher.Form method="post">
+                                <input
+                                    type="hidden"
+                                    name="intent"
+                                    value="createCard"
+                                />
+                                <div className="grid gap-4 py-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="cardName">
+                                            Card Name
+                                        </Label>
+                                        <Input
+                                            id="cardName"
+                                            name="cardName"
+                                            placeholder="Enter card name..."
+                                            value={cardName}
+                                            onChange={e =>
+                                                setCardName(e.target.value)
+                                            }
+                                            disabled={isCreating}
+                                        />
+                                    </div>
+                                    {fetcher.data?.error && (
+                                        <p className="text-sm text-red-500">
+                                            {fetcher.data.error}
+                                        </p>
+                                    )}
+                                </div>
+                                <DialogFooter>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setDialogOpen(false)}
+                                        disabled={isCreating}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        disabled={
+                                            isCreating || !cardName.trim()
+                                        }
+                                    >
+                                        {isCreating
+                                            ? "Creating..."
+                                            : "Create Card"}
+                                    </Button>
+                                </DialogFooter>
+                            </fetcher.Form>
+                        </DialogContent>
+                    </Dialog>
                 </div>
 
                 {cards.length === 0 ? (
                     <Card>
                         <CardContent className="py-8 text-center">
                             <p className="text-muted-foreground mb-4">
-                                No cards found. Create a card in the Yoto app
-                                first, or sync new content.
+                                No cards found. Create a card to get started.
                             </p>
-                            <Link to="/sync">
-                                <Button>Sync Your First Content</Button>
-                            </Link>
+                            <Button onClick={() => setDialogOpen(true)}>
+                                <Plus className="h-4 w-4" />
+                                Create Your First Card
+                            </Button>
                         </CardContent>
                     </Card>
                 ) : sortedCards.length === 0 ? (

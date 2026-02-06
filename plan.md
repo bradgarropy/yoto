@@ -346,7 +346,7 @@ Replace custom Yoto API code with official packages.
 - [x] Show card cover art on the /cards/:cardId page
 - [x] Add delete track functionality to the /cards/:cardId page
 - [ ] Add reorder capability to tracks on the /cards/:cardId page
-- [ ] Add create card button on the home page
+- [x] Add create card button on the home page
 - [ ] Add import tracks from YouTube button on the /cards/:cardId page
 - [ ] Add track import loading indicators
 - [ ] Remove /sync page
