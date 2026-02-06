@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto"
 import {existsSync, readFileSync, rmSync, statSync} from "node:fs"
-import {mkdir} from "node:fs/promises"
-import {homedir} from "node:os"
+import {mkdtemp} from "node:fs/promises"
+import {tmpdir} from "node:os"
 import {basename, join} from "node:path"
 
 import type {getYotoSdk} from "@yoto/core/auth"
@@ -144,14 +144,22 @@ type SyncResult =
       }
     | {error: string}
 
+type SyncToCardResult =
+    | {
+          success: true
+          message: string
+          added: number
+          skipped: number
+      }
+    | {error: string}
+
 export async function performSync(
     youtubeUrl: string,
     cardId: string | null,
     newCardName: string | null,
 ): Promise<SyncResult> {
     const sdk = await getAuthenticatedSdk()
-    const tempDir = join(homedir(), "Desktop", "yoto-temp")
-    await mkdir(tempDir, {recursive: true})
+    const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
 
     try {
         // 1. Fetch YouTube playlist/video info
@@ -300,6 +308,138 @@ export async function performSync(
         }
     } catch (error) {
         console.error("Sync failed:", error)
+        return {
+            error:
+                error instanceof Error
+                    ? error.message
+                    : "Sync failed. Please try again.",
+        }
+    } finally {
+        // Clean up temp directory
+        if (existsSync(tempDir)) {
+            rmSync(tempDir, {recursive: true, force: true})
+        }
+    }
+}
+
+/**
+ * Sync YouTube content directly to an existing card.
+ * Simpler version of performSync that doesn't support creating new cards.
+ */
+export async function performSyncToCard(
+    youtubeUrl: string,
+    cardId: string,
+): Promise<SyncToCardResult> {
+    const sdk = await getAuthenticatedSdk()
+    const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
+
+    try {
+        // 1. Fetch YouTube playlist/video info
+        const youtubeInfo = await getPlaylistInfo(youtubeUrl)
+        const youtubePlaylistId = isPlaylistUrl(youtubeUrl)
+            ? extractPlaylistId(youtubeUrl)
+            : youtubeInfo.id
+
+        // 2. Get existing card - getCard returns the card directly
+        const cardResponse = (await sdk.content.getCard(
+            cardId,
+        )) as unknown as YotoCard | null
+
+        if (!cardResponse) {
+            return {error: "Card not found"}
+        }
+
+        const existingChapters = cardResponse.content?.chapters ?? []
+        const cardTitle = cardResponse.title ?? "Untitled Card"
+
+        // 3. Check which tracks are already synced
+        const syncedVideoIds = getSyncedVideoIds(cardId)
+        const tracksToAdd = youtubeInfo.tracks.filter(
+            t => !syncedVideoIds.has(t.id),
+        )
+
+        if (tracksToAdd.length === 0) {
+            return {
+                success: true,
+                message: "All tracks already synced!",
+                added: 0,
+                skipped: youtubeInfo.tracks.length,
+            }
+        }
+
+        // 4. Download and upload new tracks
+        const newChapters: YotoChapter[] = [...existingChapters]
+        const uploadedTracks: Array<{
+            track: (typeof tracksToAdd)[0]
+            chapter: YotoChapter
+        }> = []
+
+        for (const track of tracksToAdd) {
+            // Download
+            const filePath = await downloadTrack(track, tempDir)
+
+            // Upload
+            const uploaded = await uploadAudio(sdk, filePath)
+
+            // Create chapter
+            const chapter = createChapter(
+                track.title,
+                uploaded.key,
+                newChapters.length + 1,
+                uploaded.duration,
+                uploaded.fileSize,
+            )
+            newChapters.push(chapter)
+            uploadedTracks.push({track, chapter})
+        }
+
+        // 5. Update card with new chapters
+        const cleanedChapters = stripNullValues(newChapters)
+
+        const updatedCard: YotoCard = {
+            cardId,
+            title: cardResponse.title,
+            content: {
+                ...cardResponse.content,
+                chapters: cleanedChapters,
+            },
+            metadata: cardResponse.metadata,
+        }
+
+        await sdk.content.updateCard(
+            updatedCard as unknown as Parameters<
+                typeof sdk.content.updateCard
+            >[0],
+        )
+
+        // 6. Record synced tracks AFTER card update succeeds
+        for (const {track, chapter} of uploadedTracks) {
+            addSyncedTrack(cardId, {
+                youtubeVideoId: track.id,
+                title: track.title,
+                syncedAt: new Date().toISOString(),
+                yotoTrackKey: chapter.key,
+            })
+        }
+
+        const addedCount = uploadedTracks.length
+
+        // 7. Save playlist association
+        setPlaylistAssociation(youtubePlaylistId, {
+            yotoId: cardId,
+            yotoName: cardTitle,
+            youtubeName: youtubeInfo.title,
+            lastSynced: new Date().toISOString(),
+        })
+
+        return {
+            success: true,
+            message: `Added ${addedCount} track${addedCount !== 1 ? "s" : ""}, skipped ${youtubeInfo.tracks.length - addedCount} already synced`,
+            added: addedCount,
+            skipped: youtubeInfo.tracks.length - addedCount,
+        }
+    } catch (error) {
+        console.error("Sync to card failed:", error)
         return {
             error:
                 error instanceof Error

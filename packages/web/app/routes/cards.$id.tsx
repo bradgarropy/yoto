@@ -1,6 +1,5 @@
 import {Trash2} from "lucide-react"
-import {redirect, useFetcher} from "react-router"
-import {Link} from "react-router"
+import {Form, Link, redirect, useActionData, useNavigation} from "react-router"
 
 import {
     AlertDialog,
@@ -15,7 +14,9 @@ import {
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {Input} from "~/components/ui/input"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
+import {performSyncToCard} from "~/lib/sync.server"
 import {stripNullValues} from "~/lib/sync-utils"
 import {
     getCardTracks,
@@ -195,6 +196,17 @@ export async function action({
             return redirect("/")
         }
 
+        if (intent === "addTracks") {
+            const youtubeUrl = formData.get("youtubeUrl") as string
+
+            if (!youtubeUrl) {
+                return {error: "YouTube URL is required"}
+            }
+
+            const result = await performSyncToCard(youtubeUrl, cardId)
+            return result
+        }
+
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -214,6 +226,75 @@ function formatDate(dateStr?: string): string {
     return new Date(dateStr).toLocaleDateString()
 }
 
+type ActionData = {
+    error?: string
+    success?: boolean
+    message?: string
+    added?: number
+    skipped?: number
+    deleted?: string
+}
+
+function AddTracksForm({
+    isBusy,
+    isImporting,
+    actionData,
+}: {
+    isBusy: boolean
+    isImporting: boolean
+    actionData: ActionData | undefined
+}) {
+    return (
+        <Card className="mt-6">
+            <CardHeader>
+                <CardTitle className="text-lg">Add Tracks</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <Form method="post" className="space-y-4">
+                    <input type="hidden" name="intent" value="addTracks" />
+
+                    <div className="flex gap-2">
+                        <Input
+                            name="youtubeUrl"
+                            type="url"
+                            placeholder="https://www.youtube.com/watch?v=abc123"
+                            required
+                            disabled={isBusy}
+                            className="flex-1"
+                        />
+                        <Button type="submit" disabled={isBusy}>
+                            {isImporting ? "Importing..." : "Import"}
+                        </Button>
+                    </div>
+
+                    {actionData?.success && actionData?.message && (
+                        <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <p className="text-green-700 dark:text-green-300 font-medium">
+                                {actionData.message}
+                            </p>
+                        </div>
+                    )}
+
+                    {actionData?.error && (
+                        <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                            <p className="text-red-700 dark:text-red-300">
+                                {actionData.error}
+                            </p>
+                        </div>
+                    )}
+
+                    {isImporting && (
+                        <p className="text-sm text-muted-foreground">
+                            Downloading from YouTube and uploading to Yoto. This
+                            can take several minutes for large playlists.
+                        </p>
+                    )}
+                </Form>
+            </CardContent>
+        </Card>
+    )
+}
+
 export default function CardDetail({
     loaderData,
 }: {
@@ -221,8 +302,13 @@ export default function CardDetail({
 }) {
     const {card, tracks, syncedCount, youtubePlaylistId, lastSynced} =
         loaderData
-    const fetcher = useFetcher()
-    const isDeleting = fetcher.state !== "idle"
+    const navigation = useNavigation()
+    const actionData = useActionData<ActionData>()
+
+    const isBusy = navigation.state !== "idle"
+    const pendingIntent = navigation.formData?.get("intent")
+    const isImporting = pendingIntent === "addTracks"
+    const isDeletingCard = pendingIntent === "deleteCard"
 
     return (
         <div className="min-h-screen p-8">
@@ -252,7 +338,7 @@ export default function CardDetail({
                         <h1 className="text-3xl font-bold mb-2">
                             {card.title}
                         </h1>
-                        <p className="text-muted-foreground mb-4">
+                        <p className="text-muted-foreground">
                             {tracks.length} track
                             {tracks.length !== 1 ? "s" : ""}
                             {syncedCount > 0 && (
@@ -263,7 +349,7 @@ export default function CardDetail({
                         </p>
 
                         {youtubePlaylistId && (
-                            <p className="text-sm text-muted-foreground mb-2">
+                            <p className="text-sm text-muted-foreground">
                                 YouTube Playlist:{" "}
                                 <a
                                     href={`https://www.youtube.com/playlist?list=${youtubePlaylistId}`}
@@ -277,23 +363,19 @@ export default function CardDetail({
                         )}
 
                         {lastSynced && (
-                            <p className="text-sm text-muted-foreground mb-4">
+                            <p className="text-sm text-muted-foreground">
                                 Last synced: {formatDate(lastSynced)}
                             </p>
                         )}
 
-                        <div className="flex gap-2">
-                            <Link to={`/sync?cardId=${card.id}`}>
-                                <Button>Sync More Content</Button>
-                            </Link>
-
+                        <div className="flex gap-2 mt-4">
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button
                                         variant="destructive"
-                                        disabled={isDeleting}
+                                        disabled={isBusy}
                                     >
-                                        {isDeleting
+                                        {isDeletingCard
                                             ? "Deleting..."
                                             : "Delete Card"}
                                     </Button>
@@ -316,7 +398,7 @@ export default function CardDetail({
                                         <AlertDialogCancel>
                                             Cancel
                                         </AlertDialogCancel>
-                                        <fetcher.Form method="post">
+                                        <Form method="post">
                                             <input
                                                 type="hidden"
                                                 name="intent"
@@ -328,7 +410,7 @@ export default function CardDetail({
                                             >
                                                 Delete
                                             </AlertDialogAction>
-                                        </fetcher.Form>
+                                        </Form>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -337,9 +419,6 @@ export default function CardDetail({
                 </div>
 
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Tracks</CardTitle>
-                    </CardHeader>
                     <CardContent>
                         {tracks.length === 0 ? (
                             <p className="text-muted-foreground text-center py-4">
@@ -393,7 +472,7 @@ export default function CardDetail({
                                                     variant="ghost"
                                                     size="sm"
                                                     className="text-muted-foreground hover:text-destructive"
-                                                    disabled={isDeleting}
+                                                    disabled={isBusy}
                                                     aria-label={`Delete track: ${track.title}`}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
@@ -416,7 +495,7 @@ export default function CardDetail({
                                                     <AlertDialogCancel>
                                                         Cancel
                                                     </AlertDialogCancel>
-                                                    <fetcher.Form method="post">
+                                                    <Form method="post">
                                                         <input
                                                             type="hidden"
                                                             name="intent"
@@ -433,7 +512,7 @@ export default function CardDetail({
                                                         >
                                                             Delete
                                                         </AlertDialogAction>
-                                                    </fetcher.Form>
+                                                    </Form>
                                                 </AlertDialogFooter>
                                             </AlertDialogContent>
                                         </AlertDialog>
@@ -443,6 +522,12 @@ export default function CardDetail({
                         )}
                     </CardContent>
                 </Card>
+
+                <AddTracksForm
+                    isBusy={isBusy}
+                    isImporting={isImporting}
+                    actionData={actionData}
+                />
             </div>
         </div>
     )
