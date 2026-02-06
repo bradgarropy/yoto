@@ -36,11 +36,14 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
         scale.set(1)
     }
 
+    // Yoto card images have an intrinsic aspect ratio of 49:78 (width:height)
+    const aspectRatioClass = "aspect-[49/78]"
+
     if (coverUrl) {
         return (
             <div
                 ref={containerRef}
-                className="rounded-2xl overflow-hidden shadow-md"
+                className={`${aspectRatioClass} bg-muted rounded-2xl overflow-hidden shadow-md`}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
             >
@@ -61,7 +64,7 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     return (
         <div
             ref={containerRef}
-            className="aspect-square bg-muted rounded-2xl flex items-center justify-center shadow-md"
+            className={`${aspectRatioClass} bg-muted rounded-2xl flex items-center justify-center shadow-md`}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
         >
