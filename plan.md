@@ -347,7 +347,7 @@ Replace custom Yoto API code with official packages.
 - [ ] Add reorder capability to tracks on the /cards/:cardId page
 - [x] Add create card button on the home page
 - [x] Add import tracks from YouTube button on the /cards/:cardId page
-- [ ] Add toast notifications for action feedback
+- [x] Add toast notifications for action feedback
 - [ ] Add track import loading indicators
 - [x] Remove /sync page (route, navigation link, and performSync server function)
 - [x] Sort cards by title, number of tracks, or last updated
