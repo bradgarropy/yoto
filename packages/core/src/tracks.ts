@@ -44,7 +44,10 @@ const getCardTracks = (cardId: string): CardTracks | null => {
 
 const setCardTracks = (cardId: string, cardTracks: CardTracks): void => {
     const tracks = readTracks()
-    tracks[cardId] = cardTracks
+    tracks[cardId] = {
+        ...cardTracks,
+        lastSynced: new Date().toISOString(),
+    }
     writeTracks(tracks)
 }
 
@@ -102,11 +105,8 @@ const removeSyncedTrack = (cardId: string, yotoTrackKey: string): void => {
         v => v.yotoTrackKey !== yotoTrackKey,
     )
 
-    if (cardTracks.videos.length === 0) {
-        delete tracks[cardId]
-    } else {
-        tracks[cardId] = cardTracks
-    }
+    cardTracks.lastSynced = new Date().toISOString()
+    tracks[cardId] = cardTracks
 
     writeTracks(tracks)
 }

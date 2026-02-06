@@ -115,7 +115,14 @@ describe("tracks functions", () => {
         setCardTracks("newcard", cardTracks)
 
         const tracks = readTracks()
-        expect(tracks.newcard).toEqual(cardTracks)
+        expect(tracks.newcard.videos).toEqual(cardTracks.videos)
+        expect(tracks.newcard.youtubePlaylistId).toEqual(
+            cardTracks.youtubePlaylistId,
+        )
+        // lastSynced should be auto-updated to current time
+        expect(new Date(tracks.newcard.lastSynced).getTime()).toBeGreaterThan(
+            new Date(cardTracks.lastSynced).getTime(),
+        )
     })
 
     it("setCardTracks should update existing card tracks", () => {
@@ -154,7 +161,11 @@ describe("tracks functions", () => {
         setCardTracks("updatecard", updated)
 
         const tracks = readTracks()
-        expect(tracks.updatecard).toEqual(updated)
+        expect(tracks.updatecard.videos).toEqual(updated.videos)
+        // lastSynced should be auto-updated to current time
+        expect(
+            new Date(tracks.updatecard.lastSynced).getTime(),
+        ).toBeGreaterThan(new Date(updated.lastSynced).getTime())
     })
 
     it("isVideoSynced should return true when video exists", () => {
@@ -433,7 +444,7 @@ describe("tracks functions", () => {
         ])
     })
 
-    it("removeSyncedTrack should delete card entry when last track is removed", () => {
+    it("removeSyncedTrack should keep card entry when last track is removed", () => {
         const cardTracks: CardTracks = {
             videos: [
                 {
@@ -443,6 +454,7 @@ describe("tracks functions", () => {
                     yotoTrackKey: "key1",
                 },
             ],
+            youtubePlaylistId: "PLtest123",
             lastSynced: "2026-02-03T12:00:00Z",
         }
 
@@ -451,7 +463,9 @@ describe("tracks functions", () => {
         removeSyncedTrack("singletrack", "key1")
 
         const result = getCardTracks("singletrack")
-        expect(result).toBeNull()
+        expect(result).not.toBeNull()
+        expect(result?.videos).toHaveLength(0)
+        expect(result?.youtubePlaylistId).toBe("PLtest123")
     })
 
     it("removeSyncedTrack should handle non-existent card gracefully", () => {
@@ -484,5 +498,37 @@ describe("tracks functions", () => {
 
         const result = getCardTracks("existingcard")
         expect(result?.videos).toHaveLength(1)
+    })
+
+    it("removeSyncedTrack should update lastSynced timestamp", () => {
+        const originalLastSynced = "2026-02-03T12:00:00Z"
+        const cardTracks: CardTracks = {
+            videos: [
+                {
+                    youtubeVideoId: "vid1",
+                    title: "Video 1",
+                    syncedAt: "2026-02-03T12:00:00Z",
+                    yotoTrackKey: "key1",
+                },
+                {
+                    youtubeVideoId: "vid2",
+                    title: "Video 2",
+                    syncedAt: "2026-02-03T12:01:00Z",
+                    yotoTrackKey: "key2",
+                },
+            ],
+            lastSynced: originalLastSynced,
+        }
+
+        writeTracks({timestampcard: cardTracks})
+
+        removeSyncedTrack("timestampcard", "key1")
+
+        const result = getCardTracks("timestampcard")
+        expect(result?.lastSynced).not.toBe(originalLastSynced)
+        // Verify it's a valid ISO date string that's more recent
+        const newDate = new Date(result?.lastSynced ?? "")
+        const oldDate = new Date(originalLastSynced)
+        expect(newDate.getTime()).toBeGreaterThan(oldDate.getTime())
     })
 })
