@@ -1,6 +1,5 @@
 import {Trash2} from "lucide-react"
-import {redirect, useFetcher} from "react-router"
-import {Link} from "react-router"
+import {Form, Link, redirect, useActionData, useNavigation} from "react-router"
 
 import {
     AlertDialog,
@@ -227,26 +226,31 @@ function formatDate(dateStr?: string): string {
     return new Date(dateStr).toLocaleDateString()
 }
 
-type AddTracksActionData = {
+type ActionData = {
     error?: string
     success?: boolean
     message?: string
     added?: number
     skipped?: number
+    deleted?: string
 }
 
-function AddTracksForm({isDisabled}: {isDisabled: boolean}) {
-    const fetcher = useFetcher<AddTracksActionData>()
-    const isSubmitting = fetcher.state !== "idle"
-    const data = fetcher.data
-
+function AddTracksForm({
+    isBusy,
+    isImporting,
+    actionData,
+}: {
+    isBusy: boolean
+    isImporting: boolean
+    actionData: ActionData | undefined
+}) {
     return (
         <Card className="mt-6">
             <CardHeader>
                 <CardTitle className="text-lg">Add Tracks</CardTitle>
             </CardHeader>
             <CardContent>
-                <fetcher.Form method="post" className="space-y-4">
+                <Form method="post" className="space-y-4">
                     <input type="hidden" name="intent" value="addTracks" />
 
                     <div className="flex gap-2">
@@ -255,40 +259,37 @@ function AddTracksForm({isDisabled}: {isDisabled: boolean}) {
                             type="url"
                             placeholder="https://www.youtube.com/watch?v=abc123"
                             required
-                            disabled={isSubmitting || isDisabled}
+                            disabled={isBusy}
                             className="flex-1"
                         />
-                        <Button
-                            type="submit"
-                            disabled={isSubmitting || isDisabled}
-                        >
-                            {isSubmitting ? "Importing..." : "Import"}
+                        <Button type="submit" disabled={isBusy}>
+                            {isImporting ? "Importing..." : "Import"}
                         </Button>
                     </div>
 
-                    {data?.success && (
+                    {actionData?.success && actionData?.message && (
                         <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
                             <p className="text-green-700 dark:text-green-300 font-medium">
-                                {data.message}
+                                {actionData.message}
                             </p>
                         </div>
                     )}
 
-                    {data?.error && (
+                    {actionData?.error && (
                         <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
                             <p className="text-red-700 dark:text-red-300">
-                                {data.error}
+                                {actionData.error}
                             </p>
                         </div>
                     )}
 
-                    {isSubmitting && (
+                    {isImporting && (
                         <p className="text-sm text-muted-foreground">
                             Downloading from YouTube and uploading to Yoto. This
                             can take several minutes for large playlists.
                         </p>
                     )}
-                </fetcher.Form>
+                </Form>
             </CardContent>
         </Card>
     )
@@ -301,8 +302,13 @@ export default function CardDetail({
 }) {
     const {card, tracks, syncedCount, youtubePlaylistId, lastSynced} =
         loaderData
-    const fetcher = useFetcher()
-    const isDeleting = fetcher.state !== "idle"
+    const navigation = useNavigation()
+    const actionData = useActionData<ActionData>()
+
+    const isBusy = navigation.state !== "idle"
+    const pendingIntent = navigation.formData?.get("intent")
+    const isImporting = pendingIntent === "addTracks"
+    const isDeletingCard = pendingIntent === "deleteCard"
 
     return (
         <div className="min-h-screen p-8">
@@ -367,9 +373,9 @@ export default function CardDetail({
                                 <AlertDialogTrigger asChild>
                                     <Button
                                         variant="destructive"
-                                        disabled={isDeleting}
+                                        disabled={isBusy}
                                     >
-                                        {isDeleting
+                                        {isDeletingCard
                                             ? "Deleting..."
                                             : "Delete Card"}
                                     </Button>
@@ -392,7 +398,7 @@ export default function CardDetail({
                                         <AlertDialogCancel>
                                             Cancel
                                         </AlertDialogCancel>
-                                        <fetcher.Form method="post">
+                                        <Form method="post">
                                             <input
                                                 type="hidden"
                                                 name="intent"
@@ -404,7 +410,7 @@ export default function CardDetail({
                                             >
                                                 Delete
                                             </AlertDialogAction>
-                                        </fetcher.Form>
+                                        </Form>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -466,7 +472,7 @@ export default function CardDetail({
                                                     variant="ghost"
                                                     size="sm"
                                                     className="text-muted-foreground hover:text-destructive"
-                                                    disabled={isDeleting}
+                                                    disabled={isBusy}
                                                     aria-label={`Delete track: ${track.title}`}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
@@ -489,7 +495,7 @@ export default function CardDetail({
                                                     <AlertDialogCancel>
                                                         Cancel
                                                     </AlertDialogCancel>
-                                                    <fetcher.Form method="post">
+                                                    <Form method="post">
                                                         <input
                                                             type="hidden"
                                                             name="intent"
@@ -506,7 +512,7 @@ export default function CardDetail({
                                                         >
                                                             Delete
                                                         </AlertDialogAction>
-                                                    </fetcher.Form>
+                                                    </Form>
                                                 </AlertDialogFooter>
                                             </AlertDialogContent>
                                         </AlertDialog>
@@ -517,7 +523,11 @@ export default function CardDetail({
                     </CardContent>
                 </Card>
 
-                <AddTracksForm isDisabled={isDeleting} />
+                <AddTracksForm
+                    isBusy={isBusy}
+                    isImporting={isImporting}
+                    actionData={actionData}
+                />
             </div>
         </div>
     )
