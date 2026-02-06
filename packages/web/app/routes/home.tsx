@@ -1,6 +1,7 @@
 import {ArrowDownNarrowWide, Plus} from "lucide-react"
 import {useEffect, useState} from "react"
 import {Link, useFetcher, useNavigate} from "react-router"
+import {toast} from "sonner"
 
 import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
@@ -232,12 +233,14 @@ export default function Home({
 
     const isCreating = fetcher.state !== "idle"
 
-    // Navigate to the new card on success
+    // Navigate to the new card on success or show error
     useEffect(() => {
         if (fetcher.data?.success && fetcher.data?.cardId) {
             setDialogOpen(false)
             setCardName("")
             navigate(`/cards/${fetcher.data.cardId}`)
+        } else if (fetcher.data?.error) {
+            toast.error(fetcher.data.error)
         }
     }, [fetcher.data, navigate])
 
@@ -356,11 +359,6 @@ export default function Home({
                                             disabled={isCreating}
                                         />
                                     </div>
-                                    {fetcher.data?.error && (
-                                        <p className="text-sm text-red-500">
-                                            {fetcher.data.error}
-                                        </p>
-                                    )}
                                 </div>
                                 <DialogFooter>
                                     <Button

@@ -1,5 +1,7 @@
 import {Trash2} from "lucide-react"
+import {useEffect} from "react"
 import {Form, Link, redirect, useActionData, useNavigation} from "react-router"
+import {toast} from "sonner"
 
 import {
     AlertDialog,
@@ -238,7 +240,6 @@ type ActionData = {
 function AddTracksForm({
     isBusy,
     isImporting,
-    actionData,
 }: {
     isBusy: boolean
     isImporting: boolean
@@ -267,22 +268,6 @@ function AddTracksForm({
                         </Button>
                     </div>
 
-                    {actionData?.success && actionData?.message && (
-                        <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                            <p className="text-green-700 dark:text-green-300 font-medium">
-                                {actionData.message}
-                            </p>
-                        </div>
-                    )}
-
-                    {actionData?.error && (
-                        <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                            <p className="text-red-700 dark:text-red-300">
-                                {actionData.error}
-                            </p>
-                        </div>
-                    )}
-
                     {isImporting && (
                         <p className="text-sm text-muted-foreground">
                             Downloading from YouTube and uploading to Yoto. This
@@ -309,6 +294,19 @@ export default function CardDetail({
     const pendingIntent = navigation.formData?.get("intent")
     const isImporting = pendingIntent === "addTracks"
     const isDeletingCard = pendingIntent === "deleteCard"
+
+    // Show toast notifications for action results
+    useEffect(() => {
+        if (!actionData) return
+
+        if (actionData.deleted) {
+            toast.success("Track deleted successfully")
+        } else if (actionData.success && actionData.message) {
+            toast.success(actionData.message)
+        } else if (actionData.error) {
+            toast.error(actionData.error)
+        }
+    }, [actionData])
 
     return (
         <div className="min-h-screen p-8">
