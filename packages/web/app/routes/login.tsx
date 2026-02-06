@@ -1,8 +1,6 @@
 import {useEffect, useState} from "react"
 import {redirect, useFetcher} from "react-router"
 
-import {completeLogin, initiateLogin, status} from "~/lib/auth.server"
-
 import {Button} from "~/components/ui/button"
 import {
     Card,
@@ -11,6 +9,7 @@ import {
     CardHeader,
     CardTitle,
 } from "~/components/ui/card"
+import {completeLogin, initiateLogin, status} from "~/lib/auth.server"
 
 type ActionData =
     | {step: "idle"}

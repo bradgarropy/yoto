@@ -1,6 +1,23 @@
 import {spawn} from "node:child_process"
 import {join} from "node:path"
 
+// Check if error indicates yt-dlp needs updating
+const needsYtDlpUpdate = (stderr: string): boolean => {
+    return (
+        stderr.includes("n challenge solving failed") ||
+        stderr.includes("Ensure you have a supported JavaScript runtime") ||
+        stderr.includes("Some formats may be missing")
+    )
+}
+
+// Create user-friendly error message
+const createErrorMessage = (stderr: string, defaultMsg: string): string => {
+    if (needsYtDlpUpdate(stderr)) {
+        return "YouTube download failed due to outdated yt-dlp. Please update by running: brew upgrade yt-dlp"
+    }
+    return defaultMsg
+}
+
 // Types
 type YouTubeTrack = {
     id: string
@@ -83,9 +100,11 @@ const getVideoInfo = async (url: string): Promise<YouTubePlaylistInfo> => {
 
         ytDlp.on("close", code => {
             if (code !== 0) {
-                reject(
-                    new Error(`yt-dlp failed (exit code ${code}): ${stderr}`),
+                const errorMsg = createErrorMessage(
+                    stderr,
+                    `yt-dlp failed (exit code ${code}): ${stderr}`,
                 )
+                reject(new Error(errorMsg))
                 return
             }
 
@@ -146,9 +165,11 @@ const getPlaylistInfo = async (url: string): Promise<YouTubePlaylistInfo> => {
 
         ytDlp.on("close", code => {
             if (code !== 0) {
-                reject(
-                    new Error(`yt-dlp failed (exit code ${code}): ${stderr}`),
+                const errorMsg = createErrorMessage(
+                    stderr,
+                    `yt-dlp failed (exit code ${code}): ${stderr}`,
                 )
+                reject(new Error(errorMsg))
                 return
             }
 
@@ -226,10 +247,11 @@ const downloadTrack = async (
             if (code === 0) {
                 resolve(outputPath)
             } else {
-                const errorMsg = stderr.trim() || `exit code ${code}`
-                reject(
-                    new Error(`Failed to download ${track.title}: ${errorMsg}`),
+                const errorMsg = createErrorMessage(
+                    stderr,
+                    `Failed to download ${track.title}: ${stderr.trim() || `exit code ${code}`}`,
                 )
+                reject(new Error(errorMsg))
             }
         })
     })

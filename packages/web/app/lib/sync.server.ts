@@ -4,7 +4,7 @@ import {mkdir} from "node:fs/promises"
 import {homedir} from "node:os"
 import {basename, join} from "node:path"
 
-import {getYotoSdk} from "@yoto/core/auth"
+import type {getYotoSdk} from "@yoto/core/auth"
 import {setPlaylistAssociation} from "@yoto/core/playlists"
 import {
     downloadTrack,

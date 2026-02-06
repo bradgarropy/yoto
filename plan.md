@@ -337,6 +337,24 @@ Replace custom Yoto API code with official packages.
 
 ---
 
+### Phase 4: Polish
+
+#### UI Enhancements
+
+- [x] Show card cover art on the home page
+- [x] Show card track count on the home page
+- [x] Show card cover art on the /cards/:cardId page
+- [ ] Add delete track functionality to the /cards/:cardId page
+- [ ] Add reorder capability to tracks on the /cards/:cardId page
+- [ ] Make the destination card select a combobox on the /sync page
+- [x] Sort cards by title, number of tracks, or last updated
+- [x] Add search box to filter cards on the home page
+- [x] Add option to delete card on the /cards/:cardId page
+- [ ] Add favicon (https://www.datocms-assets.com/48136/1621005108-yoto-favicon.png)
+- [ ] Redesign home page header: move title up, spread search/sort/sync controls underneath
+
+---
+
 ## Risks & Mitigations
 
 ### yt-dlp Availability

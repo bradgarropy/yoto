@@ -1,9 +1,21 @@
+import {useState} from "react"
 import {Link} from "react-router"
 
-import {getAuthenticatedSdk, status} from "~/lib/auth.server"
-
+import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {Input} from "~/components/ui/input"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "~/components/ui/select"
+import {getAuthenticatedSdk, status} from "~/lib/auth.server"
+import {readTracks} from "~/lib/tracks.server"
+
+type SortOption = "title" | "tracks" | "updated"
 
 export function meta() {
     return [
@@ -23,25 +35,94 @@ export async function loader() {
     try {
         const sdk = await getAuthenticatedSdk()
         const cards = await sdk.content.getMyCards()
+        const tracksData = readTracks()
 
         // SDK returns array of UserCard directly
+        // The actual API response includes metadata.cover, not cover directly
+        type CardWithMetadata = (typeof cards)[0] & {
+            metadata?: {
+                cover?: {imageL?: string; imageM?: string; imageS?: string}
+            }
+        }
+
+        // Fetch full card details in parallel to get track counts
+        const cardsWithDetails = await Promise.all(
+            cards.map(async card => {
+                const cardWithMeta = card as CardWithMetadata
+                const cardTracks = tracksData[card.cardId]
+                try {
+                    const fullCard = (await sdk.content.getCard(
+                        card.cardId,
+                    )) as {
+                        content?: {chapters?: Array<unknown>}
+                    }
+                    return {
+                        id: card.cardId,
+                        title: card.title ?? "Untitled Card",
+                        coverUrl:
+                            cardWithMeta.metadata?.cover?.imageL ??
+                            cardWithMeta.metadata?.cover?.imageM ??
+                            cardWithMeta.metadata?.cover?.imageS ??
+                            card.cover?.imageL ??
+                            card.cover?.imageM ??
+                            card.cover?.imageS,
+                        trackCount: fullCard.content?.chapters?.length ?? 0,
+                        lastSynced: cardTracks?.lastSynced ?? null,
+                    }
+                } catch {
+                    // Fallback if we can't fetch full card
+                    return {
+                        id: card.cardId,
+                        title: card.title ?? "Untitled Card",
+                        coverUrl:
+                            cardWithMeta.metadata?.cover?.imageL ??
+                            cardWithMeta.metadata?.cover?.imageM ??
+                            cardWithMeta.metadata?.cover?.imageS ??
+                            card.cover?.imageL ??
+                            card.cover?.imageM ??
+                            card.cover?.imageS,
+                        trackCount: 0,
+                        lastSynced: cardTracks?.lastSynced ?? null,
+                    }
+                }
+            }),
+        )
+
         return {
             authenticated: true as const,
-            cards: cards.map(card => ({
-                id: card.cardId,
-                title: card.title ?? "Untitled Card",
-                coverUrl: (
-                    card as unknown as {metadata?: {coverImageUrl?: string}}
-                ).metadata?.coverImageUrl,
-                trackCount:
-                    (card as unknown as {content?: {chapters?: Array<unknown>}})
-                        .content?.chapters?.length ?? 0,
-            })),
+            cards: cardsWithDetails,
         }
     } catch (error) {
         console.error("Failed to fetch cards:", error)
         return {authenticated: true as const, cards: []}
     }
+}
+
+const sortCards = (
+    cards: Awaited<ReturnType<typeof loader>>["cards"],
+    sortBy: SortOption,
+) => {
+    return [...cards].sort((a, b) => {
+        switch (sortBy) {
+            case "title":
+                return a.title.localeCompare(b.title)
+            case "tracks":
+                return b.trackCount - a.trackCount
+            case "updated":
+                // Cards with lastSynced come first, sorted by most recent
+                if (a.lastSynced && b.lastSynced) {
+                    return (
+                        new Date(b.lastSynced).getTime() -
+                        new Date(a.lastSynced).getTime()
+                    )
+                }
+                if (a.lastSynced) return -1
+                if (b.lastSynced) return 1
+                return 0
+            default:
+                return 0
+        }
+    })
 }
 
 export default function Home({
@@ -50,6 +131,13 @@ export default function Home({
     loaderData: Awaited<ReturnType<typeof loader>>
 }) {
     const {authenticated, cards} = loaderData
+    const [sortBy, setSortBy] = useState<SortOption>("title")
+    const [searchQuery, setSearchQuery] = useState("")
+
+    const filteredCards = cards.filter(card =>
+        card.title.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    const sortedCards = sortCards(filteredCards, sortBy)
 
     if (!authenticated) {
         return (
@@ -79,9 +167,42 @@ export default function Home({
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-8">
                     <h1 className="text-3xl font-bold">My Yoto Cards</h1>
-                    <Link to="/sync">
-                        <Button>Sync New Content</Button>
-                    </Link>
+                    <div className="flex items-center gap-4">
+                        <Input
+                            type="text"
+                            placeholder="Search cards..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-48"
+                        />
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">
+                                Sort by
+                            </span>
+                            <Select
+                                value={sortBy}
+                                onValueChange={value =>
+                                    setSortBy(value as SortOption)
+                                }
+                            >
+                                <SelectTrigger className="w-36">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="title">Title</SelectItem>
+                                    <SelectItem value="tracks">
+                                        Track Count
+                                    </SelectItem>
+                                    <SelectItem value="updated">
+                                        Last Synced
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <Link to="/sync">
+                            <Button>Sync New Content</Button>
+                        </Link>
+                    </div>
                 </div>
 
                 {cards.length === 0 ? (
@@ -96,26 +217,23 @@ export default function Home({
                             </Link>
                         </CardContent>
                     </Card>
+                ) : sortedCards.length === 0 ? (
+                    <Card>
+                        <CardContent className="py-8 text-center">
+                            <p className="text-muted-foreground">
+                                No cards match &ldquo;{searchQuery}&rdquo;
+                            </p>
+                        </CardContent>
+                    </Card>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {cards.map(card => (
+                        {sortedCards.map(card => (
                             <Link key={card.id} to={`/cards/${card.id}`}>
-                                <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full">
-                                    {card.coverUrl ? (
-                                        <div className="aspect-square bg-muted">
-                                            <img
-                                                src={card.coverUrl}
-                                                alt={card.title}
-                                                className="w-full h-full object-cover"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="aspect-square bg-muted flex items-center justify-center">
-                                            <span className="text-4xl text-muted-foreground">
-                                                ?
-                                            </span>
-                                        </div>
-                                    )}
+                                <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full py-0 gap-0 rounded-2xl">
+                                    <CardCover
+                                        coverUrl={card.coverUrl}
+                                        title={card.title}
+                                    />
                                     <CardContent className="p-4">
                                         <h3 className="font-semibold truncate">
                                             {card.title}

@@ -1,9 +1,6 @@
 import {useState} from "react"
 import {Link, useFetcher, useSearchParams} from "react-router"
 
-import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
-import {performSync} from "~/lib/sync.server"
-
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {Input} from "~/components/ui/input"
@@ -15,6 +12,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from "~/components/ui/select"
+import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
+import {performSync} from "~/lib/sync.server"
 
 export function meta() {
     return [
