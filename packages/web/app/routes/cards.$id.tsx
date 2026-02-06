@@ -394,6 +394,7 @@ export default function CardDetail({
                                                     size="sm"
                                                     className="text-muted-foreground hover:text-destructive"
                                                     disabled={isDeleting}
+                                                    aria-label={`Delete track: ${track.title}`}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>

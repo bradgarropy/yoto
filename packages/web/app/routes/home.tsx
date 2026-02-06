@@ -178,7 +178,11 @@ export default function Home({
                     />
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="icon">
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label="Sort cards"
+                            >
                                 <ArrowDownNarrowWide className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>
