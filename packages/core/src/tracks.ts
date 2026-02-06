@@ -90,6 +90,27 @@ const removeCardTracks = (cardId: string): void => {
     writeTracks(tracks)
 }
 
+const removeSyncedTrack = (cardId: string, yotoTrackKey: string): void => {
+    const tracks = readTracks()
+    const cardTracks = tracks[cardId]
+
+    if (!cardTracks) {
+        return
+    }
+
+    cardTracks.videos = cardTracks.videos.filter(
+        v => v.yotoTrackKey !== yotoTrackKey,
+    )
+
+    if (cardTracks.videos.length === 0) {
+        delete tracks[cardId]
+    } else {
+        tracks[cardId] = cardTracks
+    }
+
+    writeTracks(tracks)
+}
+
 export {
     addSyncedTrack,
     getCardTracks,
@@ -97,6 +118,7 @@ export {
     isVideoSynced,
     readTracks,
     removeCardTracks,
+    removeSyncedTrack,
     setCardTracks,
     writeTracks,
 }
