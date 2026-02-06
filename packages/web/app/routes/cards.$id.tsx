@@ -243,7 +243,6 @@ function AddTracksForm({
 }: {
     isBusy: boolean
     isImporting: boolean
-    actionData: ActionData | undefined
 }) {
     return (
         <Card className="mt-6">
