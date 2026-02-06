@@ -1,17 +1,19 @@
+import {ArrowDownNarrowWide} from "lucide-react"
 import {useState} from "react"
 import {Link} from "react-router"
 
 import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
-import {Input} from "~/components/ui/input"
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "~/components/ui/select"
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu"
+import {Input} from "~/components/ui/input"
 import {getAuthenticatedSdk, status} from "~/lib/auth.server"
 import {readTracks} from "~/lib/tracks.server"
 
@@ -19,7 +21,7 @@ type SortOption = "title" | "tracks" | "updated"
 
 export function meta() {
     return [
-        {title: "Yoto Sync"},
+        {title: "Yoto"},
         {name: "description", content: "Sync YouTube playlists to Yoto"},
     ]
 }
@@ -165,44 +167,53 @@ export default function Home({
     return (
         <div className="min-h-screen p-8">
             <div className="max-w-6xl mx-auto">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-3xl font-bold">My Yoto Cards</h1>
-                    <div className="flex items-center gap-4">
-                        <Input
-                            type="text"
-                            placeholder="Search cards..."
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                            className="w-48"
-                        />
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground">
-                                Sort by
-                            </span>
-                            <Select
-                                value={sortBy}
-                                onValueChange={value =>
-                                    setSortBy(value as SortOption)
-                                }
+                <h1 className="text-3xl font-bold mb-6">My Cards</h1>
+                <div className="flex items-center gap-3 mb-8">
+                    <Input
+                        type="text"
+                        placeholder="Search cards..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="flex-1"
+                    />
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="icon">
+                                <ArrowDownNarrowWide className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onClick={() => setSortBy("title")}
                             >
-                                <SelectTrigger className="w-36">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="title">Title</SelectItem>
-                                    <SelectItem value="tracks">
-                                        Track Count
-                                    </SelectItem>
-                                    <SelectItem value="updated">
-                                        Last Synced
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <Link to="/sync">
-                            <Button>Sync New Content</Button>
-                        </Link>
-                    </div>
+                                Title
+                                {sortBy === "title" && (
+                                    <span className="ml-auto">✓</span>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onClick={() => setSortBy("tracks")}
+                            >
+                                Track Count
+                                {sortBy === "tracks" && (
+                                    <span className="ml-auto">✓</span>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onClick={() => setSortBy("updated")}
+                            >
+                                Last Synced
+                                {sortBy === "updated" && (
+                                    <span className="ml-auto">✓</span>
+                                )}
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    <Link to="/sync">
+                        <Button>Sync New Content</Button>
+                    </Link>
                 </div>
 
                 {cards.length === 0 ? (

@@ -12,6 +12,7 @@ import {
 } from "react-router"
 
 export const links = () => [
+    {rel: "icon", type: "image/png", href: "/favicon.png"},
     {rel: "preconnect", href: "https://fonts.googleapis.com"},
     {
         rel: "preconnect",
@@ -36,7 +37,7 @@ function Header() {
         <header className="border-b bg-background">
             <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
                 <Link to="/" className="font-bold text-lg">
-                    Yoto Sync
+                    Yoto
                 </Link>
                 <nav className="flex items-center gap-4">
                     <Link
