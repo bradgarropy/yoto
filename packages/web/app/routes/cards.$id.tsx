@@ -1,6 +1,13 @@
 import {Trash2} from "lucide-react"
-import {useEffect} from "react"
-import {Form, Link, redirect, useActionData, useNavigation} from "react-router"
+import {useCallback, useEffect, useRef, useState} from "react"
+import {
+    Form,
+    Link,
+    redirect,
+    useActionData,
+    useNavigation,
+    useRevalidator,
+} from "react-router"
 import {toast} from "sonner"
 
 import {
@@ -17,8 +24,8 @@ import {
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {Input} from "~/components/ui/input"
+import {Progress} from "~/components/ui/progress"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
-import {performSyncToCard} from "~/lib/sync.server"
 import {stripNullValues} from "~/lib/sync-utils"
 import {
     getCardTracks,
@@ -198,17 +205,6 @@ export async function action({
             return redirect("/")
         }
 
-        if (intent === "addTracks") {
-            const youtubeUrl = formData.get("youtubeUrl") as string
-
-            if (!youtubeUrl) {
-                return {error: "YouTube URL is required"}
-            }
-
-            const result = await performSyncToCard(youtubeUrl, cardId)
-            return result
-        }
-
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -237,43 +233,209 @@ type ActionData = {
     deleted?: string
 }
 
-function AddTracksForm({
-    isBusy,
-    isImporting,
-}: {
-    isBusy: boolean
-    isImporting: boolean
-}) {
+type ImportProgress = {
+    phase: "fetching" | "downloading" | "uploading" | "transcoding" | "updating"
+    current?: number
+    total?: number
+    title?: string
+}
+
+type ImportState =
+    | {status: "idle"}
+    | {status: "importing"; progress: ImportProgress | null}
+    | {status: "complete"; added: number; skipped: number; message: string}
+    | {status: "error"; error: string}
+
+function getProgressMessage(progress: ImportProgress | null): string {
+    if (!progress) return "Starting import..."
+
+    switch (progress.phase) {
+        case "fetching":
+            return "Fetching video information from YouTube..."
+        case "downloading":
+            return progress.current && progress.total
+                ? `Downloading track ${progress.current} of ${progress.total}: ${progress.title || "..."}`
+                : "Downloading..."
+        case "uploading":
+            return progress.current && progress.total
+                ? `Uploading track ${progress.current} of ${progress.total}: ${progress.title || "..."}`
+                : "Uploading..."
+        case "transcoding":
+            return "Processing audio..."
+        case "updating":
+            return "Updating card..."
+        default:
+            return "Processing..."
+    }
+}
+
+function getProgressPercent(progress: ImportProgress | null): number {
+    if (!progress || !progress.current || !progress.total) return 0
+
+    const trackProgress = (progress.current - 1) / progress.total
+    const phaseBonus =
+        progress.phase === "uploading"
+            ? 0.5 / progress.total
+            : progress.phase === "updating"
+              ? 1
+              : 0
+
+    return Math.min(Math.round((trackProgress + phaseBonus) * 100), 100)
+}
+
+function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
+    const [importState, setImportState] = useState<ImportState>({
+        status: "idle",
+    })
+    const [youtubeUrl, setYoutubeUrl] = useState("")
+    const eventSourceRef = useRef<EventSource | null>(null)
+    const revalidator = useRevalidator()
+
+    const startImport = useCallback(() => {
+        if (!youtubeUrl.trim()) return
+
+        // Clean up any existing connection
+        if (eventSourceRef.current) {
+            eventSourceRef.current.close()
+        }
+
+        setImportState({status: "importing", progress: null})
+
+        const url = `/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`
+        const eventSource = new EventSource(url)
+        eventSourceRef.current = eventSource
+
+        eventSource.onmessage = event => {
+            try {
+                const data = JSON.parse(event.data)
+
+                if (data.type === "progress") {
+                    setImportState({
+                        status: "importing",
+                        progress: {
+                            phase: data.phase,
+                            current: data.current,
+                            total: data.total,
+                            title: data.title,
+                        },
+                    })
+                } else if (data.type === "complete") {
+                    setImportState({
+                        status: "complete",
+                        added: data.added,
+                        skipped: data.skipped,
+                        message: data.message,
+                    })
+                    eventSource.close()
+                    setYoutubeUrl("")
+                    revalidator.revalidate()
+                } else if (data.type === "error") {
+                    setImportState({status: "error", error: data.error})
+                    eventSource.close()
+                }
+            } catch {
+                // Ignore parse errors
+            }
+        }
+
+        eventSource.onerror = () => {
+            if (importState.status === "importing") {
+                setImportState({
+                    status: "error",
+                    error: "Connection lost. Please try again.",
+                })
+            }
+            eventSource.close()
+        }
+    }, [cardId, youtubeUrl, revalidator, importState.status])
+
+    // Clean up on unmount
+    useEffect(() => {
+        return () => {
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close()
+            }
+        }
+    }, [])
+
+    // Show toast on completion/error
+    useEffect(() => {
+        if (importState.status === "complete") {
+            toast.success(importState.message)
+            // Reset to idle after showing toast
+            const timer = setTimeout(
+                () => setImportState({status: "idle"}),
+                3000,
+            )
+            return () => clearTimeout(timer)
+        } else if (importState.status === "error") {
+            toast.error(importState.error)
+            // Reset to idle after showing toast
+            const timer = setTimeout(
+                () => setImportState({status: "idle"}),
+                3000,
+            )
+            return () => clearTimeout(timer)
+        }
+    }, [importState])
+
+    const isImporting = importState.status === "importing"
+    const progress =
+        importState.status === "importing" ? importState.progress : null
+
+    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault()
+        startImport()
+    }
+
     return (
         <Card className="mt-6">
             <CardHeader>
                 <CardTitle className="text-lg">Add Tracks</CardTitle>
             </CardHeader>
             <CardContent>
-                <Form method="post" className="space-y-4">
-                    <input type="hidden" name="intent" value="addTracks" />
-
+                <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="flex gap-2">
                         <Input
-                            name="youtubeUrl"
                             type="url"
                             placeholder="https://www.youtube.com/watch?v=abc123"
                             required
-                            disabled={isBusy}
+                            disabled={isBusy || isImporting}
                             className="flex-1"
+                            value={youtubeUrl}
+                            onChange={e => setYoutubeUrl(e.target.value)}
                         />
-                        <Button type="submit" disabled={isBusy}>
+                        <Button
+                            type="submit"
+                            disabled={
+                                isBusy || isImporting || !youtubeUrl.trim()
+                            }
+                        >
                             {isImporting ? "Importing..." : "Import"}
                         </Button>
                     </div>
 
                     {isImporting && (
-                        <p className="text-sm text-muted-foreground">
-                            Downloading from YouTube and uploading to Yoto. This
-                            can take several minutes for large playlists.
+                        <div className="space-y-2">
+                            <Progress value={getProgressPercent(progress)} />
+                            <p className="text-sm text-muted-foreground">
+                                {getProgressMessage(progress)}
+                            </p>
+                        </div>
+                    )}
+
+                    {importState.status === "complete" && (
+                        <p className="text-sm text-green-600">
+                            {importState.message}
                         </p>
                     )}
-                </Form>
+
+                    {importState.status === "error" && (
+                        <p className="text-sm text-destructive">
+                            {importState.error}
+                        </p>
+                    )}
+                </form>
             </CardContent>
         </Card>
     )
@@ -291,7 +453,6 @@ export default function CardDetail({
 
     const isBusy = navigation.state !== "idle"
     const pendingIntent = navigation.formData?.get("intent")
-    const isImporting = pendingIntent === "addTracks"
     const isDeletingCard = pendingIntent === "deleteCard"
 
     // Show toast notifications for action results
@@ -520,7 +681,7 @@ export default function CardDetail({
                     </CardContent>
                 </Card>
 
-                <AddTracksForm isBusy={isBusy} isImporting={isImporting} />
+                <AddTracksForm cardId={card.id} isBusy={isBusy} />
             </div>
         </div>
     )
