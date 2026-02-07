@@ -47,6 +47,7 @@ const calculateFileSha256 = (filePath: string): string => {
 const uploadAudio = async (
     sdk: Awaited<ReturnType<typeof getYotoSdk>>,
     filePath: string,
+    onProgress?: () => void,
 ): Promise<{key: string; duration: number; fileSize: number}> => {
     const sha256 = calculateFileSha256(filePath)
     const filename = basename(filePath)
@@ -108,6 +109,7 @@ const uploadAudio = async (
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
+        onProgress?.()
 
         try {
             const transcodeStatus = (await sdk.media.getTranscodedUpload(
@@ -221,7 +223,14 @@ export async function performSyncToCard(
                 total: tracksToAdd.length,
                 title: track.title,
             })
-            const uploaded = await uploadAudio(sdk, filePath)
+            const uploaded = await uploadAudio(sdk, filePath, () => {
+                onProgress?.({
+                    phase: "transcoding",
+                    current: i + 1,
+                    total: tracksToAdd.length,
+                    title: track.title,
+                })
+            })
 
             // Create chapter
             const chapter = createChapter(
