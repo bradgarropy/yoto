@@ -7,8 +7,9 @@ import {
     TokenManager,
 } from "@yotoplay/oauth-device-code-flow"
 import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
+import {redirect} from "react-router"
 
-import {CONFIG_PATH, ensureConfigDir} from "./paths.js"
+import {CONFIG_PATH, ensureConfigDir} from "./paths.server"
 
 // Auth0 configuration for Yoto
 const AUTH_CONFIG = {
@@ -178,15 +179,15 @@ const getToken = async (): Promise<string | null> => {
 }
 
 // Gets valid token or throws (for use in API calls)
-const requireAuth = async (): Promise<string> => {
+const requireAuthCore = async (): Promise<string> => {
     const token = await getToken()
 
     if (!token) {
         const tokenStatus = await status()
         if (tokenStatus.valid === false && tokenStatus.reason === "expired") {
-            throw new Error("Token expired. Please run: yoto login")
+            throw new Error("Token expired. Please log in again.")
         }
-        throw new Error("Not logged in. Please run: yoto login")
+        throw new Error("Not logged in. Please log in.")
     }
 
     return token
@@ -194,17 +195,44 @@ const requireAuth = async (): Promise<string> => {
 
 // Creates an authenticated Yoto SDK instance
 const getYotoSdk = async (): Promise<YotoSdk> => {
-    const token = await requireAuth()
+    const token = await requireAuthCore()
     return createYotoSdk({jwt: token})
+}
+
+// Helper to require authentication in loaders
+// Redirects to /login if not authenticated
+const requireAuth = async () => {
+    const authStatus = await status()
+
+    if (!authStatus.valid) {
+        throw redirect("/login")
+    }
+
+    return authStatus
+}
+
+// Helper to get authenticated SDK, with redirect on failure
+const getAuthenticatedSdk = async () => {
+    await requireAuth()
+    return getYotoSdk()
+}
+
+// Check if user is authenticated (without redirect)
+const isAuthenticated = async () => {
+    const authStatus = await status()
+    return authStatus.valid
 }
 
 export {
     completeLogin,
+    getAuthenticatedSdk,
     getToken,
     getYotoSdk,
     initiateLogin,
+    isAuthenticated,
     logout,
     requireAuth,
+    requireAuthCore,
     status,
 }
 

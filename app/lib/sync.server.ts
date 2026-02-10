@@ -4,16 +4,8 @@ import {mkdtemp} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {basename, join} from "node:path"
 
-import type {getYotoSdk} from "@yoto/core/auth"
-import {setPlaylistAssociation} from "@yoto/core/playlists"
-import {
-    downloadTrack,
-    extractPlaylistId,
-    getPlaylistInfo,
-    isPlaylistUrl,
-} from "@yoto/core/youtube"
-
-import {getAuthenticatedSdk} from "./auth.server"
+import {getAuthenticatedSdk, type getYotoSdk} from "./auth.server"
+import {setPlaylistAssociation} from "./playlists.server"
 import {
     createChapter,
     type ImportProgress,
@@ -21,6 +13,12 @@ import {
     type YotoChapter,
 } from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
+import {
+    downloadTrack,
+    extractPlaylistId,
+    getPlaylistInfo,
+    isPlaylistUrl,
+} from "./youtube.server"
 
 type YotoContent = {
     activity: string

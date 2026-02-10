@@ -1,6 +1,6 @@
 import {existsSync, readFileSync, writeFileSync} from "node:fs"
 
-import {ensureConfigDir, TRACKS_FILE} from "./paths.js"
+import {ensureConfigDir, TRACKS_FILE} from "./paths.server"
 
 // Track types - ordered array to preserve track order
 type SyncedTrack = {

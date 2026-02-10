@@ -1,13 +1,13 @@
 import {vol} from "memfs"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {Playlists} from "./playlists.js"
+import type {Playlists} from "./playlists.server"
 import {
     getPlaylistAssociation,
     readPlaylists,
     setPlaylistAssociation,
     writePlaylists,
-} from "./playlists.js"
+} from "./playlists.server"
 
 // Mock node:fs with memfs
 vi.mock("node:fs", async () => {
