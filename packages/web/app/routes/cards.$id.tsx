@@ -416,18 +416,6 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
                             </p>
                         </div>
                     )}
-
-                    {importState.status === "complete" && (
-                        <p className="text-sm text-green-600">
-                            {importState.message}
-                        </p>
-                    )}
-
-                    {importState.status === "error" && (
-                        <p className="text-sm text-destructive">
-                            {importState.error}
-                        </p>
-                    )}
                 </form>
             </CardContent>
         </Card>
