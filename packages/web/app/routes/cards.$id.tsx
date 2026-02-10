@@ -1,10 +1,12 @@
-import {Trash2} from "lucide-react"
+import {GripVertical, Trash2} from "lucide-react"
+import {Reorder} from "motion/react"
 import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
 import {
     Form,
     Link,
     redirect,
     useActionData,
+    useFetcher,
     useNavigation,
     useRevalidator,
 } from "react-router"
@@ -209,6 +211,62 @@ export async function action({
             return redirect("/")
         }
 
+        if (intent === "reorderTracks") {
+            const trackKeysJson = formData.get("trackKeys") as string
+
+            if (!trackKeysJson) {
+                return {error: "Track keys are required"}
+            }
+
+            const newOrder = JSON.parse(trackKeysJson) as string[]
+
+            // Get current card
+            const card = (await sdk.content.getCard(cardId)) as unknown as {
+                cardId: string
+                title?: string
+                content: {
+                    activity: string
+                    chapters: Array<{key?: string; [key: string]: unknown}>
+                    restricted: boolean
+                    config: {onlineOnly: boolean}
+                    version: string
+                }
+                metadata: Record<string, unknown>
+            }
+
+            // Create a map of key -> chapter for reordering
+            const chapterMap = new Map(
+                card.content.chapters.map(chapter => [chapter.key, chapter]),
+            )
+
+            // Reorder chapters to match the new order
+            const reorderedChapters = newOrder
+                .map(key => chapterMap.get(key))
+                .filter(
+                    (chapter): chapter is NonNullable<typeof chapter> =>
+                        chapter !== undefined,
+                )
+
+            // Update card with reordered chapters
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: {
+                    ...card.content,
+                    chapters: stripNullValues(reorderedChapters),
+                },
+                metadata: card.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, reordered: true}
+        }
+
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -235,6 +293,15 @@ type ActionData = {
     added?: number
     skipped?: number
     deleted?: string
+    reordered?: boolean
+}
+
+type Track = {
+    key: string
+    title: string
+    duration?: number
+    youtubeVideoId?: string
+    syncedAt?: string
 }
 
 type ImportState =
@@ -431,10 +498,43 @@ export default function CardDetail({
         loaderData
     const navigation = useNavigation()
     const actionData = useActionData<ActionData>()
+    const reorderFetcher = useFetcher<ActionData>()
+
+    // Local state for optimistic reordering
+    const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
+    const hasOrderChangedRef = useRef(false)
+
+    // Sync local state with loader data when it changes
+    useEffect(() => {
+        setOrderedTracks(tracks)
+        hasOrderChangedRef.current = false
+    }, [tracks])
 
     const isBusy = navigation.state !== "idle"
+    const isReordering = reorderFetcher.state !== "idle"
     const pendingIntent = navigation.formData?.get("intent")
     const isDeletingCard = pendingIntent === "deleteCard"
+
+    // Handle visual reorder during drag (no API call)
+    const handleReorder = (newOrder: Track[]) => {
+        setOrderedTracks(newOrder)
+        hasOrderChangedRef.current = true
+    }
+
+    // Save to API only when drag ends
+    const handleDragEnd = () => {
+        // Only submit if order changed (ref check is synchronous to prevent double calls)
+        if (hasOrderChangedRef.current) {
+            hasOrderChangedRef.current = false
+            reorderFetcher.submit(
+                {
+                    intent: "reorderTracks",
+                    trackKeys: JSON.stringify(orderedTracks.map(t => t.key)),
+                },
+                {method: "post"},
+            )
+        }
+    }
 
     // Show toast notifications for action results
     useEffect(() => {
@@ -448,6 +548,26 @@ export default function CardDetail({
             toast.error(actionData.error)
         }
     }, [actionData])
+
+    // Show toast for reorder results - only when state transitions from loading to idle
+    const prevReorderState = useRef(reorderFetcher.state)
+    useEffect(() => {
+        // Only show toast when transitioning from loading/submitting to idle
+        if (
+            prevReorderState.current !== "idle" &&
+            reorderFetcher.state === "idle" &&
+            reorderFetcher.data
+        ) {
+            if (reorderFetcher.data.reordered) {
+                toast.success("Track order saved")
+            } else if (reorderFetcher.data.error) {
+                toast.error(reorderFetcher.data.error)
+                // Revert to original order on error
+                setOrderedTracks(tracks)
+            }
+        }
+        prevReorderState.current = reorderFetcher.state
+    }, [reorderFetcher.state, reorderFetcher.data, tracks])
 
     return (
         <div className="min-h-screen p-8">
@@ -559,17 +679,42 @@ export default function CardDetail({
 
                 <Card>
                     <CardContent>
-                        {tracks.length === 0 ? (
+                        {orderedTracks.length === 0 ? (
                             <p className="text-muted-foreground text-center py-4">
                                 No tracks on this card yet.
                             </p>
                         ) : (
-                            <div className="divide-y">
-                                {tracks.map((track, index) => (
-                                    <div
-                                        key={track.key || index}
-                                        className="py-3 flex items-center gap-4"
+                            <Reorder.Group
+                                axis="y"
+                                values={orderedTracks}
+                                onReorder={handleReorder}
+                                className="divide-y"
+                            >
+                                {orderedTracks.map((track, index) => (
+                                    <Reorder.Item
+                                        key={track.key}
+                                        value={track}
+                                        className="py-3 flex items-center gap-4 bg-background cursor-grab active:cursor-grabbing"
+                                        onDragEnd={handleDragEnd}
+                                        initial={{
+                                            scale: 1,
+                                            boxShadow: "none",
+                                        }}
+                                        whileDrag={{
+                                            scale: 1.02,
+                                            boxShadow:
+                                                "0 4px 12px rgba(0, 0, 0, 0.15)",
+                                            zIndex: 1,
+                                        }}
+                                        animate={{
+                                            scale: 1,
+                                            boxShadow: "none",
+                                        }}
+                                        transition={{
+                                            duration: 0.2,
+                                        }}
                                     >
+                                        <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                                         <span className="text-muted-foreground w-8 text-right">
                                             {index + 1}
                                         </span>
@@ -611,7 +756,9 @@ export default function CardDetail({
                                                     variant="ghost"
                                                     size="sm"
                                                     className="text-muted-foreground hover:text-destructive"
-                                                    disabled={isBusy}
+                                                    disabled={
+                                                        isBusy || isReordering
+                                                    }
                                                     aria-label={`Delete track: ${track.title}`}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
@@ -655,9 +802,9 @@ export default function CardDetail({
                                                 </AlertDialogFooter>
                                             </AlertDialogContent>
                                         </AlertDialog>
-                                    </div>
+                                    </Reorder.Item>
                                 ))}
-                            </div>
+                            </Reorder.Group>
                         )}
                     </CardContent>
                 </Card>
