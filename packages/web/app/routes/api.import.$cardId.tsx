@@ -1,5 +1,6 @@
 import {isAuthenticated} from "~/lib/auth.server"
-import {performSyncToCard, type SyncProgress} from "~/lib/sync.server"
+import {performSyncToCard} from "~/lib/sync.server"
+import type {ImportProgress} from "~/lib/sync-utils"
 
 export async function loader({
     params,
@@ -39,7 +40,7 @@ export async function loader({
             const result = await performSyncToCard(
                 validatedUrl,
                 cardId,
-                async (progress: SyncProgress) => {
+                async (progress: ImportProgress) => {
                     await sendEvent({type: "progress", ...progress})
                 },
             )

@@ -1,5 +1,5 @@
 import {Trash2} from "lucide-react"
-import {useCallback, useEffect, useRef, useState} from "react"
+import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
 import {
     Form,
     Link,
@@ -378,7 +378,7 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
     const progress =
         importState.status === "importing" ? importState.progress : null
 
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
         e.preventDefault()
         startImport()
     }

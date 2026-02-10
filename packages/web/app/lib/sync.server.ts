@@ -14,7 +14,12 @@ import {
 } from "@yoto/core/youtube"
 
 import {getAuthenticatedSdk} from "./auth.server"
-import {createChapter, stripNullValues, type YotoChapter} from "./sync-utils"
+import {
+    createChapter,
+    type ImportProgress,
+    stripNullValues,
+    type YotoChapter,
+} from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
 
 type YotoContent = {
@@ -144,20 +149,13 @@ type SyncToCardResult =
       }
     | {error: string}
 
-export type SyncProgress = {
-    phase: "fetching" | "downloading" | "uploading" | "transcoding" | "updating"
-    current?: number
-    total?: number
-    title?: string
-}
-
 /**
  * Sync YouTube content directly to an existing card.
  */
 export async function performSyncToCard(
     youtubeUrl: string,
     cardId: string,
-    onProgress?: (progress: SyncProgress) => void,
+    onProgress?: (progress: ImportProgress) => void,
 ): Promise<SyncToCardResult> {
     const sdk = await getAuthenticatedSdk()
     const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))

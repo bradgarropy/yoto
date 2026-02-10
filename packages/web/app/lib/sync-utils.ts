@@ -1,4 +1,4 @@
-// Import progress tracking types
+// Import progress tracking type (shared between client and server)
 export type ImportProgress = {
     phase: "fetching" | "downloading" | "uploading" | "transcoding" | "updating"
     current?: number
