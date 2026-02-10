@@ -4,7 +4,9 @@ import {mkdtemp} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {basename, join} from "node:path"
 
-import {getAuthenticatedSdk, type getYotoSdk} from "./auth.server"
+import type {YotoSdk} from "@yotoplay/yoto-sdk"
+
+import {getAuthenticatedSdk} from "./auth.server"
 import {setPlaylistAssociation} from "./playlists.server"
 import {
     createChapter,
@@ -48,7 +50,7 @@ const calculateFileSha256 = (filePath: string): string => {
 
 // Upload audio file and wait for transcode
 const uploadAudio = async (
-    sdk: Awaited<ReturnType<typeof getYotoSdk>>,
+    sdk: YotoSdk,
     filePath: string,
     onProgress?: () => void | Promise<void>,
 ): Promise<{key: string; duration: number; fileSize: number}> => {
