@@ -390,9 +390,6 @@ Replace custom Yoto API code with official packages.
 
 - [ ] yotoicons.com integration (pending API availability or decision to scrape)
 - [ ] Cloud hosting (Cloudflare Workers) for remote/mobile access
-- [ ] Browser extension for YouTube
-- [ ] Batch sync (multiple playlists at once)
-- [ ] Sync history and retry failed jobs
 - [ ] Card cover image customization
 - [ ] Default icons for new tracks
 
