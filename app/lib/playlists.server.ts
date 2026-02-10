@@ -1,6 +1,6 @@
 import {existsSync, readFileSync, writeFileSync} from "node:fs"
 
-import {ensureConfigDir, PLAYLISTS_FILE} from "./paths.js"
+import {ensureConfigDir, PLAYLISTS_FILE} from "./paths.server"
 
 type PlaylistAssociation = {
     yotoId: string

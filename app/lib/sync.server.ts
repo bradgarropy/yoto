@@ -4,16 +4,10 @@ import {mkdtemp} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {basename, join} from "node:path"
 
-import type {getYotoSdk} from "@yoto/core/auth"
-import {setPlaylistAssociation} from "@yoto/core/playlists"
-import {
-    downloadTrack,
-    extractPlaylistId,
-    getPlaylistInfo,
-    isPlaylistUrl,
-} from "@yoto/core/youtube"
+import type {YotoSdk} from "@yotoplay/yoto-sdk"
 
 import {getAuthenticatedSdk} from "./auth.server"
+import {setPlaylistAssociation} from "./playlists.server"
 import {
     createChapter,
     type ImportProgress,
@@ -21,6 +15,12 @@ import {
     type YotoChapter,
 } from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
+import {
+    downloadTrack,
+    extractPlaylistId,
+    getPlaylistInfo,
+    isPlaylistUrl,
+} from "./youtube.server"
 
 type YotoContent = {
     activity: string
@@ -50,7 +50,7 @@ const calculateFileSha256 = (filePath: string): string => {
 
 // Upload audio file and wait for transcode
 const uploadAudio = async (
-    sdk: Awaited<ReturnType<typeof getYotoSdk>>,
+    sdk: YotoSdk,
     filePath: string,
     onProgress?: () => void | Promise<void>,
 ): Promise<{key: string; duration: number; fileSize: number}> => {

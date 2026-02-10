@@ -39,7 +39,7 @@ vi.mock("@yotoplay/yoto-sdk", () => ({
 }))
 
 // Mock paths
-vi.mock("./paths.js", () => ({
+vi.mock("./paths.server", () => ({
     CONFIG_PATH: "/mock/config/path",
     ensureConfigDir: vi.fn(),
 }))
@@ -50,9 +50,9 @@ import {
     getToken,
     initiateLogin,
     logout,
-    requireAuth,
+    requireAuthCore,
     status,
-} from "./auth.js"
+} from "./auth.server"
 
 beforeEach(() => {
     vi.clearAllMocks()
@@ -296,7 +296,7 @@ describe("getToken", () => {
     })
 })
 
-describe("requireAuth", () => {
+describe("requireAuthCore", () => {
     it("should return token when valid", async () => {
         const tokens = {
             accessToken: "valid-token",
@@ -307,7 +307,7 @@ describe("requireAuth", () => {
         mockTokenManager.isTokenExpired.mockReturnValue(false)
         mockTokenManager.getTimeUntilExpiry.mockReturnValue(3600)
 
-        const result = await requireAuth()
+        const result = await requireAuthCore()
 
         expect(result).toBe("valid-token")
     })
@@ -315,8 +315,8 @@ describe("requireAuth", () => {
     it("should throw when not logged in", async () => {
         mockTokenManager.loadTokens.mockResolvedValue(null)
 
-        await expect(requireAuth()).rejects.toThrow(
-            "Not logged in. Please run: yoto login",
+        await expect(requireAuthCore()).rejects.toThrow(
+            "Not logged in. Please log in.",
         )
     })
 
@@ -330,8 +330,8 @@ describe("requireAuth", () => {
         mockTokenManager.isTokenExpired.mockReturnValue(true)
         mockTokenManager.getTimeUntilExpiry.mockReturnValue(-100)
 
-        await expect(requireAuth()).rejects.toThrow(
-            "Token expired. Please run: yoto login",
+        await expect(requireAuthCore()).rejects.toThrow(
+            "Token expired. Please log in again.",
         )
     })
 })

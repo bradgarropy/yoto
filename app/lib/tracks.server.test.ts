@@ -1,7 +1,7 @@
 import {vol} from "memfs"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {CardTracks, SyncedTrack, Tracks} from "./tracks.js"
+import type {CardTracks, SyncedTrack, Tracks} from "./tracks.server"
 import {
     addSyncedTrack,
     getCardTracks,
@@ -12,7 +12,7 @@ import {
     removeSyncedTrack,
     setCardTracks,
     writeTracks,
-} from "./tracks.js"
+} from "./tracks.server"
 
 // Mock node:fs with memfs
 vi.mock("node:fs", async () => {

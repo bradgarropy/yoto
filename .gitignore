@@ -3,6 +3,13 @@ node_modules/
 
 # build
 dist/
+build/
 
 # mac
 .DS_Store
+
+# env
+.env
+
+# React Router
+.react-router/
