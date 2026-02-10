@@ -14,7 +14,12 @@ import {
 } from "@yoto/core/youtube"
 
 import {getAuthenticatedSdk} from "./auth.server"
-import {createChapter, stripNullValues, type YotoChapter} from "./sync-utils"
+import {
+    createChapter,
+    type ImportProgress,
+    stripNullValues,
+    type YotoChapter,
+} from "./sync-utils"
 import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
 
 type YotoContent = {
@@ -47,6 +52,7 @@ const calculateFileSha256 = (filePath: string): string => {
 const uploadAudio = async (
     sdk: Awaited<ReturnType<typeof getYotoSdk>>,
     filePath: string,
+    onProgress?: () => void | Promise<void>,
 ): Promise<{key: string; duration: number; fileSize: number}> => {
     const sha256 = calculateFileSha256(filePath)
     const filename = basename(filePath)
@@ -108,6 +114,7 @@ const uploadAudio = async (
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
+        await onProgress?.()
 
         try {
             const transcodeStatus = (await sdk.media.getTranscodedUpload(
@@ -148,12 +155,14 @@ type SyncToCardResult =
 export async function performSyncToCard(
     youtubeUrl: string,
     cardId: string,
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
     const sdk = await getAuthenticatedSdk()
     const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
 
     try {
         // 1. Fetch YouTube playlist/video info
+        await onProgress?.({phase: "fetching"})
         const youtubeInfo = await getPlaylistInfo(youtubeUrl)
         const youtubePlaylistId = isPlaylistUrl(youtubeUrl)
             ? extractPlaylistId(youtubeUrl)
@@ -193,12 +202,33 @@ export async function performSyncToCard(
             chapter: YotoChapter
         }> = []
 
-        for (const track of tracksToAdd) {
+        for (let i = 0; i < tracksToAdd.length; i++) {
+            const track = tracksToAdd[i]
+
             // Download
+            await onProgress?.({
+                phase: "downloading",
+                current: i + 1,
+                total: tracksToAdd.length,
+                title: track.title,
+            })
             const filePath = await downloadTrack(track, tempDir)
 
             // Upload
-            const uploaded = await uploadAudio(sdk, filePath)
+            await onProgress?.({
+                phase: "uploading",
+                current: i + 1,
+                total: tracksToAdd.length,
+                title: track.title,
+            })
+            const uploaded = await uploadAudio(sdk, filePath, async () => {
+                await onProgress?.({
+                    phase: "transcoding",
+                    current: i + 1,
+                    total: tracksToAdd.length,
+                    title: track.title,
+                })
+            })
 
             // Create chapter
             const chapter = createChapter(
@@ -213,6 +243,7 @@ export async function performSyncToCard(
         }
 
         // 5. Update card with new chapters
+        await onProgress?.({phase: "updating"})
         const cleanedChapters = stripNullValues(newChapters)
 
         const updatedCard: YotoCard = {

@@ -1,3 +1,33 @@
+// Import progress tracking type (shared between client and server)
+export type ImportProgress = {
+    phase: "fetching" | "downloading" | "uploading" | "transcoding" | "updating"
+    current?: number
+    total?: number
+    title?: string
+}
+
+/**
+ * Calculate the progress percentage for an import operation.
+ * Handles phases that don't have current/total counts (like "fetching" and "updating").
+ */
+export function getProgressPercent(progress: ImportProgress | null): number {
+    if (!progress) return 0
+
+    // Handle phases that don't have current/total counts
+    if (!progress.current || !progress.total) {
+        // "updating" is the final phase after all tracks are processed
+        if (progress.phase === "updating") {
+            return 100
+        }
+        return 0
+    }
+
+    const trackProgress = (progress.current - 1) / progress.total
+    const phaseBonus = progress.phase === "uploading" ? 0.5 / progress.total : 0
+
+    return Math.min(Math.round((trackProgress + phaseBonus) * 100), 100)
+}
+
 // Yoto types for card content
 export type YotoTrack = {
     key: string
