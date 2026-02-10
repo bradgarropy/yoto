@@ -155,14 +155,14 @@ type SyncToCardResult =
 export async function performSyncToCard(
     youtubeUrl: string,
     cardId: string,
-    onProgress?: (progress: ImportProgress) => void,
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
     const sdk = await getAuthenticatedSdk()
     const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
 
     try {
         // 1. Fetch YouTube playlist/video info
-        onProgress?.({phase: "fetching"})
+        await onProgress?.({phase: "fetching"})
         const youtubeInfo = await getPlaylistInfo(youtubeUrl)
         const youtubePlaylistId = isPlaylistUrl(youtubeUrl)
             ? extractPlaylistId(youtubeUrl)
@@ -206,7 +206,7 @@ export async function performSyncToCard(
             const track = tracksToAdd[i]
 
             // Download
-            onProgress?.({
+            await onProgress?.({
                 phase: "downloading",
                 current: i + 1,
                 total: tracksToAdd.length,
@@ -215,14 +215,14 @@ export async function performSyncToCard(
             const filePath = await downloadTrack(track, tempDir)
 
             // Upload
-            onProgress?.({
+            await onProgress?.({
                 phase: "uploading",
                 current: i + 1,
                 total: tracksToAdd.length,
                 title: track.title,
             })
-            const uploaded = await uploadAudio(sdk, filePath, () => {
-                onProgress?.({
+            const uploaded = await uploadAudio(sdk, filePath, async () => {
+                await onProgress?.({
                     phase: "transcoding",
                     current: i + 1,
                     total: tracksToAdd.length,
@@ -243,7 +243,7 @@ export async function performSyncToCard(
         }
 
         // 5. Update card with new chapters
-        onProgress?.({phase: "updating"})
+        await onProgress?.({phase: "updating"})
         const cleanedChapters = stripNullValues(newChapters)
 
         const updatedCard: YotoCard = {
