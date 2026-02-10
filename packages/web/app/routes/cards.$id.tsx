@@ -334,15 +334,13 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
         }
 
         eventSource.onerror = () => {
-            if (importState.status === "importing") {
-                setImportState({
-                    status: "error",
-                    error: "Connection lost. Please try again.",
-                })
-            }
+            setImportState({
+                status: "error",
+                error: "Connection lost. Please try again.",
+            })
             eventSource.close()
         }
-    }, [cardId, youtubeUrl, revalidator, importState.status])
+    }, [cardId, youtubeUrl, revalidator])
 
     // Clean up on unmount
     useEffect(() => {
