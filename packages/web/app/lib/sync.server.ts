@@ -52,7 +52,7 @@ const calculateFileSha256 = (filePath: string): string => {
 const uploadAudio = async (
     sdk: Awaited<ReturnType<typeof getYotoSdk>>,
     filePath: string,
-    onProgress?: () => void,
+    onProgress?: () => void | Promise<void>,
 ): Promise<{key: string; duration: number; fileSize: number}> => {
     const sha256 = calculateFileSha256(filePath)
     const filename = basename(filePath)
@@ -114,7 +114,7 @@ const uploadAudio = async (
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
-        onProgress?.()
+        await onProgress?.()
 
         try {
             const transcodeStatus = (await sdk.media.getTranscodedUpload(
