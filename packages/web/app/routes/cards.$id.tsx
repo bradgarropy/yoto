@@ -315,9 +315,21 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
                 } else if (data.type === "error") {
                     setImportState({status: "error", error: data.error})
                     eventSource.close()
+                } else {
+                    // Unexpected payload shape or type
+                    setImportState({
+                        status: "error",
+                        error: "Unexpected response from server. Please try again.",
+                    })
+                    eventSource.close()
                 }
             } catch {
-                // Ignore parse errors
+                // Treat JSON parse failures as an error so the user can retry
+                setImportState({
+                    status: "error",
+                    error: "Unexpected response from server. Please try again.",
+                })
+                eventSource.close()
             }
         }
 
