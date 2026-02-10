@@ -1,4 +1,4 @@
-import {requireAuth} from "~/lib/auth.server"
+import {isAuthenticated} from "~/lib/auth.server"
 import {performSyncToCard, type SyncProgress} from "~/lib/sync.server"
 
 export async function loader({
@@ -8,7 +8,12 @@ export async function loader({
     params: {cardId: string}
     request: Request
 }) {
-    await requireAuth()
+    // Use isAuthenticated instead of requireAuth to avoid redirects
+    // SSE endpoints should return 401, not redirect (which causes EventSource to hang)
+    const authenticated = await isAuthenticated()
+    if (!authenticated) {
+        return new Response("Unauthorized", {status: 401})
+    }
 
     const url = new URL(request.url)
     const youtubeUrl = url.searchParams.get("url")
