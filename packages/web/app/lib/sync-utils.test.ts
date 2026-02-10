@@ -1,6 +1,107 @@
 import {describe, expect, it} from "vitest"
 
-import {createChapter, stripNullValues} from "./sync-utils"
+import {createChapter, getProgressPercent, stripNullValues} from "./sync-utils"
+
+describe("getProgressPercent", () => {
+    it("should return 0 when progress is null", () => {
+        expect(getProgressPercent(null)).toBe(0)
+    })
+
+    it("should return 0 for fetching phase without counts", () => {
+        expect(getProgressPercent({phase: "fetching"})).toBe(0)
+    })
+
+    it("should return 100 for updating phase without counts", () => {
+        expect(getProgressPercent({phase: "updating"})).toBe(100)
+    })
+
+    it("should return 0 for downloading phase without counts", () => {
+        expect(getProgressPercent({phase: "downloading"})).toBe(0)
+    })
+
+    it("should return 0 for transcoding phase without counts", () => {
+        expect(getProgressPercent({phase: "transcoding"})).toBe(0)
+    })
+
+    it("should calculate progress for downloading phase", () => {
+        // (1-1)/2 = 0%
+        expect(
+            getProgressPercent({phase: "downloading", current: 1, total: 2}),
+        ).toBe(0)
+        // (2-1)/2 = 50%
+        expect(
+            getProgressPercent({phase: "downloading", current: 2, total: 2}),
+        ).toBe(50)
+    })
+
+    it("should add phase bonus for uploading phase", () => {
+        // (1-1)/2 + 0.5/2 = 0.25 = 25%
+        expect(
+            getProgressPercent({phase: "uploading", current: 1, total: 2}),
+        ).toBe(25)
+        // (2-1)/2 + 0.5/2 = 0.75 = 75%
+        expect(
+            getProgressPercent({phase: "uploading", current: 2, total: 2}),
+        ).toBe(75)
+    })
+
+    it("should not add phase bonus for transcoding phase", () => {
+        // (1-1)/2 = 0%
+        expect(
+            getProgressPercent({phase: "transcoding", current: 1, total: 2}),
+        ).toBe(0)
+        // (2-1)/2 = 50%
+        expect(
+            getProgressPercent({phase: "transcoding", current: 2, total: 2}),
+        ).toBe(50)
+    })
+
+    it("should cap progress at 100%", () => {
+        // Even with high values, should not exceed 100
+        expect(
+            getProgressPercent({phase: "uploading", current: 10, total: 2}),
+        ).toBe(100)
+    })
+
+    it("should handle single track imports", () => {
+        // (1-1)/1 = 0%
+        expect(
+            getProgressPercent({phase: "downloading", current: 1, total: 1}),
+        ).toBe(0)
+        // (1-1)/1 + 0.5/1 = 50%
+        expect(
+            getProgressPercent({phase: "uploading", current: 1, total: 1}),
+        ).toBe(50)
+    })
+
+    it("should handle multi-track imports with progress through phases", () => {
+        // Simulate a 3-track import progress
+        // downloading track 1: (1-1)/3 = 0%
+        expect(
+            getProgressPercent({phase: "downloading", current: 1, total: 3}),
+        ).toBe(0)
+        // uploading track 1: (1-1)/3 + 0.5/3 = 17%
+        expect(
+            getProgressPercent({phase: "uploading", current: 1, total: 3}),
+        ).toBe(17)
+        // downloading track 2: (2-1)/3 = 33%
+        expect(
+            getProgressPercent({phase: "downloading", current: 2, total: 3}),
+        ).toBe(33)
+        // uploading track 2: (2-1)/3 + 0.5/3 = 50%
+        expect(
+            getProgressPercent({phase: "uploading", current: 2, total: 3}),
+        ).toBe(50)
+        // downloading track 3: (3-1)/3 = 67%
+        expect(
+            getProgressPercent({phase: "downloading", current: 3, total: 3}),
+        ).toBe(67)
+        // uploading track 3: (3-1)/3 + 0.5/3 = 83%
+        expect(
+            getProgressPercent({phase: "uploading", current: 3, total: 3}),
+        ).toBe(83)
+    })
+})
 
 describe("stripNullValues", () => {
     it("should return primitive values unchanged", () => {

@@ -26,7 +26,11 @@ import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
-import {stripNullValues} from "~/lib/sync-utils"
+import {
+    getProgressPercent,
+    type ImportProgress,
+    stripNullValues,
+} from "~/lib/sync-utils"
 import {
     getCardTracks,
     removeCardTracks,
@@ -233,13 +237,6 @@ type ActionData = {
     deleted?: string
 }
 
-type ImportProgress = {
-    phase: "fetching" | "downloading" | "uploading" | "transcoding" | "updating"
-    current?: number
-    total?: number
-    title?: string
-}
-
 type ImportState =
     | {status: "idle"}
     | {status: "importing"; progress: ImportProgress | null}
@@ -267,20 +264,6 @@ function getProgressMessage(progress: ImportProgress | null): string {
         default:
             return "Processing..."
     }
-}
-
-function getProgressPercent(progress: ImportProgress | null): number {
-    if (!progress || !progress.current || !progress.total) return 0
-
-    const trackProgress = (progress.current - 1) / progress.total
-    const phaseBonus =
-        progress.phase === "uploading"
-            ? 0.5 / progress.total
-            : progress.phase === "updating"
-              ? 1
-              : 0
-
-    return Math.min(Math.round((trackProgress + phaseBonus) * 100), 100)
 }
 
 function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
