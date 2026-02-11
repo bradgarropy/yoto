@@ -136,10 +136,18 @@ async function main() {
         )
 
         console.log(`\nDone! Renamed "${oldTitle}" to "${newTitle}"`)
-    } catch (e: any) {
+    } catch (e) {
         console.error("\nUpdate failed!")
-        console.error("Status:", e.response?.status)
-        console.error("Data:", JSON.stringify(e.response?.data, null, 2))
+        if (e instanceof Error && "response" in e) {
+            const axiosError = e as Error & {
+                response?: {status?: number; data?: unknown}
+            }
+            console.error("Status:", axiosError.response?.status)
+            console.error(
+                "Data:",
+                JSON.stringify(axiosError.response?.data, null, 2),
+            )
+        }
         throw e
     }
 }
