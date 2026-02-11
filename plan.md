@@ -127,9 +127,9 @@ All stored in `~/.config/yoto/`:
 ## Future Enhancements
 
 - [x] Display track icons on card detail page (from Yoto API `display.icon16x16`)
+- [ ] Card cover image customization
 - [ ] yotoicons.com integration for setting track icons
 - [ ] Cloud hosting for remote access
-- [ ] Card cover image customization
 
 ## YouTube Metadata Matching
 
