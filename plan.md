@@ -89,9 +89,7 @@ All stored in `~/.config/yoto/`:
         "videos": [
             {
                 "youtubeVideoId": "dQw4w9WgXcQ",
-                "title": "Never Gonna Give You Up",
                 "syncedAt": "2026-02-03T12:00:00Z",
-                "yotoTrackKey": "00",
                 "mediaId": "a1b2c3d4e5f6..."
             }
         ],
