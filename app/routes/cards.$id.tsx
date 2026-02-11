@@ -1,5 +1,6 @@
 import {GripVertical, Trash2} from "lucide-react"
 import {Reorder} from "motion/react"
+import pLimit from "p-limit"
 import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
 import {
     Form,
@@ -133,29 +134,32 @@ export async function loader({params}: {params: {id: string}}) {
             },
         )
 
-        // Resolve icon media IDs to signed URLs
+        // Resolve icon media IDs to signed URLs (limit concurrency to avoid rate limits)
+        const limit = pLimit(5)
         const tracks = await Promise.all(
-            tracksWithIconIds.map(async track => {
-                let iconUrl: string | undefined
-                if (track.iconMediaId) {
-                    try {
-                        iconUrl = await sdk.media.getMediaUrl(
-                            cardId,
-                            track.iconMediaId,
-                        )
-                    } catch {
-                        // Ignore errors fetching icon URLs
+            tracksWithIconIds.map(track =>
+                limit(async () => {
+                    let iconUrl: string | undefined
+                    if (track.iconMediaId) {
+                        try {
+                            iconUrl = await sdk.media.getMediaUrl(
+                                cardId,
+                                track.iconMediaId,
+                            )
+                        } catch {
+                            // Ignore errors fetching icon URLs
+                        }
                     }
-                }
-                return {
-                    key: track.key,
-                    title: track.title,
-                    duration: track.duration,
-                    youtubeVideoId: track.youtubeVideoId,
-                    syncedAt: track.syncedAt,
-                    iconUrl,
-                }
-            }),
+                    return {
+                        key: track.key,
+                        title: track.title,
+                        duration: track.duration,
+                        youtubeVideoId: track.youtubeVideoId,
+                        syncedAt: track.syncedAt,
+                        iconUrl,
+                    }
+                }),
+            ),
         )
 
         return {
