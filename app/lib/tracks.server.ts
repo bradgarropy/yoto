@@ -8,6 +8,7 @@ type SyncedTrack = {
     title: string
     syncedAt: string
     yotoTrackKey: string
+    mediaId: string
 }
 
 type CardTracks = {

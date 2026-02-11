@@ -79,6 +79,7 @@ export async function loader({params}: {params: {id: string}}) {
                     title?: string
                     duration?: number
                     display?: {icon16x16?: string} | null
+                    tracks?: Array<{trackUrl?: string}>
                 }>
             }
         }
@@ -93,9 +94,9 @@ export async function loader({params}: {params: {id: string}}) {
             syncedTracks?.videos.map(v => v.youtubeVideoId) ?? [],
         )
 
-        // Map title to synced video info for display matching
-        const titleToVideo = new Map(
-            syncedTracks?.videos.map(v => [v.title, v]) ?? [],
+        // Map mediaId to synced video info for display matching
+        const mediaIdToVideo = new Map(
+            syncedTracks?.videos.map(v => [v.mediaId, v]) ?? [],
         )
 
         const chapters = cardData.content?.chapters ?? []
@@ -114,9 +115,16 @@ export async function loader({params}: {params: {id: string}}) {
                 title?: string
                 duration?: number
                 display?: {icon16x16?: string} | null
+                tracks?: Array<{trackUrl?: string}>
             }) => {
-                // Match synced video by title
-                const syncedVideo = titleToVideo.get(chapter.title ?? "")
+                // Match synced video by mediaId (extracted from chapter's trackUrl)
+                const trackUrl = chapter.tracks?.[0]?.trackUrl
+                const mediaId = trackUrl
+                    ? sdk.extractMediaId(trackUrl)
+                    : undefined
+                const syncedVideo = mediaId
+                    ? mediaIdToVideo.get(mediaId)
+                    : undefined
 
                 // Extract icon media ID from display.icon16x16 (format: "yoto:#mediaId")
                 const iconMediaId = chapter.display?.icon16x16
