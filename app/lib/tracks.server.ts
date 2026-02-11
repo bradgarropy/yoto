@@ -5,9 +5,7 @@ import {ensureConfigDir, TRACKS_FILE} from "./paths.server"
 // Track types - ordered array to preserve track order
 type SyncedTrack = {
     youtubeVideoId: string
-    title: string
     syncedAt: string
-    yotoTrackKey: string
     mediaId: string
 }
 
@@ -94,7 +92,7 @@ const removeCardTracks = (cardId: string): void => {
     writeTracks(tracks)
 }
 
-const removeSyncedTrack = (cardId: string, yotoTrackKey: string): void => {
+const removeSyncedTrack = (cardId: string, mediaId: string): void => {
     const tracks = readTracks()
     const cardTracks = tracks[cardId]
 
@@ -102,9 +100,7 @@ const removeSyncedTrack = (cardId: string, yotoTrackKey: string): void => {
         return
     }
 
-    cardTracks.videos = cardTracks.videos.filter(
-        v => v.yotoTrackKey !== yotoTrackKey,
-    )
+    cardTracks.videos = cardTracks.videos.filter(v => v.mediaId !== mediaId)
 
     cardTracks.lastSynced = new Date().toISOString()
     tracks[cardId] = cardTracks

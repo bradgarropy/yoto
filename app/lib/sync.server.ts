@@ -274,9 +274,7 @@ export async function performSyncToCard(
 
             addSyncedTrack(cardId, {
                 youtubeVideoId: track.id,
-                title: track.title,
                 syncedAt: new Date().toISOString(),
-                yotoTrackKey: chapter.key,
                 mediaId,
             })
         }
