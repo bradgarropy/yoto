@@ -753,7 +753,7 @@ export default function CardDetail({
                                             duration: 0.2,
                                         }}
                                     >
-                                        <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
                                         <span className="text-muted-foreground w-8 text-right">
                                             {index + 1}
                                         </span>
