@@ -1,5 +1,6 @@
 import {GripVertical, Trash2} from "lucide-react"
 import {Reorder} from "motion/react"
+import pLimit from "p-limit"
 import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
 import {
     Form,
@@ -78,6 +79,7 @@ export async function loader({params}: {params: {id: string}}) {
                     title?: string
                     duration?: number
                     display?: {icon16x16?: string} | null
+                    tracks?: Array<{trackUrl?: string}>
                 }>
             }
         }
@@ -92,9 +94,9 @@ export async function loader({params}: {params: {id: string}}) {
             syncedTracks?.videos.map(v => v.youtubeVideoId) ?? [],
         )
 
-        // Map title to synced video info for display matching
-        const titleToVideo = new Map(
-            syncedTracks?.videos.map(v => [v.title, v]) ?? [],
+        // Map mediaId to synced video info for display matching
+        const mediaIdToVideo = new Map(
+            syncedTracks?.videos.map(v => [v.mediaId, v]) ?? [],
         )
 
         const chapters = cardData.content?.chapters ?? []
@@ -113,9 +115,16 @@ export async function loader({params}: {params: {id: string}}) {
                 title?: string
                 duration?: number
                 display?: {icon16x16?: string} | null
+                tracks?: Array<{trackUrl?: string}>
             }) => {
-                // Match synced video by title
-                const syncedVideo = titleToVideo.get(chapter.title ?? "")
+                // Match synced video by mediaId (extracted from chapter's trackUrl)
+                const trackUrl = chapter.tracks?.[0]?.trackUrl
+                const mediaId = trackUrl
+                    ? sdk.extractMediaId(trackUrl)
+                    : undefined
+                const syncedVideo = mediaId
+                    ? mediaIdToVideo.get(mediaId)
+                    : undefined
 
                 // Extract icon media ID from display.icon16x16 (format: "yoto:#mediaId")
                 const iconMediaId = chapter.display?.icon16x16
@@ -133,29 +142,32 @@ export async function loader({params}: {params: {id: string}}) {
             },
         )
 
-        // Resolve icon media IDs to signed URLs
+        // Resolve icon media IDs to signed URLs (limit concurrency to avoid rate limits)
+        const limit = pLimit(5)
         const tracks = await Promise.all(
-            tracksWithIconIds.map(async track => {
-                let iconUrl: string | undefined
-                if (track.iconMediaId) {
-                    try {
-                        iconUrl = await sdk.media.getMediaUrl(
-                            cardId,
-                            track.iconMediaId,
-                        )
-                    } catch {
-                        // Ignore errors fetching icon URLs
+            tracksWithIconIds.map(track =>
+                limit(async () => {
+                    let iconUrl: string | undefined
+                    if (track.iconMediaId) {
+                        try {
+                            iconUrl = await sdk.media.getMediaUrl(
+                                cardId,
+                                track.iconMediaId,
+                            )
+                        } catch {
+                            // Ignore errors fetching icon URLs
+                        }
                     }
-                }
-                return {
-                    key: track.key,
-                    title: track.title,
-                    duration: track.duration,
-                    youtubeVideoId: track.youtubeVideoId,
-                    syncedAt: track.syncedAt,
-                    iconUrl,
-                }
-            }),
+                    return {
+                        key: track.key,
+                        title: track.title,
+                        duration: track.duration,
+                        youtubeVideoId: track.youtubeVideoId,
+                        syncedAt: track.syncedAt,
+                        iconUrl,
+                    }
+                }),
+            ),
         )
 
         return {
@@ -204,13 +216,24 @@ export async function action({
                 title?: string
                 content: {
                     activity: string
-                    chapters: Array<{key?: string; [key: string]: unknown}>
+                    chapters: Array<{
+                        key?: string
+                        tracks?: Array<{trackUrl?: string}>
+                        [key: string]: unknown
+                    }>
                     restricted: boolean
                     config: {onlineOnly: boolean}
                     version: string
                 }
                 metadata: Record<string, unknown>
             }
+
+            // Find the chapter being deleted to extract its mediaId
+            const chapterToDelete = card.content.chapters.find(
+                chapter => chapter.key === trackKey,
+            )
+            const trackUrl = chapterToDelete?.tracks?.[0]?.trackUrl
+            const mediaId = trackUrl ? sdk.extractMediaId(trackUrl) : undefined
 
             // Filter out the track to delete
             const updatedChapters = card.content.chapters.filter(
@@ -234,8 +257,10 @@ export async function action({
                 >[0],
             )
 
-            // Remove from local tracks.json
-            removeSyncedTrack(cardId, trackKey)
+            // Remove from local tracks.json (only if we have a mediaId)
+            if (mediaId) {
+                removeSyncedTrack(cardId, mediaId)
+            }
 
             return {success: true, deleted: trackKey}
         }

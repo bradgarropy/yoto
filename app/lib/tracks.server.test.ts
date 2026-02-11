@@ -42,9 +42,8 @@ describe("tracks functions", () => {
                 videos: [
                     {
                         youtubeVideoId: "abc123",
-                        title: "Test Video",
                         syncedAt: "2026-02-03T12:00:00Z",
-                        yotoTrackKey: "track-key-1",
+                        mediaId: "media123",
                     },
                 ],
                 youtubePlaylistId: "PLtest",
@@ -76,9 +75,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "video1",
-                    title: "First Video",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -104,9 +102,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "newvideo",
-                    title: "New Video",
                     syncedAt: "2026-02-03T13:00:00Z",
-                    yotoTrackKey: "newkey",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T13:00:00Z",
@@ -130,9 +127,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "old",
-                    title: "Old",
                     syncedAt: "2026-01-01T00:00:00Z",
-                    yotoTrackKey: "oldkey",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-01-01T00:00:00Z",
@@ -144,15 +140,13 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "old",
-                    title: "Old",
                     syncedAt: "2026-01-01T00:00:00Z",
-                    yotoTrackKey: "oldkey",
+                    mediaId: "media123",
                 },
                 {
                     youtubeVideoId: "new",
-                    title: "New",
                     syncedAt: "2026-02-03T14:00:00Z",
-                    yotoTrackKey: "newkey",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T14:00:00Z",
@@ -173,9 +167,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "existingvideo",
-                    title: "Existing",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -191,9 +184,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "othervideo",
-                    title: "Other",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -215,9 +207,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "first",
-                    title: "First",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -227,9 +218,8 @@ describe("tracks functions", () => {
 
         const newTrack: SyncedTrack = {
             youtubeVideoId: "second",
-            title: "Second",
             syncedAt: "2026-02-03T13:00:00Z",
-            yotoTrackKey: "key2",
+            mediaId: "media123",
         }
 
         addSyncedTrack("addcard", newTrack)
@@ -245,9 +235,8 @@ describe("tracks functions", () => {
 
         const track: SyncedTrack = {
             youtubeVideoId: "newvideo",
-            title: "New Video",
             syncedAt: "2026-02-03T14:00:00Z",
-            yotoTrackKey: "newkey",
+            mediaId: "media123",
         }
 
         addSyncedTrack("brandnewcard", track)
@@ -262,9 +251,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "duplicate",
-                    title: "Original",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -274,16 +262,15 @@ describe("tracks functions", () => {
 
         const duplicateTrack: SyncedTrack = {
             youtubeVideoId: "duplicate",
-            title: "Duplicate Attempt",
             syncedAt: "2026-02-03T15:00:00Z",
-            yotoTrackKey: "key2",
+            mediaId: "media123",
         }
 
         addSyncedTrack("dupcard", duplicateTrack)
 
         const result = getCardTracks("dupcard")
         expect(result?.videos).toHaveLength(1)
-        expect(result?.videos[0].title).toBe("Original")
+        expect(result?.videos[0].youtubeVideoId).toBe("duplicate")
     })
 
     it("getSyncedVideoIds should return set of video IDs", () => {
@@ -291,21 +278,18 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "vid1",
-                    title: "Video 1",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
                 {
                     youtubeVideoId: "vid2",
-                    title: "Video 2",
                     syncedAt: "2026-02-03T12:01:00Z",
-                    yotoTrackKey: "key2",
+                    mediaId: "media123",
                 },
                 {
                     youtubeVideoId: "vid3",
-                    title: "Video 3",
                     syncedAt: "2026-02-03T12:02:00Z",
-                    yotoTrackKey: "key3",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:02:00Z",
@@ -330,9 +314,8 @@ describe("tracks functions", () => {
                 videos: [
                     {
                         youtubeVideoId: "vid1",
-                        title: "Video 1",
                         syncedAt: "2026-02-03T12:00:00Z",
-                        yotoTrackKey: "key1",
+                        mediaId: "media123",
                     },
                 ],
                 lastSynced: "2026-02-03T12:00:00Z",
@@ -341,9 +324,8 @@ describe("tracks functions", () => {
                 videos: [
                     {
                         youtubeVideoId: "vid2",
-                        title: "Video 2",
                         syncedAt: "2026-02-03T13:00:00Z",
-                        yotoTrackKey: "key2",
+                        mediaId: "media123",
                     },
                 ],
                 lastSynced: "2026-02-03T13:00:00Z",
@@ -365,9 +347,8 @@ describe("tracks functions", () => {
                 videos: [
                     {
                         youtubeVideoId: "vid1",
-                        title: "Video 1",
                         syncedAt: "2026-02-03T12:00:00Z",
-                        yotoTrackKey: "key1",
+                        mediaId: "media123",
                     },
                 ],
                 lastSynced: "2026-02-03T12:00:00Z",
@@ -388,9 +369,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "vid1",
-                    title: "Video 1",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -407,26 +387,23 @@ describe("tracks functions", () => {
         expect(getCardTracks("cardToRemove")).toBeNull()
     })
 
-    it("removeSyncedTrack should remove a single track by yotoTrackKey", () => {
+    it("removeSyncedTrack should remove a single track by mediaId", () => {
         const cardTracks: CardTracks = {
             videos: [
                 {
                     youtubeVideoId: "vid1",
-                    title: "Video 1",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media1",
                 },
                 {
                     youtubeVideoId: "vid2",
-                    title: "Video 2",
                     syncedAt: "2026-02-03T12:01:00Z",
-                    yotoTrackKey: "key2",
+                    mediaId: "media2",
                 },
                 {
                     youtubeVideoId: "vid3",
-                    title: "Video 3",
                     syncedAt: "2026-02-03T12:02:00Z",
-                    yotoTrackKey: "key3",
+                    mediaId: "media3",
                 },
             ],
             lastSynced: "2026-02-03T12:02:00Z",
@@ -434,14 +411,11 @@ describe("tracks functions", () => {
 
         writeTracks({removetrack: cardTracks})
 
-        removeSyncedTrack("removetrack", "key2")
+        removeSyncedTrack("removetrack", "media2")
 
         const result = getCardTracks("removetrack")
         expect(result?.videos).toHaveLength(2)
-        expect(result?.videos.map(v => v.yotoTrackKey)).toEqual([
-            "key1",
-            "key3",
-        ])
+        expect(result?.videos.map(v => v.mediaId)).toEqual(["media1", "media3"])
     })
 
     it("removeSyncedTrack should keep card entry when last track is removed", () => {
@@ -449,9 +423,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "vid1",
-                    title: "Video 1",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
             ],
             youtubePlaylistId: "PLtest123",
@@ -460,7 +433,7 @@ describe("tracks functions", () => {
 
         writeTracks({singletrack: cardTracks})
 
-        removeSyncedTrack("singletrack", "key1")
+        removeSyncedTrack("singletrack", "media123")
 
         const result = getCardTracks("singletrack")
         expect(result).not.toBeNull()
@@ -483,9 +456,8 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "vid1",
-                    title: "Video 1",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media123",
                 },
             ],
             lastSynced: "2026-02-03T12:00:00Z",
@@ -506,15 +478,13 @@ describe("tracks functions", () => {
             videos: [
                 {
                     youtubeVideoId: "vid1",
-                    title: "Video 1",
                     syncedAt: "2026-02-03T12:00:00Z",
-                    yotoTrackKey: "key1",
+                    mediaId: "media1",
                 },
                 {
                     youtubeVideoId: "vid2",
-                    title: "Video 2",
                     syncedAt: "2026-02-03T12:01:00Z",
-                    yotoTrackKey: "key2",
+                    mediaId: "media2",
                 },
             ],
             lastSynced: originalLastSynced,
@@ -522,7 +492,7 @@ describe("tracks functions", () => {
 
         writeTracks({timestampcard: cardTracks})
 
-        removeSyncedTrack("timestampcard", "key1")
+        removeSyncedTrack("timestampcard", "media1")
 
         const result = getCardTracks("timestampcard")
         expect(result?.lastSynced).not.toBe(originalLastSynced)

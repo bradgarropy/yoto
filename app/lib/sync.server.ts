@@ -264,11 +264,18 @@ export async function performSyncToCard(
 
         // 6. Record synced tracks AFTER card update succeeds
         for (const {track, chapter} of uploadedTracks) {
+            const mediaId = sdk.extractMediaId(chapter.tracks[0].trackUrl)
+
+            if (!mediaId) {
+                throw new Error(
+                    `Failed to extract mediaId from trackUrl: ${chapter.tracks[0].trackUrl}`,
+                )
+            }
+
             addSyncedTrack(cardId, {
                 youtubeVideoId: track.id,
-                title: track.title,
                 syncedAt: new Date().toISOString(),
-                yotoTrackKey: chapter.key,
+                mediaId,
             })
         }
 

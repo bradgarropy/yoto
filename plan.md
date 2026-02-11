@@ -89,9 +89,8 @@ All stored in `~/.config/yoto/`:
         "videos": [
             {
                 "youtubeVideoId": "dQw4w9WgXcQ",
-                "title": "Never Gonna Give You Up",
                 "syncedAt": "2026-02-03T12:00:00Z",
-                "yotoTrackKey": "abc123"
+                "mediaId": "a1b2c3d4e5f6..."
             }
         ],
         "lastSynced": "2026-02-03T12:00:00Z"
@@ -128,11 +127,36 @@ All stored in `~/.config/yoto/`:
 ## Future Enhancements
 
 - [x] Display track icons on card detail page (from Yoto API `display.icon16x16`)
+- [ ] Card cover image customization
 - [ ] yotoicons.com integration for setting track icons
 - [ ] Cloud hosting for remote access
-- [ ] Card cover image customization
 
-## Known Limitations
+## YouTube Metadata Matching
 
-- **YouTube metadata matching**: Synced tracks are matched to chapters by title. If a track's title is changed in Yoto after syncing, the YouTube metadata won't display.
-- **Track key instability**: The `yotoTrackKey` stored in `tracks.json` can become stale when tracks are reordered or inserted in Yoto. Title matching is used instead for display purposes.
+Synced tracks are matched to Yoto chapters using `mediaId` - the content hash (transcodedSha256) from the track's `trackUrl`. This provides stable matching that survives track reordering, title changes, and duplicate titles.
+
+**How it works:**
+
+1. When a YouTube video is synced, the `mediaId` (extracted from `yoto:#<hash>` in the chapter's `trackUrl`) is stored in `tracks.json`
+2. On the card detail page, each chapter's `mediaId` is extracted from its `trackUrl`
+3. The synced track is looked up by `mediaId` to display YouTube metadata
+
+**Migration:** Run `npx tsx scripts/migrate-tracks-mediaId.ts` to backfill `mediaId` for existing synced tracks.
+
+## Scripts
+
+### migrate-tracks-mediaId.ts
+
+One-time migration script to backfill `mediaId` for existing synced tracks.
+
+```bash
+npx tsx scripts/migrate-tracks-mediaId.ts
+```
+
+The script:
+
+1. Reads `tracks.json`
+2. For each card, fetches chapter data from the Yoto API
+3. Matches synced tracks to chapters by title
+4. Extracts `mediaId` from each chapter's `trackUrl`
+5. Updates `tracks.json` with the `mediaId` values
