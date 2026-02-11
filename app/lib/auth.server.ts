@@ -23,6 +23,8 @@ const TOKEN_PATH = join(CONFIG_PATH, "auth.json")
 // Lazy-initialized singletons
 let _auth: DeviceCodeAuth | null = null
 let _tokenManager: TokenManager | null = null
+let _sdk: YotoSdk | null = null
+let _sdkToken: string | null = null
 
 const getAuth = (): DeviceCodeAuth => {
     if (!_auth) {
@@ -193,10 +195,19 @@ const requireAuthCore = async (): Promise<string> => {
     return token
 }
 
-// Creates an authenticated Yoto SDK instance
+// Creates an authenticated Yoto SDK instance (singleton for cache reuse)
 const getYotoSdk = async (): Promise<YotoSdk> => {
     const token = await requireAuthCore()
-    return createYotoSdk({jwt: token})
+
+    // Reuse existing SDK if token unchanged (preserves media URL cache)
+    if (_sdk && _sdkToken === token) {
+        return _sdk
+    }
+
+    // Token changed or first call - create new SDK
+    _sdkToken = token
+    _sdk = createYotoSdk({jwt: token})
+    return _sdk
 }
 
 // Helper to require authentication in loaders
