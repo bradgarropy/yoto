@@ -127,6 +127,12 @@ All stored in `~/.config/yoto/`:
 
 ## Future Enhancements
 
-- [ ] yotoicons.com integration for track icons
+- [x] Display track icons on card detail page (from Yoto API `display.icon16x16`)
+- [ ] yotoicons.com integration for setting track icons
 - [ ] Cloud hosting for remote access
 - [ ] Card cover image customization
+
+## Known Limitations
+
+- **YouTube metadata matching**: Synced tracks are matched to chapters by title. If a track's title is changed in Yoto after syncing, the YouTube metadata won't display.
+- **Track key instability**: The `yotoTrackKey` stored in `tracks.json` can become stale when tracks are reordered or inserted in Yoto. Title matching is used instead for display purposes.
