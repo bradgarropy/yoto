@@ -131,6 +131,126 @@ All stored in `~/.config/yoto/`:
 - [ ] yotoicons.com integration for setting track icons
 - [ ] Cloud hosting for remote access
 
+## Yotoicons.com Integration
+
+### Overview
+
+Search and select icons from [yotoicons.com](https://yotoicons.com) (community icon library with 19,500+ icons) and apply them to individual tracks on the card detail page.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     Card Detail Page                             │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Track Row                                                   │ │
+│  │  [Icon] ← clickable → opens IconPicker modal                │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    IconPicker Modal                              │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Search: [___________] [Search]                              │ │
+│  │                                                             │ │
+│  │ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                          │ │
+│  │ │icon│ │icon│ │icon│ │icon│ │icon│  ← from yotoicons.com    │ │
+│  │ └────┘ └────┘ └────┘ └────┘ └────┘                          │ │
+│  │                                                             │ │
+│  │ [Load More]                                                 │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────┘
+                              │ select icon
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Server Action: updateTrackIcon                     │
+│  1. Fetch icon PNG from yotoicons.com                           │
+│  2. Upload to Yoto media (get mediaId)                          │
+│  3. Update chapter.display.icon16x16 = "yoto:#mediaId"          │
+│  4. Call sdk.content.updateCard()                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Files
+
+| File                            | Purpose                                       |
+| ------------------------------- | --------------------------------------------- |
+| `app/lib/yotoicons.server.ts`   | Scrape yotoicons.com HTML to extract icons    |
+| `app/routes/api.yotoicons.ts`   | API endpoint for frontend to search icons     |
+| `app/components/IconPicker.tsx` | Modal UI for searching/selecting icons        |
+| `app/routes/cards.$id.tsx`      | Add `updateTrackIcon` action, integrate modal |
+
+### How Yotoicons.com Works
+
+1. **No public API** - Site requires scraping HTML (same approach as MYO Studio extension)
+2. **Icon data in HTML** - Embedded in `onclick` handlers:
+    ```javascript
+    populate_icon_modal("844", "animals", "bluey", "", "californiafish", "6298")
+    // params: (id, category, tag1, tag2, author, downloads)
+    ```
+3. **Direct PNG access** - Icons publicly accessible at:
+    ```
+    https://yotoicons.com/static/uploads/{id}.png
+    ```
+4. **Search via URL params**:
+    ```
+    /icons?tag={search}&sort={popular|new}&type={singles|packs}&page={n}
+    ```
+
+### Implementation Details
+
+#### yotoicons.server.ts
+
+```typescript
+interface YotoIcon {
+    id: string
+    category: string
+    tags: string[]
+    author: string
+    downloads: number
+    url: string // https://yotoicons.com/static/uploads/{id}.png
+}
+
+// Search icons by tag/keyword
+searchIcons(query: string, page?: number): Promise<{icons: YotoIcon[], hasMore: boolean}>
+
+// Fetch icon image as Buffer for upload to Yoto
+fetchIconImage(iconId: string): Promise<Buffer>
+```
+
+#### api.yotoicons.ts
+
+```
+GET /api/yotoicons?q=bluey&page=1
+Response: { icons: YotoIcon[], hasMore: boolean }
+```
+
+#### IconPicker.tsx
+
+- Search input (search on Enter or button click)
+- Grid of icon thumbnails (16x16 rendered at 32x32 with pixelated rendering)
+- "Load More" button for pagination
+- Loading states
+- Click icon to select and close modal
+
+#### cards.$id.tsx Changes
+
+New action intent `updateTrackIcon`:
+
+1. Receive `trackKey` and `yotoIconId`
+2. Fetch icon PNG from yotoicons.com
+3. Compute SHA256 hash of image
+4. Upload to Yoto via `sdk.media.getUploadUrlForTranscode()`
+5. Update chapter: `display.icon16x16 = "yoto:#${mediaId}"`
+6. Call `sdk.content.updateCard()`
+
+UI changes:
+
+- Wrap track icon in clickable button
+- Open IconPicker modal on click
+- Submit selected icon via fetcher
+
 ## YouTube Metadata Matching
 
 Synced tracks are matched to Yoto chapters using `mediaId` - the content hash (transcodedSha256) from the track's `trackUrl`. This provides stable matching that survives track reordering, title changes, and duplicate titles.
