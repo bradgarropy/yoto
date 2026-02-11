@@ -77,6 +77,7 @@ export async function loader({params}: {params: {id: string}}) {
                     key?: string
                     title?: string
                     duration?: number
+                    display?: {icon16x16?: string} | null
                 }>
             }
         }
@@ -91,9 +92,9 @@ export async function loader({params}: {params: {id: string}}) {
             syncedTracks?.videos.map(v => v.youtubeVideoId) ?? [],
         )
 
-        // Map track keys to YouTube video IDs for display
-        const trackKeyToVideo = new Map(
-            syncedTracks?.videos.map(v => [v.yotoTrackKey, v]) ?? [],
+        // Map title to synced video info for display matching
+        const titleToVideo = new Map(
+            syncedTracks?.videos.map(v => [v.title, v]) ?? [],
         )
 
         const chapters = cardData.content?.chapters ?? []
@@ -105,28 +106,65 @@ export async function loader({params}: {params: {id: string}}) {
             cardData.metadata?.cover?.imageS ??
             cardData.metadata?.coverImageUrl
 
+        // Build tracks with icon media IDs
+        const tracksWithIconIds = chapters.map(
+            (chapter: {
+                key?: string
+                title?: string
+                duration?: number
+                display?: {icon16x16?: string} | null
+            }) => {
+                // Match synced video by title
+                const syncedVideo = titleToVideo.get(chapter.title ?? "")
+
+                // Extract icon media ID from display.icon16x16 (format: "yoto:#mediaId")
+                const iconMediaId = chapter.display?.icon16x16
+                    ? (sdk.extractMediaId(chapter.display.icon16x16) ??
+                      undefined)
+                    : undefined
+                return {
+                    key: chapter.key ?? "",
+                    title: chapter.title ?? "Untitled Track",
+                    duration: chapter.duration,
+                    youtubeVideoId: syncedVideo?.youtubeVideoId,
+                    syncedAt: syncedVideo?.syncedAt,
+                    iconMediaId,
+                }
+            },
+        )
+
+        // Resolve icon media IDs to signed URLs
+        const tracks = await Promise.all(
+            tracksWithIconIds.map(async track => {
+                let iconUrl: string | undefined
+                if (track.iconMediaId) {
+                    try {
+                        iconUrl = await sdk.media.getMediaUrl(
+                            cardId,
+                            track.iconMediaId,
+                        )
+                    } catch {
+                        // Ignore errors fetching icon URLs
+                    }
+                }
+                return {
+                    key: track.key,
+                    title: track.title,
+                    duration: track.duration,
+                    youtubeVideoId: track.youtubeVideoId,
+                    syncedAt: track.syncedAt,
+                    iconUrl,
+                }
+            }),
+        )
+
         return {
             card: {
                 id: cardData.cardId ?? cardId,
                 title: cardData.title ?? "Untitled Card",
                 coverUrl,
             },
-            tracks: chapters.map(
-                (chapter: {
-                    key?: string
-                    title?: string
-                    duration?: number
-                }) => {
-                    const syncedVideo = trackKeyToVideo.get(chapter.key ?? "")
-                    return {
-                        key: chapter.key ?? "",
-                        title: chapter.title ?? "Untitled Track",
-                        duration: chapter.duration,
-                        youtubeVideoId: syncedVideo?.youtubeVideoId,
-                        syncedAt: syncedVideo?.syncedAt,
-                    }
-                },
-            ),
+            tracks,
             syncedCount: syncedVideoIds.size,
             youtubePlaylistId: syncedTracks?.youtubePlaylistId,
             lastSynced: syncedTracks?.lastSynced,
@@ -302,6 +340,7 @@ type Track = {
     duration?: number
     youtubeVideoId?: string
     syncedAt?: string
+    iconUrl?: string
 }
 
 type ImportState =
@@ -718,6 +757,18 @@ export default function CardDetail({
                                         <span className="text-muted-foreground w-8 text-right">
                                             {index + 1}
                                         </span>
+                                        {track.iconUrl ? (
+                                            <img
+                                                src={track.iconUrl}
+                                                alt=""
+                                                className="w-8 h-8 shrink-0"
+                                                style={{
+                                                    imageRendering: "pixelated",
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="w-8 h-8 shrink-0 bg-muted rounded" />
+                                        )}
                                         <div className="flex-1 min-w-0">
                                             <p className="font-medium truncate">
                                                 {track.title}
