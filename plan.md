@@ -128,7 +128,8 @@ All stored in `~/.config/yoto/`:
 
 - [x] Display track icons on card detail page (from Yoto API `display.icon16x16`)
 - [ ] Card cover image customization
-- [ ] Icon search for setting track icons (Phase 1: Yoto icons, Phase 2: yotoicons.com)
+- [x] Icon search for setting track icons (Phase 1: Yoto icons)
+- [ ] Icon search for setting track icons (Phase 2: yotoicons.com)
 - [ ] Cloud hosting for remote access
 
 ## Icon Search
