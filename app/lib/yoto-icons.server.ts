@@ -2,6 +2,11 @@ import type {DisplayIcon} from "@yotoplay/yoto-sdk"
 
 import {getAuthenticatedSdk} from "./auth.server"
 
+// Cache for Yoto icons (module-level, shared across requests)
+let iconCache: YotoIcon[] | null = null
+let cacheTimestamp: number = 0
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
 type YotoIcon = {
     id: string // mediaId (the hash)
     title: string
@@ -9,17 +14,31 @@ type YotoIcon = {
     url: string
 }
 
-// Fetch all native Yoto icons from API
+// Fetch all native Yoto icons from API (with in-memory cache)
 const fetchYotoIcons = async (): Promise<YotoIcon[]> => {
+    const now = Date.now()
+
+    // Return cached icons if still valid
+    if (iconCache && now - cacheTimestamp < CACHE_TTL_MS) {
+        return iconCache
+    }
+
+    // Fetch fresh icons from API
     const sdk = await getAuthenticatedSdk()
     const icons: DisplayIcon[] = await sdk.icons.getDisplayIcons()
 
-    return icons.map(icon => ({
+    const yotoIcons = icons.map(icon => ({
         id: icon.mediaId,
         title: icon.title,
         tags: icon.publicTags,
         url: icon.url,
     }))
+
+    // Update cache
+    iconCache = yotoIcons
+    cacheTimestamp = now
+
+    return yotoIcons
 }
 
 // Search native Yoto icons by query (filters by title and tags)
@@ -48,5 +67,11 @@ const searchYotoIcons = async (query: string): Promise<YotoIcon[]> => {
     })
 }
 
-export {fetchYotoIcons, searchYotoIcons}
+// Clear the icon cache (exported for testing)
+const clearIconCache = () => {
+    iconCache = null
+    cacheTimestamp = 0
+}
+
+export {clearIconCache, fetchYotoIcons, searchYotoIcons}
 export type {YotoIcon}

@@ -12,10 +12,15 @@ vi.mock("./auth.server", () => ({
 }))
 
 // Import after mocks are set up
-import {fetchYotoIcons, searchYotoIcons} from "./yoto-icons.server"
+import {
+    clearIconCache,
+    fetchYotoIcons,
+    searchYotoIcons,
+} from "./yoto-icons.server"
 
 beforeEach(() => {
     vi.clearAllMocks()
+    clearIconCache()
 })
 
 const createMockIcon = (
