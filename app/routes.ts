@@ -5,4 +5,5 @@ export default [
     route("login", "routes/login.tsx"),
     route("cards/:id", "routes/cards.$id.tsx"),
     route("api/import/:cardId", "routes/api.import.$cardId.tsx"),
+    route("api/icons", "routes/api.icons.ts"),
 ] satisfies RouteConfig
