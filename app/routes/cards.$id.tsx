@@ -921,7 +921,7 @@ export default function CardDetail({
                                                 <button
                                                     type="button"
                                                     className="shrink-0 p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors"
-                                                    title="Change icon"
+                                                    aria-label={`Change icon for ${track.title}`}
                                                 >
                                                     {track.iconUrl ? (
                                                         <img
