@@ -54,7 +54,11 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                 />
-                <Button type="submit" disabled={loading || !query.trim()}>
+                <Button
+                    type="submit"
+                    disabled={loading || !query.trim()}
+                    aria-label="Search"
+                >
                     <SearchIcon />
                 </Button>
             </fetcher.Form>

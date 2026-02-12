@@ -13,7 +13,7 @@ export async function loader({
     // SSE endpoints should return 401, not redirect (which causes EventSource to hang)
     const authenticated = await isAuthenticated()
     if (!authenticated) {
-        return new Response("Unauthorized", {status: 401})
+        return Response.json({error: "Unauthorized"}, {status: 401})
     }
 
     const url = new URL(request.url)
@@ -21,7 +21,7 @@ export async function loader({
     const cardId = params.cardId
 
     if (!youtubeUrl) {
-        return new Response("Missing url parameter", {status: 400})
+        return Response.json({error: "Missing url parameter"}, {status: 400})
     }
 
     const validatedUrl = youtubeUrl

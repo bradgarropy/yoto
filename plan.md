@@ -141,104 +141,30 @@ Click on any track icon to open a modal that searches for icons. Implementation 
 - **Phase 1:** Native Yoto icons only (from Yoto API)
 - **Phase 2:** Add yotoicons.com community icons (~19,500+ icons)
 
-### Phase 1: Native Yoto Icon Search
+### Phase 1: Native Yoto Icon Search ✅
 
-Search and select icons from Yoto's official icon library. The Yoto API provides icons with tags for searching.
+Search and select icons from Yoto's official icon library. The Yoto SDK provides `sdk.icons.getDisplayIcons()` for fetching icons with tags for searching.
 
-#### Yoto API Discovery
+#### Implementation Notes
 
-The Yoto API has an endpoint for fetching all official icons:
+- Uses `@yotoplay/yoto-sdk` method `sdk.icons.getDisplayIcons()` (~520 icons)
+- Search filters by title and tags (case-insensitive)
+- Results are deduped by mediaId (API returns some duplicates)
+- Icons displayed on dark background (`bg-zinc-900`) for better visibility
+- Uses controlled Dialog pattern with DialogTrigger for accessibility
 
-```
-GET https://api.yotoplay.com/media/displayIcons/user/yoto
-Authorization: Bearer {jwt}
-
-Response: {
-  "displayIcons": [
-    {
-      "mediaId": "_WWpLHoOj6iqeREcGkJnGlsis2QSF6znM0UPFdXTjf8",
-      "title": "Music notes",
-      "publicTags": ["music", "note"],
-      "url": "https://media-secure-v2.api.yotoplay.com/icons/...",
-      "public": true,
-      "userId": "yoto",
-      "createdAt": "2020-08-25T00:17:17.285Z",
-      "displayIconId": "5f44588d5d9e90000830f5c3"
-    },
-    // ... ~520 icons
-  ]
-}
-```
-
-Response time: ~840ms (acceptable for button-triggered search)
-
-#### Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                     Card Detail Page                             │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │ Track Row                                                   │ │
-│  │  [Icon] ← clickable → opens IconPicker modal                │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                    IconPicker Modal                              │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │ Search: [___________] [🔍]                                  │ │
-│  │                                                             │ │
-│  │ (Before search)                                             │ │
-│  │ Search to find icons from Yoto's official library.          │ │
-│  │                                                             │ │
-│  │ (After search)                                              │ │
-│  │ Yoto Icons (12 results)                                     │ │
-│  │ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                   │ │
-│  │ │icon│ │icon│ │icon│ │icon│ │icon│ │icon│                   │ │
-│  │ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                   │ │
-│  │                                                             │ │
-│  │ (No results)                                                │ │
-│  │ No results found                                            │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────┘
-                              │ select icon
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Server Action: updateTrackIcon                     │
-│  1. For Yoto icons: mediaId = iconId (hash IS the mediaId)     │
-│  2. Update chapter.display.icon16x16 = "yoto:#${mediaId}"       │
-│  3. Call sdk.content.updateCard()                               │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Important:** When updating icons, must update BOTH `chapter.display.icon16x16` AND `chapter.tracks[].display.icon16x16`. The Yoto website reads from the track-level display, not just chapter-level.
 
 #### Files
 
-| File                            | Purpose                                       |
-| ------------------------------- | --------------------------------------------- |
-| `app/lib/yoto-icons.server.ts`  | Fetch and search native Yoto icons from API   |
-| `app/routes/api.icons.ts`       | Search endpoint                               |
-| `app/components/IconPicker.tsx` | Modal UI for searching/selecting icons        |
-| `app/routes/cards.$id.tsx`      | Add `updateTrackIcon` action, integrate modal |
+| File                            | Purpose                                         |
+| ------------------------------- | ----------------------------------------------- |
+| `app/lib/yoto-icons.server.ts`  | Fetch and search native Yoto icons via SDK      |
+| `app/routes/api.icons.ts`       | `GET /api/icons?q=<query>` search endpoint      |
+| `app/components/IconPicker.tsx` | `IconPickerContent` - search form and icon grid |
+| `app/routes/cards.$id.tsx`      | `updateTrackIcon` action, Dialog integration    |
 
-#### yoto-icons.server.ts
-
-```typescript
-type YotoIcon = {
-    id: string // mediaId (the hash)
-    title: string
-    tags: string[] // publicTags from API
-    url: string
-}
-
-// Fetch all native Yoto icons from API
-fetchYotoIcons(): Promise<YotoIcon[]>
-
-// Search native Yoto icons by query (filters by tags)
-searchYotoIcons(query: string): Promise<YotoIcon[]>
-```
-
-#### api.icons.ts
+#### API
 
 ```
 GET /api/icons?q=dog
@@ -248,42 +174,16 @@ Response: {
 }
 ```
 
-#### IconPicker.tsx
-
-- Search input + search button (triggers on click or Enter)
-- Initial state: explainer text
-- Icon grid (16x16 rendered at 32x32 with `imageRendering: pixelated`)
-- Loading states
-- "No results found" for empty results
-- Click icon to select and close modal
-
-#### cards.$id.tsx Changes
-
-New action intent `updateTrackIcon`:
+#### YotoIcon Type
 
 ```typescript
-case "updateTrackIcon": {
-  const trackKey = formData.get("trackKey") as string
-  const iconId = formData.get("iconId") as string
-
-  // For Yoto icons, the hash IS the media ID
-  const mediaId = iconId
-
-  // Update the chapter's icon
-  const chapter = card.content.chapters.find(c => c.key === trackKey)
-  chapter.display = { ...chapter.display, icon16x16: `yoto:#${mediaId}` }
-
-  await sdk.content.updateCard(card)
-  return { success: true }
+type YotoIcon = {
+    id: string // mediaId (the hash)
+    title: string
+    tags: string[] // publicTags from API
+    url: string
 }
 ```
-
-UI changes:
-
-- Make track icon a clickable `<button>`
-- Add state for `selectedTrackKey`
-- Render `<IconPicker>` modal
-- Handle selection via `useFetcher`
 
 ### Phase 2: Add yotoicons.com (Future)
 

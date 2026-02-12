@@ -4,7 +4,7 @@ import {searchYotoIcons} from "~/lib/yoto-icons.server"
 export async function loader({request}: {request: Request}) {
     const authenticated = await isAuthenticated()
     if (!authenticated) {
-        return new Response("Unauthorized", {status: 401})
+        return Response.json({error: "Unauthorized"}, {status: 401})
     }
 
     const url = new URL(request.url)
