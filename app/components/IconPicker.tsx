@@ -24,7 +24,7 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
     const [hasSearched, setHasSearched] = useState(false)
     const fetcher = useFetcher<IconsResponse>()
 
-    const loading = fetcher.state === "loading"
+    const loading = fetcher.state !== "idle"
     const icons = fetcher.data?.yotoIcons ?? []
 
     // Track when a search has been performed
