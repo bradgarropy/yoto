@@ -1,5 +1,6 @@
 import {isAuthenticated} from "~/lib/auth.server"
 import {searchYotoIcons} from "~/lib/yoto-icons.server"
+import {searchCommunityIcons} from "~/lib/yotoicons-community.server"
 
 export async function loader({request}: {request: Request}) {
     const authenticated = await isAuthenticated()
@@ -11,10 +12,24 @@ export async function loader({request}: {request: Request}) {
     const query = url.searchParams.get("q")
 
     if (!query) {
-        return Response.json({yotoIcons: []})
+        return Response.json({yotoIcons: [], communityIcons: []})
     }
 
-    const yotoIcons = await searchYotoIcons(query)
+    const [yotoResult, communityResult] = await Promise.allSettled([
+        searchYotoIcons(query),
+        searchCommunityIcons(query),
+    ])
 
-    return Response.json({yotoIcons})
+    const yotoIcons = yotoResult.status === "fulfilled" ? yotoResult.value : []
+    const communityIcons =
+        communityResult.status === "fulfilled"
+            ? communityResult.value.icons
+            : []
+    const communityError =
+        communityResult.status === "rejected"
+            ? (communityResult.reason?.message ??
+              "Community icon search failed")
+            : undefined
+
+    return Response.json({yotoIcons, communityIcons, communityError})
 }
