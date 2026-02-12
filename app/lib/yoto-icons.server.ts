@@ -27,7 +27,7 @@ const searchYotoIcons = async (query: string): Promise<YotoIcon[]> => {
     const icons = await fetchYotoIcons()
     const lowerQuery = query.toLowerCase()
 
-    return icons.filter(icon => {
+    const filtered = icons.filter(icon => {
         // Check if query matches title
         if (icon.title?.toLowerCase().includes(lowerQuery)) {
             return true
@@ -35,6 +35,16 @@ const searchYotoIcons = async (query: string): Promise<YotoIcon[]> => {
 
         // Check if query matches any tag
         return icon.tags?.some(tag => tag?.toLowerCase().includes(lowerQuery))
+    })
+
+    // Dedupe by id (mediaId)
+    const seen = new Set<string>()
+    return filtered.filter(icon => {
+        if (seen.has(icon.id)) {
+            return false
+        }
+        seen.add(icon.id)
+        return true
     })
 }
 
