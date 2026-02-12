@@ -13,6 +13,7 @@ import {
 } from "react-router"
 import {toast} from "sonner"
 
+import {IconPickerContent} from "~/components/IconPicker"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -26,6 +27,7 @@ import {
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {Dialog, DialogContent, DialogTrigger} from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
 import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
@@ -39,6 +41,7 @@ import {
     removeCardTracks,
     removeSyncedTrack,
 } from "~/lib/tracks.server"
+import type {YotoIcon} from "~/lib/yoto-icons.server"
 
 export function meta({
     data,
@@ -330,6 +333,85 @@ export async function action({
             return {success: true, reordered: true}
         }
 
+        if (intent === "updateTrackIcon") {
+            const trackKey = formData.get("trackKey") as string
+            const iconId = formData.get("iconId") as string
+
+            if (!trackKey || !iconId) {
+                return {error: "Track key and icon ID are required"}
+            }
+
+            // Get current card
+            const card = (await sdk.content.getCard(cardId)) as unknown as {
+                cardId: string
+                title?: string
+                content: {
+                    activity: string
+                    chapters: Array<{
+                        key?: string
+                        display?: {icon16x16?: string} | null
+                        [key: string]: unknown
+                    }>
+                    restricted: boolean
+                    config: {onlineOnly: boolean}
+                    version: string
+                }
+                metadata: Record<string, unknown>
+            }
+
+            // Find and update the chapter's icon (both chapter-level and track-level)
+            const updatedChapters = card.content.chapters.map(chapter => {
+                if (chapter.key === trackKey) {
+                    const chapterWithIcon = chapter as typeof chapter & {
+                        tracks?: Array<{
+                            display?: {icon16x16?: string} | null
+                            [key: string]: unknown
+                        }>
+                    }
+
+                    // Update tracks display if present
+                    const updatedTracks = chapterWithIcon.tracks?.map(
+                        track => ({
+                            ...track,
+                            display: {
+                                ...track.display,
+                                icon16x16: `yoto:#${iconId}`,
+                            },
+                        }),
+                    )
+
+                    return {
+                        ...chapter,
+                        display: {
+                            ...chapter.display,
+                            icon16x16: `yoto:#${iconId}`,
+                        },
+                        ...(updatedTracks && {tracks: updatedTracks}),
+                    }
+                }
+                return chapter
+            })
+
+            // Update card with new icon
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: {
+                    ...card.content,
+                    chapters: stripNullValues(updatedChapters),
+                },
+                metadata: card.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, iconUpdated: true}
+        }
+
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -357,6 +439,7 @@ type ActionData = {
     skipped?: number
     deleted?: string
     reordered?: boolean
+    iconUpdated?: boolean
 }
 
 type Track = {
@@ -563,10 +646,16 @@ export default function CardDetail({
     const navigation = useNavigation()
     const actionData = useActionData<ActionData>()
     const reorderFetcher = useFetcher<ActionData>()
+    const iconFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
     const hasOrderChangedRef = useRef(false)
+
+    // State for icon picker modal
+    const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(
+        null,
+    )
 
     // Sync local state with loader data when it changes
     useEffect(() => {
@@ -632,6 +721,38 @@ export default function CardDetail({
         }
         prevReorderState.current = reorderFetcher.state
     }, [reorderFetcher.state, reorderFetcher.data, tracks])
+
+    // Show toast for icon update results
+    const prevIconState = useRef(iconFetcher.state)
+    useEffect(() => {
+        if (
+            prevIconState.current !== "idle" &&
+            iconFetcher.state === "idle" &&
+            iconFetcher.data
+        ) {
+            if (iconFetcher.data.iconUpdated) {
+                toast.success("Icon updated")
+            } else if (iconFetcher.data.error) {
+                toast.error(iconFetcher.data.error)
+            }
+        }
+        prevIconState.current = iconFetcher.state
+    }, [iconFetcher.state, iconFetcher.data])
+
+    // Handle icon selection from picker
+    const handleIconSelect = (icon: YotoIcon) => {
+        if (!selectedTrackKey) return
+
+        iconFetcher.submit(
+            {
+                intent: "updateTrackIcon",
+                trackKey: selectedTrackKey,
+                iconId: icon.id,
+            },
+            {method: "post"},
+        )
+        setSelectedTrackKey(null)
+    }
 
     return (
         <div className="min-h-screen p-8">
@@ -782,18 +903,47 @@ export default function CardDetail({
                                         <span className="text-muted-foreground w-8 text-right">
                                             {index + 1}
                                         </span>
-                                        {track.iconUrl ? (
-                                            <img
-                                                src={track.iconUrl}
-                                                alt=""
-                                                className="w-8 h-8 shrink-0"
-                                                style={{
-                                                    imageRendering: "pixelated",
-                                                }}
-                                            />
-                                        ) : (
-                                            <div className="w-8 h-8 shrink-0 bg-muted rounded" />
-                                        )}
+                                        <Dialog
+                                            open={
+                                                selectedTrackKey === track.key
+                                            }
+                                            onOpenChange={(open: boolean) => {
+                                                if (open) {
+                                                    setSelectedTrackKey(
+                                                        track.key,
+                                                    )
+                                                } else {
+                                                    setSelectedTrackKey(null)
+                                                }
+                                            }}
+                                        >
+                                            <DialogTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    className="shrink-0 p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors"
+                                                    aria-label={`Change icon for ${track.title}`}
+                                                >
+                                                    {track.iconUrl ? (
+                                                        <img
+                                                            src={track.iconUrl}
+                                                            alt=""
+                                                            className="w-8 h-8"
+                                                            style={{
+                                                                imageRendering:
+                                                                    "pixelated",
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <div className="w-8 h-8 bg-zinc-700 rounded" />
+                                                    )}
+                                                </button>
+                                            </DialogTrigger>
+                                            <DialogContent className="sm:max-w-lg">
+                                                <IconPickerContent
+                                                    onSelect={handleIconSelect}
+                                                />
+                                            </DialogContent>
+                                        </Dialog>
                                         <div className="flex-1 min-w-0">
                                             <p className="font-medium truncate">
                                                 {track.title}
