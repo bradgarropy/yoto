@@ -128,16 +128,50 @@ All stored in `~/.config/yoto/`:
 
 - [x] Display track icons on card detail page (from Yoto API `display.icon16x16`)
 - [ ] Card cover image customization
-- [ ] yotoicons.com integration for setting track icons
+- [ ] Icon search for setting track icons (Phase 1: Yoto icons, Phase 2: yotoicons.com)
 - [ ] Cloud hosting for remote access
 
-## Yotoicons.com Integration
+## Icon Search
 
 ### Overview
 
-Search and select icons from [yotoicons.com](https://yotoicons.com) (community icon library with 19,500+ icons) and apply them to individual tracks on the card detail page.
+Click on any track icon to open a modal that searches for icons. Implementation is split into two phases:
 
-### Architecture
+- **Phase 1:** Native Yoto icons only (from Yoto API)
+- **Phase 2:** Add yotoicons.com community icons (~19,500+ icons)
+
+### Phase 1: Native Yoto Icon Search
+
+Search and select icons from Yoto's official icon library. The Yoto API provides icons with tags for searching.
+
+#### Yoto API Discovery
+
+The Yoto API has an endpoint for fetching all official icons:
+
+```
+GET https://api.yotoplay.com/media/displayIcons/user/yoto
+Authorization: Bearer {jwt}
+
+Response: {
+  "displayIcons": [
+    {
+      "mediaId": "_WWpLHoOj6iqeREcGkJnGlsis2QSF6znM0UPFdXTjf8",
+      "title": "Music notes",
+      "publicTags": ["music", "note"],
+      "url": "https://media-secure-v2.api.yotoplay.com/icons/...",
+      "public": true,
+      "userId": "yoto",
+      "createdAt": "2020-08-25T00:17:17.285Z",
+      "displayIconId": "5f44588d5d9e90000830f5c3"
+    },
+    // ... ~520 icons
+  ]
+}
+```
+
+Response time: ~840ms (acceptable for button-triggered search)
+
+#### Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -152,38 +186,117 @@ Search and select icons from [yotoicons.com](https://yotoicons.com) (community i
 ┌──────────────────────────────────────────────────────────────────┐
 │                    IconPicker Modal                              │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │ Search: [___________] [Search]                              │ │
+│  │ Search: [___________] [🔍]                                  │ │
 │  │                                                             │ │
-│  │ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                          │ │
-│  │ │icon│ │icon│ │icon│ │icon│ │icon│  ← from yotoicons.com    │ │
-│  │ └────┘ └────┘ └────┘ └────┘ └────┘                          │ │
+│  │ (Before search)                                             │ │
+│  │ Search to find icons from Yoto's official library.          │ │
 │  │                                                             │ │
-│  │ [Load More]                                                 │ │
+│  │ (After search)                                              │ │
+│  │ Yoto Icons (12 results)                                     │ │
+│  │ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                   │ │
+│  │ │icon│ │icon│ │icon│ │icon│ │icon│ │icon│                   │ │
+│  │ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                   │ │
+│  │                                                             │ │
+│  │ (No results)                                                │ │
+│  │ No results found                                            │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────┘
                               │ select icon
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              Server Action: updateTrackIcon                     │
-│  1. Fetch icon PNG from yotoicons.com                           │
-│  2. Upload to Yoto media (get mediaId)                          │
-│  3. Update chapter.display.icon16x16 = "yoto:#mediaId"          │
-│  4. Call sdk.content.updateCard()                               │
+│  1. For Yoto icons: mediaId = iconId (hash IS the mediaId)     │
+│  2. Update chapter.display.icon16x16 = "yoto:#${mediaId}"       │
+│  3. Call sdk.content.updateCard()                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Files
+#### Files
 
 | File                            | Purpose                                       |
 | ------------------------------- | --------------------------------------------- |
-| `app/lib/yotoicons.server.ts`   | Scrape yotoicons.com HTML to extract icons    |
-| `app/routes/api.yotoicons.ts`   | API endpoint for frontend to search icons     |
+| `app/lib/yoto-icons.server.ts`  | Fetch and search native Yoto icons from API   |
+| `app/routes/api.icons.ts`       | Search endpoint                               |
 | `app/components/IconPicker.tsx` | Modal UI for searching/selecting icons        |
 | `app/routes/cards.$id.tsx`      | Add `updateTrackIcon` action, integrate modal |
 
-### How Yotoicons.com Works
+#### yoto-icons.server.ts
 
-1. **No public API** - Site requires scraping HTML (same approach as MYO Studio extension)
+```typescript
+type YotoIcon = {
+    id: string // mediaId (the hash)
+    title: string
+    tags: string[] // publicTags from API
+    url: string
+}
+
+// Fetch all native Yoto icons from API
+fetchYotoIcons(): Promise<YotoIcon[]>
+
+// Search native Yoto icons by query (filters by tags)
+searchYotoIcons(query: string): Promise<YotoIcon[]>
+```
+
+#### api.icons.ts
+
+```
+GET /api/icons?q=dog
+
+Response: {
+  yotoIcons: YotoIcon[]
+}
+```
+
+#### IconPicker.tsx
+
+- Search input + search button (triggers on click or Enter)
+- Initial state: explainer text
+- Icon grid (16x16 rendered at 32x32 with `imageRendering: pixelated`)
+- Loading states
+- "No results found" for empty results
+- Click icon to select and close modal
+
+#### cards.$id.tsx Changes
+
+New action intent `updateTrackIcon`:
+
+```typescript
+case "updateTrackIcon": {
+  const trackKey = formData.get("trackKey") as string
+  const iconId = formData.get("iconId") as string
+
+  // For Yoto icons, the hash IS the media ID
+  const mediaId = iconId
+
+  // Update the chapter's icon
+  const chapter = card.content.chapters.find(c => c.key === trackKey)
+  chapter.display = { ...chapter.display, icon16x16: `yoto:#${mediaId}` }
+
+  await sdk.content.updateCard(card)
+  return { success: true }
+}
+```
+
+UI changes:
+
+- Make track icon a clickable `<button>`
+- Add state for `selectedTrackKey`
+- Render `<IconPicker>` modal
+- Handle selection via `useFetcher`
+
+### Phase 2: Add yotoicons.com (Future)
+
+Extend icon search to include community icons from yotoicons.com.
+
+#### Additional Files
+
+| File                                    | Purpose                   |
+| --------------------------------------- | ------------------------- |
+| `app/lib/yotoicons-community.server.ts` | Scrape yotoicons.com HTML |
+
+#### How yotoicons.com Works
+
+1. **No public API** - Site requires scraping HTML
 2. **Icon data in HTML** - Embedded in `onclick` handlers:
     ```javascript
     populate_icon_modal("844", "animals", "bluey", "", "californiafish", "6298")
@@ -198,12 +311,10 @@ Search and select icons from [yotoicons.com](https://yotoicons.com) (community i
     /icons?tag={search}&sort={popular|new}&type={singles|packs}&page={n}
     ```
 
-### Implementation Details
-
-#### yotoicons.server.ts
+#### yotoicons-community.server.ts
 
 ```typescript
-interface YotoIcon {
+type CommunityIcon = {
     id: string
     category: string
     tags: string[]
@@ -212,44 +323,66 @@ interface YotoIcon {
     url: string // https://yotoicons.com/static/uploads/{id}.png
 }
 
-// Search icons by tag/keyword
-searchIcons(query: string, page?: number): Promise<{icons: YotoIcon[], hasMore: boolean}>
+// Search icons from yotoicons.com (scrapes HTML)
+searchCommunityIcons(query: string, page?: number): Promise<{icons: CommunityIcon[], hasMore: boolean}>
 
-// Fetch icon image as Buffer for upload to Yoto
-fetchIconImage(iconId: string): Promise<Buffer>
+// Fetch icon PNG as Buffer for upload to Yoto
+fetchCommunityIconImage(iconId: string): Promise<Buffer>
 ```
 
-#### api.yotoicons.ts
+#### Changes to Existing Files
+
+**api.icons.ts:**
 
 ```
-GET /api/yotoicons?q=bluey&page=1
-Response: { icons: YotoIcon[], hasMore: boolean }
+GET /api/icons?q=dog&page=1
+
+Response: {
+  yotoIcons: YotoIcon[],
+  communityIcons: CommunityIcon[],
+  communityError?: string,  // If yotoicons.com failed
+  hasMore: boolean
+}
 ```
 
-#### IconPicker.tsx
+**IconPicker.tsx:**
 
-- Search input (search on Enter or button click)
-- Grid of icon thumbnails (16x16 rendered at 32x32 with pixelated rendering)
-- "Load More" button for pagination
-- Loading states
-- Click icon to select and close modal
+- Add "Community Icons" section below Yoto icons
+- Add "Load More" button for pagination
+- Show error message if yotoicons.com fails (still display Yoto results)
 
-#### cards.$id.tsx Changes
+**cards.$id.tsx:**
 
-New action intent `updateTrackIcon`:
+```typescript
+case "updateTrackIcon": {
+  const iconType = formData.get("iconType") as "yoto" | "community"
+  const iconId = formData.get("iconId") as string
 
-1. Receive `trackKey` and `yotoIconId`
-2. Fetch icon PNG from yotoicons.com
-3. Compute SHA256 hash of image
-4. Upload to Yoto via `sdk.media.getUploadUrlForTranscode()`
-5. Update chapter: `display.icon16x16 = "yoto:#${mediaId}"`
-6. Call `sdk.content.updateCard()`
+  let mediaId: string
 
-UI changes:
+  if (iconType === "yoto") {
+    // Yoto icons: hash IS the media ID
+    mediaId = iconId
+  } else {
+    // Community icons: fetch PNG, upload to Yoto
+    const imageBuffer = await fetchCommunityIconImage(iconId)
+    const sha256 = computeSha256(imageBuffer)
+    const uploadInfo = await sdk.media.getUploadUrlForTranscode(sha256, `${iconId}.png`)
+    if (uploadInfo.uploadUrl) {
+      await fetch(uploadInfo.uploadUrl, {
+        method: "PUT",
+        body: imageBuffer,
+        headers: { "Content-Type": "image/png" }
+      })
+    }
+    mediaId = sha256
+  }
 
-- Wrap track icon in clickable button
-- Open IconPicker modal on click
-- Submit selected icon via fetcher
+  // Update chapter icon
+  chapter.display = { ...chapter.display, icon16x16: `yoto:#${mediaId}` }
+  await sdk.content.updateCard(card)
+}
+```
 
 ## YouTube Metadata Matching
 
