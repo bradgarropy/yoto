@@ -131,7 +131,7 @@ All stored in `~/.config/yoto/`:
 - [x] Icon search for setting track icons (Phase 1: Yoto icons)
 - [x] Icon search for setting track icons (Phase 2: yotoicons.com)
 - [x] Auto-number track icons (set each track to the official Yoto number icon matching its position)
-- [ ] Move "Add Tracks" form to a button in the action toolbar
+- [x] Move "Add Tracks" form to a button in the action toolbar
 - [ ] Cloud hosting for remote access
 
 ## Icon Search
