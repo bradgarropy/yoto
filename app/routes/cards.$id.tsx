@@ -348,6 +348,21 @@ export async function action({
                 return {error: "Cover image file is required"}
             }
 
+            const MAX_COVER_SIZE = 10 * 1024 * 1024 // 10MB
+            if (coverFile.size > MAX_COVER_SIZE) {
+                return {error: "Cover image must be under 10MB"}
+            }
+
+            const ALLOWED_IMAGE_TYPES = [
+                "image/jpeg",
+                "image/png",
+                "image/gif",
+                "image/webp",
+            ]
+            if (!ALLOWED_IMAGE_TYPES.includes(coverFile.type)) {
+                return {error: "Cover image must be a JPEG, PNG, GIF, or WebP"}
+            }
+
             const token = await getToken()
 
             if (!token) {
@@ -782,6 +797,15 @@ export default function CardDetail({
     const [coverPreview, setCoverPreview] = useState<string | null>(null)
     const coverFileRef = useRef<HTMLInputElement>(null)
 
+    // Revoke cover preview URL on unmount
+    useEffect(() => {
+        return () => {
+            if (coverPreview) {
+                URL.revokeObjectURL(coverPreview)
+            }
+        }
+    }, [coverPreview])
+
     // State for icon picker modal
     const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(
         null,
@@ -919,6 +943,9 @@ export default function CardDetail({
                             if (!open && coverFetcher.state !== "idle") return
                             setCoverDialogOpen(open)
                             if (open) {
+                                if (coverPreview) {
+                                    URL.revokeObjectURL(coverPreview)
+                                }
                                 setCoverPreview(null)
                                 if (coverFileRef.current) {
                                     coverFileRef.current.value = ""
@@ -966,10 +993,13 @@ export default function CardDetail({
                                     disabled={coverFetcher.state !== "idle"}
                                     onChange={e => {
                                         const file = e.target.files?.[0]
+                                        if (coverPreview) {
+                                            URL.revokeObjectURL(coverPreview)
+                                        }
                                         if (file) {
-                                            const url =
-                                                URL.createObjectURL(file)
-                                            setCoverPreview(url)
+                                            setCoverPreview(
+                                                URL.createObjectURL(file),
+                                            )
                                         } else {
                                             setCoverPreview(null)
                                         }
@@ -985,6 +1015,13 @@ export default function CardDetail({
                                         const file =
                                             coverFileRef.current?.files?.[0]
                                         if (!file) return
+
+                                        if (file.size > 10 * 1024 * 1024) {
+                                            toast.error(
+                                                "Cover image must be under 10MB",
+                                            )
+                                            return
+                                        }
 
                                         const formData = new FormData()
                                         formData.set("intent", "updateCover")
