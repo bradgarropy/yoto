@@ -771,6 +771,7 @@ export default function CardDetail({
     const actionData = useActionData<ActionData>()
     const reorderFetcher = useFetcher<ActionData>()
     const iconFetcher = useFetcher<ActionData>()
+    const coverFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
@@ -851,7 +852,7 @@ export default function CardDetail({
         prevReorderState.current = reorderFetcher.state
     }, [reorderFetcher.state, reorderFetcher.data, tracks])
 
-    // Show toast for icon update results
+    // Show toast for icon update results and close dialog on completion
     const prevIconState = useRef(iconFetcher.state)
     useEffect(() => {
         if (
@@ -864,9 +865,28 @@ export default function CardDetail({
             } else if (iconFetcher.data.error) {
                 toast.error(iconFetcher.data.error)
             }
+            setSelectedTrackKey(null)
         }
         prevIconState.current = iconFetcher.state
     }, [iconFetcher.state, iconFetcher.data])
+
+    // Show toast for cover update results and close dialog on completion
+    const prevCoverState = useRef(coverFetcher.state)
+    useEffect(() => {
+        if (
+            prevCoverState.current !== "idle" &&
+            coverFetcher.state === "idle" &&
+            coverFetcher.data
+        ) {
+            if (coverFetcher.data.coverUpdated) {
+                toast.success("Cover image updated")
+            } else if (coverFetcher.data.error) {
+                toast.error(coverFetcher.data.error)
+            }
+            setCoverDialogOpen(false)
+        }
+        prevCoverState.current = coverFetcher.state
+    }, [coverFetcher.state, coverFetcher.data])
 
     // Handle icon selection from picker
     const handleIconSelect = (icon: IconSelection) => {
@@ -881,7 +901,6 @@ export default function CardDetail({
             },
             {method: "post"},
         )
-        setSelectedTrackKey(null)
     }
 
     return (
@@ -897,8 +916,9 @@ export default function CardDetail({
                     <Dialog
                         open={coverDialogOpen}
                         onOpenChange={open => {
+                            if (!open && coverFetcher.state !== "idle") return
                             setCoverDialogOpen(open)
-                            if (!open) {
+                            if (open) {
                                 setCoverPreview(null)
                                 if (coverFileRef.current) {
                                     coverFileRef.current.value = ""
@@ -943,6 +963,7 @@ export default function CardDetail({
                                     ref={coverFileRef}
                                     type="file"
                                     accept="image/*"
+                                    disabled={coverFetcher.state !== "idle"}
                                     onChange={e => {
                                         const file = e.target.files?.[0]
                                         if (file) {
@@ -955,7 +976,10 @@ export default function CardDetail({
                                     }}
                                 />
                                 <Button
-                                    disabled={!coverPreview}
+                                    disabled={
+                                        !coverPreview ||
+                                        coverFetcher.state !== "idle"
+                                    }
                                     className="w-full"
                                     onClick={() => {
                                         const file =
@@ -970,11 +994,11 @@ export default function CardDetail({
                                             method: "post",
                                             encType: "multipart/form-data",
                                         })
-                                        setCoverDialogOpen(false)
-                                        setCoverPreview(null)
                                     }}
                                 >
-                                    Upload
+                                    {coverFetcher.state !== "idle"
+                                        ? "Uploading..."
+                                        : "Upload"}
                                 </Button>
                             </div>
                         </DialogContent>
@@ -1110,6 +1134,11 @@ export default function CardDetail({
                                                 selectedTrackKey === track.key
                                             }
                                             onOpenChange={(open: boolean) => {
+                                                if (
+                                                    !open &&
+                                                    iconFetcher.state !== "idle"
+                                                )
+                                                    return
                                                 if (open) {
                                                     setSelectedTrackKey(
                                                         track.key,

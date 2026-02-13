@@ -2,7 +2,7 @@ import {motion, useMotionValue, useSpring} from "motion/react"
 import {useRef} from "react"
 
 // Yoto card images have an intrinsic aspect ratio of 49:78 (width:height)
-const CARD_ASPECT_RATIO = "aspect-49/78"
+const CARD_ASPECT_RATIO = "aspect-[49/78]"
 
 function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     const containerRef = useRef<HTMLDivElement>(null)

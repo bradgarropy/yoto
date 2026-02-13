@@ -29,6 +29,7 @@ type IconsResponse = {
 function IconPickerContent({onSelect}: IconPickerContentProps) {
     const [query, setQuery] = useState("")
     const [hasSearched, setHasSearched] = useState(false)
+    const [pendingIcon, setPendingIcon] = useState<IconSelection | null>(null)
     const fetcher = useFetcher<IconsResponse>()
 
     const loading = fetcher.state !== "idle"
@@ -37,12 +38,19 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
     const communityError = fetcher.data?.communityError
     const totalResults = yotoIcons.length + communityIcons.length
 
+    const isUpdating = pendingIcon !== null
+
     // Track when a search has been performed
     useEffect(() => {
         if (fetcher.state === "idle" && fetcher.data) {
             setHasSearched(true)
         }
     }, [fetcher.state, fetcher.data])
+
+    const handleSelect = (icon: IconSelection) => {
+        setPendingIcon(icon)
+        onSelect(icon)
+    }
 
     return (
         <>
@@ -65,10 +73,11 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                     autoComplete="off"
+                    disabled={isUpdating}
                 />
                 <Button
                     type="submit"
-                    disabled={loading || !query.trim()}
+                    disabled={isUpdating || loading || !query.trim()}
                     aria-label="Search"
                 >
                     <SearchIcon />
@@ -76,7 +85,25 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
             </fetcher.Form>
 
             <div className="min-h-50 max-h-[60vh] overflow-y-auto">
-                {loading ? (
+                {isUpdating ? (
+                    <div className="flex flex-col items-center justify-center h-50 gap-3 text-muted-foreground">
+                        {pendingIcon && (
+                            <div className="p-3 rounded-md bg-zinc-900">
+                                <img
+                                    src={pendingIcon.url}
+                                    alt={
+                                        pendingIcon.type === "yoto"
+                                            ? pendingIcon.title
+                                            : pendingIcon.tags.join(", ")
+                                    }
+                                    className="w-12 h-12"
+                                    style={{imageRendering: "pixelated"}}
+                                />
+                            </div>
+                        )}
+                        Updating icon...
+                    </div>
+                ) : loading ? (
                     <div className="flex items-center justify-center h-50 text-muted-foreground">
                         Searching...
                     </div>
@@ -102,7 +129,7 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
                                             key={`yoto-${icon.id}-${index}`}
                                             type="button"
                                             onClick={() =>
-                                                onSelect({
+                                                handleSelect({
                                                     type: "yoto",
                                                     ...icon,
                                                 })
@@ -142,7 +169,7 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
                                             key={`community-${icon.id}-${index}`}
                                             type="button"
                                             onClick={() =>
-                                                onSelect({
+                                                handleSelect({
                                                     type: "community",
                                                     ...icon,
                                                 })
