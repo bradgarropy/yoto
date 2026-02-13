@@ -13,6 +13,7 @@ import {
 } from "react-router"
 import {toast} from "sonner"
 
+import {CARD_ASPECT_RATIO, CardCover} from "~/components/CardCover"
 import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
 import {
     AlertDialog,
@@ -27,7 +28,14 @@ import {
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
-import {Dialog, DialogContent, DialogTrigger} from "~/components/ui/dialog"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
 import {getAuthenticatedSdk, getToken, requireAuth} from "~/lib/auth.server"
@@ -333,6 +341,95 @@ export async function action({
             return {success: true, reordered: true}
         }
 
+        if (intent === "updateCover") {
+            const coverFile = formData.get("coverFile") as File
+
+            if (!coverFile || coverFile.size === 0) {
+                return {error: "Cover image file is required"}
+            }
+
+            const MAX_COVER_SIZE = 10 * 1024 * 1024 // 10MB
+            if (coverFile.size > MAX_COVER_SIZE) {
+                return {error: "Cover image must be under 10MB"}
+            }
+
+            const ALLOWED_IMAGE_TYPES = [
+                "image/jpeg",
+                "image/png",
+                "image/gif",
+                "image/webp",
+            ]
+            if (!ALLOWED_IMAGE_TYPES.includes(coverFile.type)) {
+                return {error: "Cover image must be a JPEG, PNG, GIF, or WebP"}
+            }
+
+            const token = await getToken()
+
+            if (!token) {
+                return {error: "Authentication required to upload cover"}
+            }
+
+            const imageBuffer = Buffer.from(await coverFile.arrayBuffer())
+
+            const url = new URL(
+                "https://api.yotoplay.com/media/coverImage/user/me/upload",
+            )
+            url.searchParams.set("autoconvert", "true")
+            url.searchParams.set("coverType", "default")
+
+            const uploadResponse = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": coverFile.type,
+                },
+                body: new Uint8Array(imageBuffer),
+            })
+
+            if (!uploadResponse.ok) {
+                return {
+                    error: `Cover upload failed: ${uploadResponse.statusText}`,
+                }
+            }
+
+            const uploadResult = (await uploadResponse.json()) as {
+                coverImage: {mediaId: string; mediaUrl: string}
+            }
+
+            const {mediaUrl} = uploadResult.coverImage
+
+            // Get current card and update cover metadata
+            const card = (await sdk.content.getCard(cardId)) as unknown as {
+                cardId: string
+                title?: string
+                content: Record<string, unknown>
+                metadata: Record<string, unknown> & {
+                    cover?: {imageL?: string; imageM?: string; imageS?: string}
+                }
+            }
+
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: card.content,
+                metadata: {
+                    ...card.metadata,
+                    cover: {
+                        ...card.metadata?.cover,
+                        imageL: mediaUrl,
+                    },
+                },
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, coverUpdated: true}
+        }
+
         if (intent === "updateTrackIcon") {
             const trackKey = formData.get("trackKey") as string
             const iconId = formData.get("iconId") as string
@@ -481,6 +578,7 @@ type ActionData = {
     deleted?: string
     reordered?: boolean
     iconUpdated?: boolean
+    coverUpdated?: boolean
 }
 
 type Track = {
@@ -688,10 +786,25 @@ export default function CardDetail({
     const actionData = useActionData<ActionData>()
     const reorderFetcher = useFetcher<ActionData>()
     const iconFetcher = useFetcher<ActionData>()
+    const coverFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
     const hasOrderChangedRef = useRef(false)
+
+    // State for cover upload dialog
+    const [coverDialogOpen, setCoverDialogOpen] = useState(false)
+    const [coverPreview, setCoverPreview] = useState<string | null>(null)
+    const coverFileRef = useRef<HTMLInputElement>(null)
+
+    // Revoke cover preview URL on unmount
+    useEffect(() => {
+        return () => {
+            if (coverPreview) {
+                URL.revokeObjectURL(coverPreview)
+            }
+        }
+    }, [coverPreview])
 
     // State for icon picker modal
     const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(
@@ -763,7 +876,7 @@ export default function CardDetail({
         prevReorderState.current = reorderFetcher.state
     }, [reorderFetcher.state, reorderFetcher.data, tracks])
 
-    // Show toast for icon update results
+    // Show toast for icon update results and close dialog on completion
     const prevIconState = useRef(iconFetcher.state)
     useEffect(() => {
         if (
@@ -773,12 +886,31 @@ export default function CardDetail({
         ) {
             if (iconFetcher.data.iconUpdated) {
                 toast.success("Icon updated")
+                setSelectedTrackKey(null)
             } else if (iconFetcher.data.error) {
                 toast.error(iconFetcher.data.error)
             }
         }
         prevIconState.current = iconFetcher.state
     }, [iconFetcher.state, iconFetcher.data])
+
+    // Show toast for cover update results and close dialog on completion
+    const prevCoverState = useRef(coverFetcher.state)
+    useEffect(() => {
+        if (
+            prevCoverState.current !== "idle" &&
+            coverFetcher.state === "idle" &&
+            coverFetcher.data
+        ) {
+            if (coverFetcher.data.coverUpdated) {
+                toast.success("Cover image updated")
+                setCoverDialogOpen(false)
+            } else if (coverFetcher.data.error) {
+                toast.error(coverFetcher.data.error)
+            }
+        }
+        prevCoverState.current = coverFetcher.state
+    }, [coverFetcher.state, coverFetcher.data])
 
     // Handle icon selection from picker
     const handleIconSelect = (icon: IconSelection) => {
@@ -793,7 +925,6 @@ export default function CardDetail({
             },
             {method: "post"},
         )
-        setSelectedTrackKey(null)
     }
 
     return (
@@ -806,19 +937,109 @@ export default function CardDetail({
                 </div>
 
                 <div className="flex gap-6 mb-8">
-                    {card.coverUrl ? (
-                        <img
-                            src={card.coverUrl}
-                            alt={card.title}
-                            className="w-48 h-48 object-cover rounded-2xl shadow-md"
-                        />
-                    ) : (
-                        <div className="w-48 h-48 bg-muted rounded-2xl flex items-center justify-center">
-                            <span className="text-6xl text-muted-foreground">
-                                ?
-                            </span>
-                        </div>
-                    )}
+                    <Dialog
+                        open={coverDialogOpen}
+                        onOpenChange={open => {
+                            if (!open && coverFetcher.state !== "idle") return
+                            setCoverDialogOpen(open)
+                            if (open) {
+                                if (coverPreview) {
+                                    URL.revokeObjectURL(coverPreview)
+                                }
+                                setCoverPreview(null)
+                                if (coverFileRef.current) {
+                                    coverFileRef.current.value = ""
+                                }
+                            }
+                        }}
+                    >
+                        <DialogTrigger asChild>
+                            <button
+                                type="button"
+                                className="w-48 shrink-0 cursor-pointer"
+                                aria-label="Change cover image"
+                            >
+                                <CardCover
+                                    coverUrl={card.coverUrl}
+                                    title={card.title}
+                                />
+                            </button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Change Cover Image</DialogTitle>
+                                <DialogDescription>
+                                    Upload a new cover image for this card.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                                {coverPreview && (
+                                    <div className="w-32 mx-auto">
+                                        <div
+                                            className={`${CARD_ASPECT_RATIO} rounded-2xl overflow-hidden shadow-md`}
+                                        >
+                                            <img
+                                                src={coverPreview}
+                                                alt="Cover preview"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                <Input
+                                    ref={coverFileRef}
+                                    type="file"
+                                    accept="image/*"
+                                    disabled={coverFetcher.state !== "idle"}
+                                    onChange={e => {
+                                        const file = e.target.files?.[0]
+                                        if (coverPreview) {
+                                            URL.revokeObjectURL(coverPreview)
+                                        }
+                                        if (file) {
+                                            setCoverPreview(
+                                                URL.createObjectURL(file),
+                                            )
+                                        } else {
+                                            setCoverPreview(null)
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    disabled={
+                                        !coverPreview ||
+                                        coverFetcher.state !== "idle"
+                                    }
+                                    className="w-full"
+                                    onClick={() => {
+                                        const file =
+                                            coverFileRef.current?.files?.[0]
+                                        if (!file) return
+
+                                        if (file.size > 10 * 1024 * 1024) {
+                                            toast.error(
+                                                "Cover image must be under 10MB",
+                                            )
+                                            return
+                                        }
+
+                                        const formData = new FormData()
+                                        formData.set("intent", "updateCover")
+                                        formData.set("coverFile", file)
+
+                                        coverFetcher.submit(formData, {
+                                            method: "post",
+                                            encType: "multipart/form-data",
+                                        })
+                                    }}
+                                >
+                                    {coverFetcher.state !== "idle"
+                                        ? "Uploading..."
+                                        : "Upload"}
+                                </Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
 
                     <div className="flex-1">
                         <h1 className="text-3xl font-bold mb-2">
@@ -950,6 +1171,11 @@ export default function CardDetail({
                                                 selectedTrackKey === track.key
                                             }
                                             onOpenChange={(open: boolean) => {
+                                                if (
+                                                    !open &&
+                                                    iconFetcher.state !== "idle"
+                                                )
+                                                    return
                                                 if (open) {
                                                     setSelectedTrackKey(
                                                         track.key,

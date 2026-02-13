@@ -127,9 +127,10 @@ All stored in `~/.config/yoto/`:
 ## Future Enhancements
 
 - [x] Display track icons on card detail page (from Yoto API `display.icon16x16`)
-- [ ] Card cover image customization
+- [x] Card cover image customization
 - [x] Icon search for setting track icons (Phase 1: Yoto icons)
-- [ ] Icon search for setting track icons (Phase 2: yotoicons.com)
+- [x] Icon search for setting track icons (Phase 2: yotoicons.com)
+- [ ] Auto-number track icons (set each track to the official Yoto number icon matching its position)
 - [ ] Cloud hosting for remote access
 
 ## Icon Search
@@ -362,6 +363,64 @@ User clicks a community icon
     → PUT buffer to uploadUrl                // upload PNG to Yoto
     → update chapter display.icon16x16 = "yoto:#${sha256}"
 ```
+
+## Card Cover Image Customization ✅
+
+### Overview
+
+Click the card cover image on the card detail page (`/cards/:id`) to open a dialog for uploading a custom cover image. The image is uploaded to Yoto's cover image API, and the card metadata is updated with the returned URL.
+
+### Yoto Cover Image API
+
+```
+POST https://api.yotoplay.com/media/coverImage/user/me/upload?autoconvert=true&coverType=default
+Authorization: Bearer ${token}
+Content-Type: image/jpeg (or image/png)
+Body: image file bytes
+
+Response: {
+  "coverImage": {
+    "mediaId": "...",
+    "mediaUrl": "https://card-content.aws.fooropa.com/..."
+  }
+}
+```
+
+The `autoconvert=true` parameter tells Yoto to automatically resize and process the image to the appropriate cover image dimensions. The returned `mediaUrl` is stored in `metadata.cover.imageL` on the card.
+
+**Note:** The SDK does not have a method for this endpoint. It is called directly via `fetch` using `getToken()` for the bearer token, following the same pattern as the community icon upload.
+
+### Files
+
+| File                           | Purpose                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `app/components/CardCover.tsx` | Shared cover component with `49:78` aspect ratio, parallax hover effect, and exported `CARD_ASPECT_RATIO` constant |
+| `app/routes/cards.$id.tsx`     | `updateCover` action, cover upload Dialog, `coverFetcher`                                                          |
+
+### Data Flow
+
+```
+User clicks cover image on /cards/:id
+  → Dialog opens with file input
+  → User selects image file (preview shown in 49:78 aspect ratio)
+  → User clicks "Upload" (button shows "Uploading...", inputs disabled, dialog locked)
+  → POST cards.$id.tsx { intent: "updateCover", coverFile: File }
+    → Read file bytes from FormData
+    → POST to Yoto cover image API (autoconvert=true)
+    → Get back { coverImage: { mediaId, mediaUrl } }
+    → Set card.metadata.cover.imageL = mediaUrl
+    → sdk.content.updateCard(card)
+  → Dialog closes, toast shows "Cover image updated"
+  → Loader revalidates, new cover URL displayed
+```
+
+### Dialog UX Pattern
+
+Both the cover upload dialog and icon picker dialog follow the same pattern for async operations:
+
+- **During upload:** Inputs disabled, submit button shows loading text, dialog cannot be closed (Escape, overlay click, and X button are blocked)
+- **On completion:** Dialog closes automatically, toast notification shown
+- **No flash on close:** Loading state persists through the dialog close animation (state is not cleared until the dialog fully closes or reopens)
 
 ## YouTube Metadata Matching
 
