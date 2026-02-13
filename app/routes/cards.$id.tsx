@@ -886,10 +886,10 @@ export default function CardDetail({
         ) {
             if (iconFetcher.data.iconUpdated) {
                 toast.success("Icon updated")
+                setSelectedTrackKey(null)
             } else if (iconFetcher.data.error) {
                 toast.error(iconFetcher.data.error)
             }
-            setSelectedTrackKey(null)
         }
         prevIconState.current = iconFetcher.state
     }, [iconFetcher.state, iconFetcher.data])
@@ -904,10 +904,10 @@ export default function CardDetail({
         ) {
             if (coverFetcher.data.coverUpdated) {
                 toast.success("Cover image updated")
+                setCoverDialogOpen(false)
             } else if (coverFetcher.data.error) {
                 toast.error(coverFetcher.data.error)
             }
-            setCoverDialogOpen(false)
         }
         prevCoverState.current = coverFetcher.state
     }, [coverFetcher.state, coverFetcher.data])
