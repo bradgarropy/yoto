@@ -44,7 +44,6 @@ import {
     type ImportProgress,
     stripNullValues,
 } from "~/lib/sync-utils"
-
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 
@@ -208,13 +207,6 @@ export async function action({
                 }
                 metadata: Record<string, unknown>
             }
-
-            // Find the chapter being deleted to extract its mediaId
-            const chapterToDelete = card.content.chapters.find(
-                chapter => chapter.key === trackKey,
-            )
-            const trackUrl = chapterToDelete?.tracks?.[0]?.trackUrl
-            const mediaId = trackUrl ? sdk.extractMediaId(trackUrl) : undefined
 
             // Filter out the track to delete
             const updatedChapters = card.content.chapters.filter(
