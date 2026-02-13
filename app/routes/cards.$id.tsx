@@ -1298,9 +1298,6 @@ export default function CardDetail({
                                         }}
                                     >
                                         <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                                        <span className="text-muted-foreground w-8 text-right">
-                                            {index + 1}
-                                        </span>
                                         <Dialog
                                             open={
                                                 selectedTrackKey === track.key
