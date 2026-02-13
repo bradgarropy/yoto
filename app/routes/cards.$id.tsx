@@ -334,6 +334,80 @@ export async function action({
             return {success: true, reordered: true}
         }
 
+        if (intent === "updateCover") {
+            const coverFile = formData.get("coverFile") as File
+
+            if (!coverFile || coverFile.size === 0) {
+                return {error: "Cover image file is required"}
+            }
+
+            const token = await getToken()
+
+            if (!token) {
+                return {error: "Authentication required to upload cover"}
+            }
+
+            const imageBuffer = Buffer.from(await coverFile.arrayBuffer())
+
+            const url = new URL(
+                "https://api.yotoplay.com/media/coverImage/user/me/upload",
+            )
+            url.searchParams.set("autoconvert", "true")
+            url.searchParams.set("coverType", "default")
+
+            const uploadResponse = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": coverFile.type,
+                },
+                body: new Uint8Array(imageBuffer),
+            })
+
+            if (!uploadResponse.ok) {
+                return {
+                    error: `Cover upload failed: ${uploadResponse.statusText}`,
+                }
+            }
+
+            const uploadResult = (await uploadResponse.json()) as {
+                coverImage: {mediaId: string; mediaUrl: string}
+            }
+
+            const {mediaUrl} = uploadResult.coverImage
+
+            // Get current card and update cover metadata
+            const card = (await sdk.content.getCard(cardId)) as unknown as {
+                cardId: string
+                title?: string
+                content: Record<string, unknown>
+                metadata: Record<string, unknown> & {
+                    cover?: {imageL?: string; imageM?: string; imageS?: string}
+                }
+            }
+
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: card.content,
+                metadata: {
+                    ...card.metadata,
+                    cover: {
+                        ...card.metadata?.cover,
+                        imageL: mediaUrl,
+                    },
+                },
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, coverUpdated: true}
+        }
+
         if (intent === "updateTrackIcon") {
             const trackKey = formData.get("trackKey") as string
             const iconId = formData.get("iconId") as string
@@ -482,6 +556,7 @@ type ActionData = {
     deleted?: string
     reordered?: boolean
     iconUpdated?: boolean
+    coverUpdated?: boolean
 }
 
 type Track = {
