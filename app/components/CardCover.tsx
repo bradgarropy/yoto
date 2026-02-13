@@ -9,8 +9,8 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     const y = useMotionValue(0)
     const scale = useMotionValue(1)
 
-    // Spring config for smooth, slightly bouncy feel
-    const springConfig = {stiffness: 150, damping: 15}
+    // Spring config - damping 20 prevents overshoot that reveals the background
+    const springConfig = {stiffness: 150, damping: 20}
     const springX = useSpring(x, springConfig)
     const springY = useSpring(y, springConfig)
     const springScale = useSpring(scale, springConfig)
@@ -27,7 +27,7 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
         // This creates the effect of "looking into" the image
         x.set(mouseX * -8)
         y.set(mouseY * -8)
-        scale.set(1.05)
+        scale.set(1.1)
     }
 
     const handleMouseLeave = () => {

@@ -13,6 +13,7 @@ import {
 } from "react-router"
 import {toast} from "sonner"
 
+import {CardCover} from "~/components/CardCover"
 import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
 import {
     AlertDialog,
@@ -806,19 +807,12 @@ export default function CardDetail({
                 </div>
 
                 <div className="flex gap-6 mb-8">
-                    {card.coverUrl ? (
-                        <img
-                            src={card.coverUrl}
-                            alt={card.title}
-                            className="w-48 h-48 object-cover rounded-2xl shadow-md"
+                    <div className="w-48 shrink-0">
+                        <CardCover
+                            coverUrl={card.coverUrl}
+                            title={card.title}
                         />
-                    ) : (
-                        <div className="w-48 h-48 bg-muted rounded-2xl flex items-center justify-center">
-                            <span className="text-6xl text-muted-foreground">
-                                ?
-                            </span>
-                        </div>
-                    )}
+                    </div>
 
                     <div className="flex-1">
                         <h1 className="text-3xl font-bold mb-2">
