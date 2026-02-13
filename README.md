@@ -9,7 +9,6 @@ A local web application for syncing YouTube content to Yoto cards. Download audi
 - Drag-and-drop track reordering
 - Track deletion and card management
 - Search and sort cards
-- Automatic skip for already-synced tracks
 
 ## Prerequisites
 
@@ -76,8 +75,7 @@ yoto/
 │   └── lib/              # Server-side utilities
 │       ├── auth.server.ts
 │       ├── youtube.server.ts
-│       ├── sync.server.ts
-│       └── tracks.server.ts
+│       └── sync.server.ts
 ├── public/               # Static assets
 └── images/               # Image assets
 ```
@@ -92,8 +90,6 @@ yoto/
 
 ## Config Files
 
-Authentication and sync state are stored in `~/.config/yoto/`:
+Authentication tokens are stored in `~/.config/yoto/`:
 
 - `auth.json` - OAuth tokens
-- `playlists.json` - YouTube → Yoto playlist associations
-- `tracks.json` - Synced track history per card
