@@ -13,7 +13,7 @@ A local web application for syncing YouTube content to Yoto cards. Built with Re
 | UI               | shadcn/ui + Tailwind CSS v4      |
 | Auth             | @yotoplay/oauth-device-code-flow |
 | YouTube Download | yt-dlp                           |
-| State Storage    | JSON files in `~/.config/yoto/`  |
+| Auth Storage     | `~/.config/yoto/auth.json`       |
 
 ## Project Structure
 
@@ -31,8 +31,6 @@ yoto/
 │   └── lib/
 │       ├── auth.server.ts            # Token management, SDK creation
 │       ├── paths.server.ts           # Config file paths
-│       ├── playlists.server.ts       # YouTube → Yoto associations
-│       ├── tracks.server.ts          # Synced track history
 │       ├── youtube.server.ts         # yt-dlp wrapper
 │       ├── sync.server.ts            # Upload and sync logic
 │       └── sync-utils.ts             # Chapter helpers
@@ -64,7 +62,6 @@ yoto/
 2. `youtube.server.ts` extracts video/playlist info via yt-dlp
 3. Each track: download → transcode → upload to Yoto
 4. Card updated with new chapters
-5. Track info saved to `tracks.json` for skip detection
 
 ## Config Files
 
@@ -78,36 +75,6 @@ All stored in `~/.config/yoto/`:
     "refreshToken": "...",
     "expiresAt": 1769830490,
     "tokenType": "Bearer"
-}
-```
-
-### tracks.json
-
-```json
-{
-    "cardId123": {
-        "videos": [
-            {
-                "youtubeVideoId": "dQw4w9WgXcQ",
-                "syncedAt": "2026-02-03T12:00:00Z",
-                "mediaId": "a1b2c3d4e5f6..."
-            }
-        ],
-        "lastSynced": "2026-02-03T12:00:00Z"
-    }
-}
-```
-
-### playlists.json
-
-```json
-{
-    "PLxxxxx": {
-        "yotoId": "abc123",
-        "yotoName": "My Playlist",
-        "youtubeName": "YouTube Playlist",
-        "lastSynced": "2026-02-03T12:00:00Z"
-    }
 }
 ```
 
@@ -470,38 +437,49 @@ User clicks "Number Tracks" button
 
 Host the app on Cloudflare for remote access and multi-user support. Currently runs as a local Node.js app with filesystem-based state.
 
-### Removing tracks.json and playlists.json
+### Removed tracks.json and playlists.json ✅
 
-The `tracks.json` skip-detection mechanism and `playlists.json` associations are unnecessary for the actual workflow, which is:
+The `tracks.json` skip-detection mechanism and `playlists.json` associations were removed because:
 
-- **Delete a single track** from a card (via UI)
-- **Add a single track** via a YouTube URL
-- **Add multiple tracks** via a YouTube playlist URL
+- **Simple workflow**: Delete a track, add a track via YouTube URL, or add multiple tracks via playlist URL
+- **Not incremental sync**: No need to track what's been synced before
+- **Redundant data**: The `mediaId` for track deletion is available from the Yoto API (in each chapter's `trackUrl` as `yoto:#<hash>`)
+- **Cloudflare prep**: Removes filesystem dependencies for future cloud hosting
 
-This is not an incremental sync workflow - there's no need to track what's been synced before. The `mediaId` needed for track deletion is already available from the Yoto API (embedded in each chapter's `trackUrl` as `yoto:#<hash>`), so local storage of it is redundant.
+**Files removed:**
 
-**Files to remove:**
+| File                                | Reason                           |
+| ----------------------------------- | -------------------------------- |
+| `app/lib/tracks.server.ts`          | All CRUD for tracks.json         |
+| `app/lib/tracks.server.test.ts`     | Tests for tracks.server.ts       |
+| `app/lib/playlists.server.ts`       | All CRUD for playlists.json      |
+| `app/lib/playlists.server.test.ts`  | Tests for playlists.server.ts    |
+| `scripts/migrate-tracks-mediaId.ts` | Migration script for tracks.json |
 
-| File                                | Reason                                                        |
-| ----------------------------------- | ------------------------------------------------------------- |
-| `app/lib/tracks.server.ts`          | All CRUD for tracks.json                                      |
-| `app/lib/playlists.server.ts`       | All CRUD for playlists.json                                   |
-| `scripts/migrate-tracks-mediaId.ts` | Migration script for tracks.json                              |
-| References in `cards.$id.tsx`       | Calls to `removeSyncedTrack()`, etc.                          |
-| References in `sync.server.ts`      | Calls to `addSyncedTrack()`, `setPlaylistAssociation()`, etc. |
+**Files modified:**
+
+| File                       | Changes                                                          |
+| -------------------------- | ---------------------------------------------------------------- |
+| `app/lib/paths.server.ts`  | Removed `TRACKS_FILE` and `PLAYLISTS_FILE` exports               |
+| `app/routes/home.tsx`      | Replaced local `lastSynced` with Yoto API's `updatedAt` for sort |
+| `app/routes/cards.$id.tsx` | Removed imports and calls to track functions                     |
+| `app/lib/sync.server.ts`   | Removed skip detection and playlist association logic            |
+
+**Sort by Updated**: The home page "Sort by Updated" feature now uses the `updatedAt` field from the Yoto API instead of locally tracked `lastSynced`. This reflects any card edit (not just YouTube imports), which is more accurate.
 
 ### Cloudflare Compatibility Issues
 
-| Issue                                                                  | Severity | Solution                                      |
-| ---------------------------------------------------------------------- | -------- | --------------------------------------------- |
-| **yt-dlp/FFmpeg** (can't run binaries in Workers)                      | BLOCKER  | Cloudflare Containers                         |
-| **child_process spawn** (not in Workers runtime)                       | BLOCKER  | Cloudflare Containers                         |
-| **Long-running imports** (Workers 30s limit, imports can take minutes) | BLOCKER  | Cloudflare Containers                         |
-| **File system storage** (auth tokens, tracks, playlists)               | BLOCKER  | KV for auth, remove tracks/playlists          |
-| **TokenManager uses fs** (`@yotoplay/oauth-device-code-flow`)          | BLOCKER  | Custom token adapter with KV, or cookie-based |
-| **React Router Node adapter** (`@react-router/node`)                   | MEDIUM   | Switch to `@react-router/cloudflare`          |
-| **Buffer usage**                                                       | LOW      | Use `Uint8Array`                              |
-| **crypto.createHash**                                                  | LOW      | Use Web Crypto API                            |
+| Issue                                                                  | Severity    | Solution                                      |
+| ---------------------------------------------------------------------- | ----------- | --------------------------------------------- |
+| **yt-dlp/FFmpeg** (can't run binaries in Workers)                      | BLOCKER     | Cloudflare Containers                         |
+| **child_process spawn** (not in Workers runtime)                       | BLOCKER     | Cloudflare Containers                         |
+| **Long-running imports** (Workers 30s limit, imports can take minutes) | BLOCKER     | Cloudflare Containers                         |
+| ~~**File system storage** (tracks, playlists)~~                        | ~~BLOCKER~~ | ~~Removed tracks.json and playlists.json~~ ✅ |
+| **File system storage** (auth tokens)                                  | BLOCKER     | KV for auth, or encrypted cookie              |
+| **TokenManager uses fs** (`@yotoplay/oauth-device-code-flow`)          | BLOCKER     | Custom token adapter with KV, or cookie-based |
+| **React Router Node adapter** (`@react-router/node`)                   | MEDIUM      | Switch to `@react-router/cloudflare`          |
+| **Buffer usage**                                                       | LOW         | Use `Uint8Array`                              |
+| **crypto.createHash**                                                  | LOW         | Use Web Crypto API                            |
 
 ### Proposed Architecture
 
