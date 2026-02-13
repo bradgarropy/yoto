@@ -7,20 +7,13 @@ import {basename, join} from "node:path"
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 
 import {getAuthenticatedSdk} from "./auth.server"
-import {setPlaylistAssociation} from "./playlists.server"
 import {
     createChapter,
     type ImportProgress,
     stripNullValues,
     type YotoChapter,
 } from "./sync-utils"
-import {addSyncedTrack, getSyncedVideoIds} from "./tracks.server"
-import {
-    downloadTrack,
-    extractPlaylistId,
-    getPlaylistInfo,
-    isPlaylistUrl,
-} from "./youtube.server"
+import {downloadTrack, getPlaylistInfo} from "./youtube.server"
 
 type YotoContent = {
     activity: string
@@ -164,9 +157,6 @@ export async function performSyncToCard(
         // 1. Fetch YouTube playlist/video info
         await onProgress?.({phase: "fetching"})
         const youtubeInfo = await getPlaylistInfo(youtubeUrl)
-        const youtubePlaylistId = isPlaylistUrl(youtubeUrl)
-            ? extractPlaylistId(youtubeUrl)
-            : youtubeInfo.id
 
         // 2. Get existing card - getCard returns the card directly
         const cardResponse = (await sdk.content.getCard(
@@ -178,29 +168,10 @@ export async function performSyncToCard(
         }
 
         const existingChapters = cardResponse.content?.chapters ?? []
-        const cardTitle = cardResponse.title ?? "Untitled Card"
 
-        // 3. Check which tracks are already synced
-        const syncedVideoIds = getSyncedVideoIds(cardId)
-        const tracksToAdd = youtubeInfo.tracks.filter(
-            t => !syncedVideoIds.has(t.id),
-        )
-
-        if (tracksToAdd.length === 0) {
-            return {
-                success: true,
-                message: "All tracks already synced!",
-                added: 0,
-                skipped: youtubeInfo.tracks.length,
-            }
-        }
-
-        // 4. Download and upload new tracks
+        // 3. Download and upload new tracks
+        const tracksToAdd = youtubeInfo.tracks
         const newChapters: YotoChapter[] = [...existingChapters]
-        const uploadedTracks: Array<{
-            track: (typeof tracksToAdd)[0]
-            chapter: YotoChapter
-        }> = []
 
         for (let i = 0; i < tracksToAdd.length; i++) {
             const track = tracksToAdd[i]
@@ -239,10 +210,9 @@ export async function performSyncToCard(
                 uploaded.fileSize,
             )
             newChapters.push(chapter)
-            uploadedTracks.push({track, chapter})
         }
 
-        // 5. Update card with new chapters
+        // 4. Update card with new chapters
         await onProgress?.({phase: "updating"})
         const cleanedChapters = stripNullValues(newChapters)
 
@@ -262,38 +232,13 @@ export async function performSyncToCard(
             >[0],
         )
 
-        // 6. Record synced tracks AFTER card update succeeds
-        for (const {track, chapter} of uploadedTracks) {
-            const mediaId = sdk.extractMediaId(chapter.tracks[0].trackUrl)
-
-            if (!mediaId) {
-                throw new Error(
-                    `Failed to extract mediaId from trackUrl: ${chapter.tracks[0].trackUrl}`,
-                )
-            }
-
-            addSyncedTrack(cardId, {
-                youtubeVideoId: track.id,
-                syncedAt: new Date().toISOString(),
-                mediaId,
-            })
-        }
-
-        const addedCount = uploadedTracks.length
-
-        // 7. Save playlist association
-        setPlaylistAssociation(youtubePlaylistId, {
-            yotoId: cardId,
-            yotoName: cardTitle,
-            youtubeName: youtubeInfo.title,
-            lastSynced: new Date().toISOString(),
-        })
+        const addedCount = tracksToAdd.length
 
         return {
             success: true,
-            message: `Added ${addedCount} track${addedCount !== 1 ? "s" : ""}, skipped ${youtubeInfo.tracks.length - addedCount} already synced`,
+            message: `Added ${addedCount} track${addedCount !== 1 ? "s" : ""}`,
             added: addedCount,
-            skipped: youtubeInfo.tracks.length - addedCount,
+            skipped: 0,
         }
     } catch (error) {
         console.error("Sync to card failed:", error)

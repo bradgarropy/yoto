@@ -44,11 +44,7 @@ import {
     type ImportProgress,
     stripNullValues,
 } from "~/lib/sync-utils"
-import {
-    getCardTracks,
-    removeCardTracks,
-    removeSyncedTrack,
-} from "~/lib/tracks.server"
+
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 
@@ -100,17 +96,6 @@ export async function loader({params}: {params: {id: string}}) {
             throw new Error("Card not found")
         }
 
-        // Get synced tracks from local storage
-        const syncedTracks = getCardTracks(cardId)
-        const syncedVideoIds = new Set(
-            syncedTracks?.videos.map(v => v.youtubeVideoId) ?? [],
-        )
-
-        // Map mediaId to synced video info for display matching
-        const mediaIdToVideo = new Map(
-            syncedTracks?.videos.map(v => [v.mediaId, v]) ?? [],
-        )
-
         const chapters = cardData.content?.chapters ?? []
 
         // Get cover URL - check metadata.cover first, then coverImageUrl as fallback
@@ -129,15 +114,6 @@ export async function loader({params}: {params: {id: string}}) {
                 display?: {icon16x16?: string} | null
                 tracks?: Array<{trackUrl?: string}>
             }) => {
-                // Match synced video by mediaId (extracted from chapter's trackUrl)
-                const trackUrl = chapter.tracks?.[0]?.trackUrl
-                const mediaId = trackUrl
-                    ? sdk.extractMediaId(trackUrl)
-                    : undefined
-                const syncedVideo = mediaId
-                    ? mediaIdToVideo.get(mediaId)
-                    : undefined
-
                 // Extract icon media ID from display.icon16x16 (format: "yoto:#mediaId")
                 const iconMediaId = chapter.display?.icon16x16
                     ? (sdk.extractMediaId(chapter.display.icon16x16) ??
@@ -147,8 +123,6 @@ export async function loader({params}: {params: {id: string}}) {
                     key: chapter.key ?? "",
                     title: chapter.title ?? "Untitled Track",
                     duration: chapter.duration,
-                    youtubeVideoId: syncedVideo?.youtubeVideoId,
-                    syncedAt: syncedVideo?.syncedAt,
                     iconMediaId,
                 }
             },
@@ -174,8 +148,6 @@ export async function loader({params}: {params: {id: string}}) {
                         key: track.key,
                         title: track.title,
                         duration: track.duration,
-                        youtubeVideoId: track.youtubeVideoId,
-                        syncedAt: track.syncedAt,
                         iconUrl,
                     }
                 }),
@@ -189,9 +161,6 @@ export async function loader({params}: {params: {id: string}}) {
                 coverUrl,
             },
             tracks,
-            syncedCount: syncedVideoIds.size,
-            youtubePlaylistId: syncedTracks?.youtubePlaylistId,
-            lastSynced: syncedTracks?.lastSynced,
         }
     } catch (error) {
         console.error("Failed to fetch card:", error)
@@ -269,19 +238,11 @@ export async function action({
                 >[0],
             )
 
-            // Remove from local tracks.json (only if we have a mediaId)
-            if (mediaId) {
-                removeSyncedTrack(cardId, mediaId)
-            }
-
             return {success: true, deleted: trackKey}
         }
 
         if (intent === "deleteCard") {
             await sdk.content.deleteCard(cardId)
-
-            // Clean up local tracks data
-            removeCardTracks(cardId)
 
             return redirect("/")
         }
@@ -649,11 +610,6 @@ function formatDuration(seconds?: number): string {
     return `${mins}:${secs.toString().padStart(2, "0")}`
 }
 
-function formatDate(dateStr?: string): string {
-    if (!dateStr) return ""
-    return new Date(dateStr).toLocaleDateString()
-}
-
 type ActionData = {
     error?: string
     success?: boolean
@@ -671,8 +627,6 @@ type Track = {
     key: string
     title: string
     duration?: number
-    youtubeVideoId?: string
-    syncedAt?: string
     iconUrl?: string
 }
 
@@ -890,8 +844,7 @@ export default function CardDetail({
 }: {
     loaderData: Awaited<ReturnType<typeof loader>>
 }) {
-    const {card, tracks, syncedCount, youtubePlaylistId, lastSynced} =
-        loaderData
+    const {card, tracks} = loaderData
     const navigation = useNavigation()
     const actionData = useActionData<ActionData>()
     const reorderFetcher = useFetcher<ActionData>()
@@ -1185,32 +1138,7 @@ export default function CardDetail({
                         <p className="text-muted-foreground">
                             {tracks.length} track
                             {tracks.length !== 1 ? "s" : ""}
-                            {syncedCount > 0 && (
-                                <span className="ml-2">
-                                    ({syncedCount} from YouTube)
-                                </span>
-                            )}
                         </p>
-
-                        {youtubePlaylistId && (
-                            <p className="text-sm text-muted-foreground">
-                                YouTube Playlist:{" "}
-                                <a
-                                    href={`https://www.youtube.com/playlist?list=${youtubePlaylistId}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-primary hover:underline"
-                                >
-                                    {youtubePlaylistId}
-                                </a>
-                            </p>
-                        )}
-
-                        {lastSynced && (
-                            <p className="text-sm text-muted-foreground">
-                                Last synced: {formatDate(lastSynced)}
-                            </p>
-                        )}
                     </div>
                 </div>
 
@@ -1391,28 +1319,6 @@ export default function CardDetail({
                                             <p className="font-medium truncate">
                                                 {track.title}
                                             </p>
-                                            {track.youtubeVideoId && (
-                                                <p className="text-xs text-muted-foreground">
-                                                    YouTube:{" "}
-                                                    <a
-                                                        href={`https://www.youtube.com/watch?v=${track.youtubeVideoId}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="text-primary hover:underline"
-                                                    >
-                                                        {track.youtubeVideoId}
-                                                    </a>
-                                                    {track.syncedAt && (
-                                                        <span className="ml-2">
-                                                            (synced{" "}
-                                                            {formatDate(
-                                                                track.syncedAt,
-                                                            )}
-                                                            )
-                                                        </span>
-                                                    )}
-                                                </p>
-                                            )}
                                         </div>
                                         {track.duration && (
                                             <span className="text-sm text-muted-foreground">
