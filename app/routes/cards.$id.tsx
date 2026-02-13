@@ -1,4 +1,4 @@
-import {GripVertical, ListOrdered, Trash2} from "lucide-react"
+import {GripVertical, ListOrdered, Plus, Trash2} from "lucide-react"
 import {Reorder} from "motion/react"
 import pLimit from "p-limit"
 import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
@@ -27,7 +27,7 @@ import {
     AlertDialogTrigger,
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
-import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {Card, CardContent} from "~/components/ui/card"
 import {
     Dialog,
     DialogContent,
@@ -705,13 +705,25 @@ function getProgressMessage(progress: ImportProgress | null): string {
     }
 }
 
-function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
+function AddTracksDialog({
+    cardId,
+    isBusy,
+    open,
+    onOpenChange,
+}: {
+    cardId: string
+    isBusy: boolean
+    open: boolean
+    onOpenChange: (open: boolean) => void
+}) {
     const [importState, setImportState] = useState<ImportState>({
         status: "idle",
     })
     const [youtubeUrl, setYoutubeUrl] = useState("")
     const eventSourceRef = useRef<EventSource | null>(null)
     const revalidator = useRevalidator()
+
+    const isImporting = importState.status === "importing"
 
     const startImport = useCallback(() => {
         if (!youtubeUrl.trim()) return
@@ -790,14 +802,15 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
         }
     }, [])
 
-    // Show toast on completion/error
+    // Show toast and close dialog on completion/error
     useEffect(() => {
         if (importState.status === "complete") {
             toast.success(importState.message)
-            // Reset to idle after showing toast
+            onOpenChange(false)
+            // Reset to idle after closing
             const timer = setTimeout(
                 () => setImportState({status: "idle"}),
-                3000,
+                300,
             )
             return () => clearTimeout(timer)
         } else if (importState.status === "error") {
@@ -809,9 +822,8 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
             )
             return () => clearTimeout(timer)
         }
-    }, [importState])
+    }, [importState, onOpenChange])
 
-    const isImporting = importState.status === "importing"
     const progress =
         importState.status === "importing" ? importState.progress : null
 
@@ -820,32 +832,44 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
         startImport()
     }
 
+    // Block closing the dialog while importing
+    const handleOpenChange = (newOpen: boolean) => {
+        if (!newOpen && isImporting) return
+        onOpenChange(newOpen)
+    }
+
     return (
-        <Card className="mt-6">
-            <CardHeader>
-                <CardTitle className="text-lg">Add Tracks</CardTitle>
-            </CardHeader>
-            <CardContent>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogContent
+                onPointerDownOutside={e => {
+                    if (isImporting) e.preventDefault()
+                }}
+                onEscapeKeyDown={e => {
+                    if (isImporting) e.preventDefault()
+                }}
+            >
+                <DialogHeader>
+                    <DialogTitle>Add Tracks</DialogTitle>
+                    <DialogDescription>
+                        Paste a YouTube video or playlist URL to import tracks.
+                    </DialogDescription>
+                </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="flex gap-2">
-                        <Input
-                            type="url"
-                            placeholder="https://www.youtube.com/watch?v=abc123"
-                            required
-                            disabled={isBusy || isImporting}
-                            className="flex-1"
-                            value={youtubeUrl}
-                            onChange={e => setYoutubeUrl(e.target.value)}
-                        />
-                        <Button
-                            type="submit"
-                            disabled={
-                                isBusy || isImporting || !youtubeUrl.trim()
-                            }
-                        >
-                            {isImporting ? "Importing..." : "Import"}
-                        </Button>
-                    </div>
+                    <Input
+                        type="url"
+                        placeholder="https://www.youtube.com/watch?v=abc123"
+                        required
+                        disabled={isBusy || isImporting}
+                        value={youtubeUrl}
+                        onChange={e => setYoutubeUrl(e.target.value)}
+                    />
+                    <Button
+                        type="submit"
+                        disabled={isBusy || isImporting || !youtubeUrl.trim()}
+                        className="w-full"
+                    >
+                        {isImporting ? "Importing..." : "Import"}
+                    </Button>
 
                     {isImporting && (
                         <div className="space-y-2">
@@ -856,8 +880,8 @@ function AddTracksForm({cardId, isBusy}: {cardId: string; isBusy: boolean}) {
                         </div>
                     )}
                 </form>
-            </CardContent>
-        </Card>
+            </DialogContent>
+        </Dialog>
     )
 }
 
@@ -897,6 +921,9 @@ export default function CardDetail({
     const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(
         null,
     )
+
+    // State for add tracks dialog
+    const [addTracksDialogOpen, setAddTracksDialogOpen] = useState(false)
 
     // Sync local state with loader data when it changes
     useEffect(() => {
@@ -1188,6 +1215,15 @@ export default function CardDetail({
                 </div>
 
                 <div className="flex gap-2 mb-4">
+                    <Button
+                        variant="outline"
+                        disabled={isBusy}
+                        onClick={() => setAddTracksDialogOpen(true)}
+                    >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Tracks
+                    </Button>
+
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
                             <Button
@@ -1442,7 +1478,12 @@ export default function CardDetail({
                     </CardContent>
                 </Card>
 
-                <AddTracksForm cardId={card.id} isBusy={isBusy} />
+                <AddTracksDialog
+                    cardId={card.id}
+                    isBusy={isBusy}
+                    open={addTracksDialogOpen}
+                    onOpenChange={setAddTracksDialogOpen}
+                />
             </div>
         </div>
     )

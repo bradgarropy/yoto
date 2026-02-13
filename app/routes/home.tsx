@@ -357,6 +357,7 @@ export default function Home({
                                                 setCardName(e.target.value)
                                             }
                                             disabled={isCreating}
+                                            autoComplete="off"
                                         />
                                     </div>
                                 </div>

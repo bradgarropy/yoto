@@ -131,6 +131,7 @@ All stored in `~/.config/yoto/`:
 - [x] Icon search for setting track icons (Phase 1: Yoto icons)
 - [x] Icon search for setting track icons (Phase 2: yotoicons.com)
 - [x] Auto-number track icons (set each track to the official Yoto number icon matching its position)
+- [x] Move "Add Tracks" form to a button in the action toolbar
 - [ ] Cloud hosting for remote access
 
 ## Icon Search
@@ -463,32 +464,106 @@ User clicks "Number Tracks" button
 - Button disabled when no tracks exist or another operation is in progress
 - If number icons can't be found (API failure), returns error
 
-## YouTube Metadata Matching
+## Cloudflare Migration (Exploration)
 
-Synced tracks are matched to Yoto chapters using `mediaId` - the content hash (transcodedSha256) from the track's `trackUrl`. This provides stable matching that survives track reordering, title changes, and duplicate titles.
+### Motivation
 
-**How it works:**
+Host the app on Cloudflare for remote access and multi-user support. Currently runs as a local Node.js app with filesystem-based state.
 
-1. When a YouTube video is synced, the `mediaId` (extracted from `yoto:#<hash>` in the chapter's `trackUrl`) is stored in `tracks.json`
-2. On the card detail page, each chapter's `mediaId` is extracted from its `trackUrl`
-3. The synced track is looked up by `mediaId` to display YouTube metadata
+### Removing tracks.json and playlists.json
 
-**Migration:** Run `npx tsx scripts/migrate-tracks-mediaId.ts` to backfill `mediaId` for existing synced tracks.
+The `tracks.json` skip-detection mechanism and `playlists.json` associations are unnecessary for the actual workflow, which is:
 
-## Scripts
+- **Delete a single track** from a card (via UI)
+- **Add a single track** via a YouTube URL
+- **Add multiple tracks** via a YouTube playlist URL
 
-### migrate-tracks-mediaId.ts
+This is not an incremental sync workflow - there's no need to track what's been synced before. The `mediaId` needed for track deletion is already available from the Yoto API (embedded in each chapter's `trackUrl` as `yoto:#<hash>`), so local storage of it is redundant.
 
-One-time migration script to backfill `mediaId` for existing synced tracks.
+**Files to remove:**
 
-```bash
-npx tsx scripts/migrate-tracks-mediaId.ts
+| File                                | Reason                                                        |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `app/lib/tracks.server.ts`          | All CRUD for tracks.json                                      |
+| `app/lib/playlists.server.ts`       | All CRUD for playlists.json                                   |
+| `scripts/migrate-tracks-mediaId.ts` | Migration script for tracks.json                              |
+| References in `cards.$id.tsx`       | Calls to `removeSyncedTrack()`, etc.                          |
+| References in `sync.server.ts`      | Calls to `addSyncedTrack()`, `setPlaylistAssociation()`, etc. |
+
+### Cloudflare Compatibility Issues
+
+| Issue                                                                  | Severity | Solution                                      |
+| ---------------------------------------------------------------------- | -------- | --------------------------------------------- |
+| **yt-dlp/FFmpeg** (can't run binaries in Workers)                      | BLOCKER  | Cloudflare Containers                         |
+| **child_process spawn** (not in Workers runtime)                       | BLOCKER  | Cloudflare Containers                         |
+| **Long-running imports** (Workers 30s limit, imports can take minutes) | BLOCKER  | Cloudflare Containers                         |
+| **File system storage** (auth tokens, tracks, playlists)               | BLOCKER  | KV for auth, remove tracks/playlists          |
+| **TokenManager uses fs** (`@yotoplay/oauth-device-code-flow`)          | BLOCKER  | Custom token adapter with KV, or cookie-based |
+| **React Router Node adapter** (`@react-router/node`)                   | MEDIUM   | Switch to `@react-router/cloudflare`          |
+| **Buffer usage**                                                       | LOW      | Use `Uint8Array`                              |
+| **crypto.createHash**                                                  | LOW      | Use Web Crypto API                            |
+
+### Proposed Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Cloudflare Pages                       │
+│              (React Router frontend + SSR)                │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Cloudflare Workers                      │
+│         (API routes, auth, orchestration)                │
+│                                                          │
+│  Storage:                                                │
+│  - Encrypted cookie: Yoto auth tokens                    │
+│  - KV: optional metadata (if needed later)               │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│              Cloudflare Container                        │
+│                                                          │
+│  - yt-dlp + FFmpeg installed                             │
+│  - Downloads YouTube audio → returns MP3                 │
+│  - Fetches playlist/video metadata                       │
+│  - Stateless, spins up per-job                           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-The script:
+### Auth Strategy
 
-1. Reads `tracks.json`
-2. For each card, fetches chapter data from the Yoto API
-3. Matches synced tracks to chapters by title
-4. Extracts `mediaId` from each chapter's `trackUrl`
-5. Updates `tracks.json` with the `mediaId` values
+For multi-user support, store Yoto OAuth tokens in an **encrypted HTTP-only cookie**:
+
+- Token is small enough to fit in a cookie (~4KB limit)
+- Stateless - no KV reads needed per request
+- Each user "owns" their token
+- Token refresh: when token expires, refresh and update the cookie in the response
+
+### Import Flow
+
+```
+1. User pastes YouTube URL
+         ↓
+2. Worker validates URL, invokes Container
+         ↓
+3. Container: yt-dlp --dump-json → returns track metadata
+         ↓
+4. Worker streams SSE to client: "Found N tracks..."
+         ↓
+5. For each track:
+   a. Worker → Container: "Download track X"
+   b. Container: yt-dlp + ffmpeg → MP3 stream
+   c. Worker: Upload MP3 to Yoto API
+   d. Worker: Poll Yoto for transcode completion
+   e. Worker → Client: SSE "Track X complete"
+         ↓
+6. Done
+```
+
+### Open Questions
+
+- **yt-dlp cookies**: Current code uses `--cookies-from-browser chrome` for age-restricted content. This won't work in a Container. Need to test if it's required or can be dropped.
+- **Container invocation model**: HTTP service? Direct RPC binding? Queue consumer? Need to confirm the API pattern.
+- **Container timeouts**: The import process can take several minutes. Need to confirm Container timeout limits vs Workers limits.
