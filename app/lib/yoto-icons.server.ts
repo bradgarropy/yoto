@@ -67,11 +67,31 @@ const searchYotoIcons = async (query: string): Promise<YotoIcon[]> => {
     })
 }
 
+// Get number icons (1-30) mapped by position number to mediaId
+// Uses the "Number - 1" / "Numbers - N" title pattern from Yoto's official icons
+const getNumberIcons = async (): Promise<Map<number, string>> => {
+    const icons = await fetchYotoIcons()
+    const numberPattern = /^Numbers?\s*-\s*(\d+)$/
+    const numberMap = new Map<number, string>()
+
+    for (const icon of icons) {
+        const match = icon.title?.match(numberPattern)
+        if (match) {
+            const num = parseInt(match[1], 10)
+            if (!numberMap.has(num)) {
+                numberMap.set(num, icon.id)
+            }
+        }
+    }
+
+    return numberMap
+}
+
 // Clear the icon cache (exported for testing)
 const clearIconCache = () => {
     iconCache = null
     cacheTimestamp = 0
 }
 
-export {clearIconCache, fetchYotoIcons, searchYotoIcons}
+export {clearIconCache, fetchYotoIcons, getNumberIcons, searchYotoIcons}
 export type {YotoIcon}

@@ -1,4 +1,4 @@
-import {GripVertical, Trash2} from "lucide-react"
+import {GripVertical, ListOrdered, Trash2} from "lucide-react"
 import {Reorder} from "motion/react"
 import pLimit from "p-limit"
 import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
@@ -49,6 +49,7 @@ import {
     removeCardTracks,
     removeSyncedTrack,
 } from "~/lib/tracks.server"
+import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 
 export function meta({
@@ -550,6 +551,90 @@ export async function action({
             return {success: true, iconUpdated: true}
         }
 
+        if (intent === "numberTracks") {
+            const numberIcons = await getNumberIcons()
+
+            if (numberIcons.size === 0) {
+                return {error: "Could not find number icons"}
+            }
+
+            // Get current card
+            const card = (await sdk.content.getCard(cardId)) as unknown as {
+                cardId: string
+                title?: string
+                content: {
+                    activity: string
+                    chapters: Array<{
+                        key?: string
+                        display?: {icon16x16?: string} | null
+                        tracks?: Array<{
+                            display?: {icon16x16?: string} | null
+                            [key: string]: unknown
+                        }>
+                        [key: string]: unknown
+                    }>
+                    restricted: boolean
+                    config: {onlineOnly: boolean}
+                    version: string
+                }
+                metadata: Record<string, unknown>
+            }
+
+            const updatedChapters = card.content.chapters.map(
+                (chapter, index) => {
+                    const position = index + 1
+                    const mediaId = numberIcons.get(position)
+
+                    // Leave unchanged if no number icon for this position
+                    if (!mediaId) return chapter
+
+                    const chapterWithTracks = chapter as typeof chapter & {
+                        tracks?: Array<{
+                            display?: {icon16x16?: string} | null
+                            [key: string]: unknown
+                        }>
+                    }
+
+                    const updatedTracks = chapterWithTracks.tracks?.map(
+                        track => ({
+                            ...track,
+                            display: {
+                                ...track.display,
+                                icon16x16: `yoto:#${mediaId}`,
+                            },
+                        }),
+                    )
+
+                    return {
+                        ...chapter,
+                        display: {
+                            ...chapter.display,
+                            icon16x16: `yoto:#${mediaId}`,
+                        },
+                        ...(updatedTracks && {tracks: updatedTracks}),
+                    }
+                },
+            )
+
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: {
+                    ...card.content,
+                    chapters: stripNullValues(updatedChapters),
+                },
+                metadata: card.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, tracksNumbered: true}
+        }
+
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -579,6 +664,7 @@ type ActionData = {
     reordered?: boolean
     iconUpdated?: boolean
     coverUpdated?: boolean
+    tracksNumbered?: boolean
 }
 
 type Track = {
@@ -787,6 +873,7 @@ export default function CardDetail({
     const reorderFetcher = useFetcher<ActionData>()
     const iconFetcher = useFetcher<ActionData>()
     const coverFetcher = useFetcher<ActionData>()
+    const numberFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
@@ -817,8 +904,14 @@ export default function CardDetail({
         hasOrderChangedRef.current = false
     }, [tracks])
 
-    const isBusy = navigation.state !== "idle"
     const isReordering = reorderFetcher.state !== "idle"
+    const isNumbering = numberFetcher.state !== "idle"
+    const isBusy =
+        navigation.state !== "idle" ||
+        isReordering ||
+        isNumbering ||
+        iconFetcher.state !== "idle" ||
+        coverFetcher.state !== "idle"
     const pendingIntent = navigation.formData?.get("intent")
     const isDeletingCard = pendingIntent === "deleteCard"
 
@@ -911,6 +1004,23 @@ export default function CardDetail({
         }
         prevCoverState.current = coverFetcher.state
     }, [coverFetcher.state, coverFetcher.data])
+
+    // Show toast for number tracks results
+    const prevNumberState = useRef(numberFetcher.state)
+    useEffect(() => {
+        if (
+            prevNumberState.current !== "idle" &&
+            numberFetcher.state === "idle" &&
+            numberFetcher.data
+        ) {
+            if (numberFetcher.data.tracksNumbered) {
+                toast.success("Track icons numbered")
+            } else if (numberFetcher.data.error) {
+                toast.error(numberFetcher.data.error)
+            }
+        }
+        prevNumberState.current = numberFetcher.state
+    }, [numberFetcher.state, numberFetcher.data])
 
     // Handle icon selection from picker
     const handleIconSelect = (icon: IconSelection) => {
@@ -1074,55 +1184,87 @@ export default function CardDetail({
                                 Last synced: {formatDate(lastSynced)}
                             </p>
                         )}
-
-                        <div className="flex gap-2 mt-4">
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button
-                                        variant="destructive"
-                                        disabled={isBusy}
-                                    >
-                                        {isDeletingCard
-                                            ? "Deleting..."
-                                            : "Delete Card"}
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                            Delete Card
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Are you sure you want to delete
-                                            &ldquo;{card.title}&rdquo;? This
-                                            will permanently remove the card and
-                                            all its tracks from your Yoto
-                                            account. This action cannot be
-                                            undone.
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>
-                                            Cancel
-                                        </AlertDialogCancel>
-                                        <Form method="post">
-                                            <input
-                                                type="hidden"
-                                                name="intent"
-                                                value="deleteCard"
-                                            />
-                                            <AlertDialogAction
-                                                type="submit"
-                                                className="bg-destructive text-white hover:bg-destructive/90"
-                                            >
-                                                Delete
-                                            </AlertDialogAction>
-                                        </Form>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        </div>
                     </div>
+                </div>
+
+                <div className="flex gap-2 mb-4">
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button
+                                variant="outline"
+                                disabled={
+                                    isBusy ||
+                                    isNumbering ||
+                                    orderedTracks.length === 0
+                                }
+                            >
+                                <ListOrdered className="h-4 w-4 mr-2" />
+                                {isNumbering ? "Numbering..." : "Number Tracks"}
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                    Number Tracks
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This will set each track&apos;s icon to its
+                                    position number (1, 2, 3...). Existing icons
+                                    will be overwritten.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                    disabled={isNumbering}
+                                    onClick={() => {
+                                        if (isNumbering) return
+                                        numberFetcher.submit(
+                                            {intent: "numberTracks"},
+                                            {method: "post"},
+                                        )
+                                    }}
+                                >
+                                    Number Tracks
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button variant="destructive" disabled={isBusy}>
+                                {isDeletingCard ? "Deleting..." : "Delete Card"}
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Card</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Are you sure you want to delete &ldquo;
+                                    {card.title}&rdquo;? This will permanently
+                                    remove the card and all its tracks from your
+                                    Yoto account. This action cannot be undone.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <Form method="post">
+                                    <input
+                                        type="hidden"
+                                        name="intent"
+                                        value="deleteCard"
+                                    />
+                                    <AlertDialogAction
+                                        type="submit"
+                                        className="bg-destructive text-white hover:bg-destructive/90"
+                                    >
+                                        Delete
+                                    </AlertDialogAction>
+                                </Form>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 </div>
 
                 <Card>
@@ -1138,7 +1280,7 @@ export default function CardDetail({
                                 onReorder={handleReorder}
                                 className="divide-y"
                             >
-                                {orderedTracks.map((track, index) => (
+                                {orderedTracks.map(track => (
                                     <Reorder.Item
                                         key={track.key}
                                         value={track}
@@ -1163,9 +1305,6 @@ export default function CardDetail({
                                         }}
                                     >
                                         <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                                        <span className="text-muted-foreground w-8 text-right">
-                                            {index + 1}
-                                        </span>
                                         <Dialog
                                             open={
                                                 selectedTrackKey === track.key
