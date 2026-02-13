@@ -27,7 +27,6 @@ import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
 import {getAuthenticatedSdk, requireAuth, status} from "~/lib/auth.server"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
-import {readTracks} from "~/lib/tracks.server"
 
 type SortOption = "title" | "tracks" | "updated"
 
@@ -69,7 +68,6 @@ export async function loader() {
     try {
         const sdk = await getAuthenticatedSdk()
         const cards = await sdk.content.getMyCards()
-        const tracksData = readTracks()
 
         // SDK returns array of UserCard directly
         // The actual API response includes metadata.cover, not cover directly
@@ -83,7 +81,6 @@ export async function loader() {
         const cardsWithDetails = await Promise.all(
             cards.map(async card => {
                 const cardWithMeta = card as CardWithMetadata
-                const cardTracks = tracksData[card.cardId]
                 try {
                     const fullCard = (await sdk.content.getCard(
                         card.cardId,
@@ -101,7 +98,7 @@ export async function loader() {
                             card.cover?.imageM ??
                             card.cover?.imageS,
                         trackCount: fullCard.content?.chapters?.length ?? 0,
-                        lastSynced: cardTracks?.lastSynced ?? null,
+                        updatedAt: card.updatedAt ?? null,
                     }
                 } catch {
                     // Fallback if we can't fetch full card
@@ -116,7 +113,7 @@ export async function loader() {
                             card.cover?.imageM ??
                             card.cover?.imageS,
                         trackCount: 0,
-                        lastSynced: cardTracks?.lastSynced ?? null,
+                        updatedAt: card.updatedAt ?? null,
                     }
                 }
             }),
@@ -196,15 +193,15 @@ const sortCards = (
             case "tracks":
                 return b.trackCount - a.trackCount
             case "updated":
-                // Cards with lastSynced come first, sorted by most recent
-                if (a.lastSynced && b.lastSynced) {
+                // Cards with updatedAt come first, sorted by most recent
+                if (a.updatedAt && b.updatedAt) {
                     return (
-                        new Date(b.lastSynced).getTime() -
-                        new Date(a.lastSynced).getTime()
+                        new Date(b.updatedAt).getTime() -
+                        new Date(a.updatedAt).getTime()
                     )
                 }
-                if (a.lastSynced) return -1
-                if (b.lastSynced) return 1
+                if (a.updatedAt) return -1
+                if (b.updatedAt) return 1
                 return 0
             default:
                 return 0
@@ -316,7 +313,7 @@ export default function Home({
                             <DropdownMenuItem
                                 onClick={() => setSortBy("updated")}
                             >
-                                Last Synced
+                                Last Updated
                                 {sortBy === "updated" && (
                                     <span className="ml-auto">✓</span>
                                 )}
