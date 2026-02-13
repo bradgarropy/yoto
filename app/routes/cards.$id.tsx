@@ -13,7 +13,7 @@ import {
 } from "react-router"
 import {toast} from "sonner"
 
-import {IconPickerContent} from "~/components/IconPicker"
+import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -30,7 +30,7 @@ import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
 import {Dialog, DialogContent, DialogTrigger} from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
-import {getAuthenticatedSdk, requireAuth} from "~/lib/auth.server"
+import {getAuthenticatedSdk, getToken, requireAuth} from "~/lib/auth.server"
 import {
     getProgressPercent,
     type ImportProgress,
@@ -41,7 +41,7 @@ import {
     removeCardTracks,
     removeSyncedTrack,
 } from "~/lib/tracks.server"
-import type {YotoIcon} from "~/lib/yoto-icons.server"
+import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 
 export function meta({
     data,
@@ -336,9 +336,50 @@ export async function action({
         if (intent === "updateTrackIcon") {
             const trackKey = formData.get("trackKey") as string
             const iconId = formData.get("iconId") as string
+            const iconType =
+                (formData.get("iconType") as "yoto" | "community") ?? "yoto"
 
             if (!trackKey || !iconId) {
                 return {error: "Track key and icon ID are required"}
+            }
+
+            let mediaId: string
+
+            if (iconType === "yoto") {
+                // Yoto icons: hash IS the media ID (already 43-char base64url)
+                mediaId = iconId
+            } else {
+                // Community icons: fetch PNG, upload to Yoto via custom icon endpoint
+                const imageBuffer = await fetchCommunityIconImage(iconId)
+                const token = await getToken()
+
+                if (!token) {
+                    return {error: "Authentication required to upload icons"}
+                }
+
+                const uploadResponse = await fetch(
+                    `https://api.yotoplay.com/media/displayIcons/user/me/upload?autoConvert=true&filename=${iconId}.png`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${token}`,
+                            "Content-Type": "image/png",
+                        },
+                        body: new Uint8Array(imageBuffer),
+                    },
+                )
+
+                if (!uploadResponse.ok) {
+                    return {
+                        error: `Icon upload failed: ${uploadResponse.statusText}`,
+                    }
+                }
+
+                const uploadResult = (await uploadResponse.json()) as {
+                    displayIcon: {mediaId: string}
+                }
+
+                mediaId = uploadResult.displayIcon.mediaId
             }
 
             // Get current card
@@ -375,7 +416,7 @@ export async function action({
                             ...track,
                             display: {
                                 ...track.display,
-                                icon16x16: `yoto:#${iconId}`,
+                                icon16x16: `yoto:#${mediaId}`,
                             },
                         }),
                     )
@@ -384,7 +425,7 @@ export async function action({
                         ...chapter,
                         display: {
                             ...chapter.display,
-                            icon16x16: `yoto:#${iconId}`,
+                            icon16x16: `yoto:#${mediaId}`,
                         },
                         ...(updatedTracks && {tracks: updatedTracks}),
                     }
@@ -740,7 +781,7 @@ export default function CardDetail({
     }, [iconFetcher.state, iconFetcher.data])
 
     // Handle icon selection from picker
-    const handleIconSelect = (icon: YotoIcon) => {
+    const handleIconSelect = (icon: IconSelection) => {
         if (!selectedTrackKey) return
 
         iconFetcher.submit(
@@ -748,6 +789,7 @@ export default function CardDetail({
                 intent: "updateTrackIcon",
                 trackKey: selectedTrackKey,
                 iconId: icon.id,
+                iconType: icon.type,
             },
             {method: "post"},
         )

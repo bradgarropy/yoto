@@ -10,13 +10,20 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import type {YotoIcon} from "~/lib/yoto-icons.server"
+import type {CommunityIcon} from "~/lib/yotoicons-community.server"
+
+type IconSelection =
+    | ({type: "yoto"} & YotoIcon)
+    | ({type: "community"} & CommunityIcon)
 
 type IconPickerContentProps = {
-    onSelect: (icon: YotoIcon) => void
+    onSelect: (icon: IconSelection) => void
 }
 
 type IconsResponse = {
     yotoIcons: YotoIcon[]
+    communityIcons: CommunityIcon[]
+    communityError?: string
 }
 
 function IconPickerContent({onSelect}: IconPickerContentProps) {
@@ -25,7 +32,10 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
     const fetcher = useFetcher<IconsResponse>()
 
     const loading = fetcher.state !== "idle"
-    const icons = fetcher.data?.yotoIcons ?? []
+    const yotoIcons = fetcher.data?.yotoIcons ?? []
+    const communityIcons = fetcher.data?.communityIcons ?? []
+    const communityError = fetcher.data?.communityError
+    const totalResults = yotoIcons.length + communityIcons.length
 
     // Track when a search has been performed
     useEffect(() => {
@@ -39,7 +49,8 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
             <DialogHeader>
                 <DialogTitle>Choose Icon</DialogTitle>
                 <DialogDescription>
-                    Search for an icon from Yoto&apos;s official library.
+                    Search for an icon from Yoto&apos;s official library or the
+                    yotoicons.com community.
                 </DialogDescription>
             </DialogHeader>
 
@@ -53,6 +64,7 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
                     placeholder="Search icons..."
                     value={query}
                     onChange={e => setQuery(e.target.value)}
+                    autoComplete="off"
                 />
                 <Button
                     type="submit"
@@ -63,42 +75,94 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
                 </Button>
             </fetcher.Form>
 
-            <div className="min-h-50">
+            <div className="min-h-50 max-h-[60vh] overflow-y-auto">
                 {loading ? (
                     <div className="flex items-center justify-center h-50 text-muted-foreground">
                         Searching...
                     </div>
                 ) : !hasSearched ? (
                     <div className="flex items-center justify-center h-50 text-muted-foreground text-center">
-                        Search to find icons from Yoto&apos;s official library.
+                        Search to find icons from Yoto&apos;s official library
+                        and yotoicons.com.
                     </div>
-                ) : icons.length === 0 ? (
+                ) : totalResults === 0 ? (
                     <div className="flex items-center justify-center h-50 text-muted-foreground">
                         No results found
                     </div>
                 ) : (
-                    <div>
-                        <p className="text-sm text-muted-foreground mb-3">
-                            Yoto Icons ({icons.length} results)
-                        </p>
-                        <div className="grid grid-cols-8 gap-2">
-                            {icons.map((icon, index) => (
-                                <button
-                                    key={`${icon.id}-${index}`}
-                                    type="button"
-                                    onClick={() => onSelect(icon)}
-                                    className="p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors w-fit"
-                                    title={icon.title}
-                                >
-                                    <img
-                                        src={icon.url}
-                                        alt={icon.title}
-                                        className="w-8 h-8"
-                                        style={{imageRendering: "pixelated"}}
-                                    />
-                                </button>
-                            ))}
-                        </div>
+                    <div className="space-y-6">
+                        {yotoIcons.length > 0 && (
+                            <div>
+                                <p className="text-sm text-muted-foreground mb-3">
+                                    Yoto Icons ({yotoIcons.length} results)
+                                </p>
+                                <div className="grid grid-cols-8 gap-2">
+                                    {yotoIcons.map((icon, index) => (
+                                        <button
+                                            key={`yoto-${icon.id}-${index}`}
+                                            type="button"
+                                            onClick={() =>
+                                                onSelect({
+                                                    type: "yoto",
+                                                    ...icon,
+                                                })
+                                            }
+                                            className="p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors w-fit"
+                                            title={icon.title}
+                                        >
+                                            <img
+                                                src={icon.url}
+                                                alt={icon.title}
+                                                className="w-8 h-8"
+                                                style={{
+                                                    imageRendering: "pixelated",
+                                                }}
+                                            />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {communityError && (
+                            <p className="text-sm text-destructive">
+                                Community icons unavailable: {communityError}
+                            </p>
+                        )}
+
+                        {communityIcons.length > 0 && (
+                            <div>
+                                <p className="text-sm text-muted-foreground mb-3">
+                                    Community Icons ({communityIcons.length}{" "}
+                                    results)
+                                </p>
+                                <div className="grid grid-cols-8 gap-2">
+                                    {communityIcons.map((icon, index) => (
+                                        <button
+                                            key={`community-${icon.id}-${index}`}
+                                            type="button"
+                                            onClick={() =>
+                                                onSelect({
+                                                    type: "community",
+                                                    ...icon,
+                                                })
+                                            }
+                                            className="p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors w-fit"
+                                            title={icon.tags.join(", ")}
+                                        >
+                                            <img
+                                                src={icon.url}
+                                                alt={icon.tags.join(", ")}
+                                                className="w-8 h-8"
+                                                style={{
+                                                    imageRendering: "pixelated",
+                                                }}
+                                            />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -107,3 +171,4 @@ function IconPickerContent({onSelect}: IconPickerContentProps) {
 }
 
 export {IconPickerContent}
+export type {IconSelection}

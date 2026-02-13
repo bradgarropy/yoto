@@ -185,15 +185,9 @@ type YotoIcon = {
 }
 ```
 
-### Phase 2: Add yotoicons.com (Future)
+### Phase 2: Add yotoicons.com
 
-Extend icon search to include community icons from yotoicons.com.
-
-#### Additional Files
-
-| File                                    | Purpose                   |
-| --------------------------------------- | ------------------------- |
-| `app/lib/yotoicons-community.server.ts` | Scrape yotoicons.com HTML |
+Extend icon search to include community icons from yotoicons.com (~19,500+ icons).
 
 #### How yotoicons.com Works
 
@@ -211,8 +205,35 @@ Extend icon search to include community icons from yotoicons.com.
     ```
     /icons?tag={search}&sort={popular|new}&type={singles|packs}&page={n}
     ```
+5. **Fixed page size of 25** - No `limit`, `count`, `per_page`, or `size` query params are supported. The page size is hardcoded server-side.
+6. **Total count in HTML** - The page includes a count string: `We&#39;ve got 321 icons with that tag:` which can be parsed to determine total pages.
+7. **Pagination in JS** - The page's JavaScript calculates `Math.ceil(totalCount / 25)` for total pages.
 
-#### yotoicons-community.server.ts
+#### Fetching Strategy
+
+To match the MYO Extension behavior (which loads all results at once), the server fetches all pages in parallel with a concurrency limit:
+
+1. Fetch page 1 to get the total count
+2. Calculate remaining pages: `Math.ceil(totalCount / 25) - 1`
+3. Fetch remaining pages in parallel using `p-limit(5)` for concurrency control
+4. Flatten and return all icons
+
+This keeps searches fast (~1-2s for most queries) while being respectful of yotoicons.com's server.
+
+#### New Dependency
+
+- `p-limit` - Promise concurrency limiter for parallel page fetches
+
+#### Files
+
+| File                                    | Purpose                                              |
+| --------------------------------------- | ---------------------------------------------------- |
+| `app/lib/yotoicons-community.server.ts` | Scrape and search yotoicons.com HTML (new file)      |
+| `app/routes/api.icons.ts`               | Add community icon search alongside Yoto icons       |
+| `app/components/IconPicker.tsx`         | Add community icons section, union type for onSelect |
+| `app/routes/cards.$id.tsx`              | Handle community icon upload flow in updateTrackIcon |
+
+#### yotoicons-community.server.ts (new file)
 
 ```typescript
 type CommunityIcon = {
@@ -224,39 +245,69 @@ type CommunityIcon = {
     url: string // https://yotoicons.com/static/uploads/{id}.png
 }
 
-// Search icons from yotoicons.com (scrapes HTML)
-searchCommunityIcons(query: string, page?: number): Promise<{icons: CommunityIcon[], hasMore: boolean}>
+// Search all icons from yotoicons.com (scrapes HTML, fetches all pages)
+// Uses p-limit(5) for parallel page fetching with concurrency control
+searchCommunityIcons(query: string): Promise<{icons: CommunityIcon[]}>
 
 // Fetch icon PNG as Buffer for upload to Yoto
 fetchCommunityIconImage(iconId: string): Promise<Buffer>
 ```
 
+**HTML parsing approach:**
+
+- Regex for icon data: `populate_icon_modal\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'(\d+)'\)`
+    - Captures: `(id, category, tag1, tag2, author, downloads)`
+- Regex for total count: `We&#39;ve got (\d+) icons`
+- Tags array built from `[tag1, tag2].filter(Boolean)` (tag2 can be empty string)
+
 #### Changes to Existing Files
 
 **api.icons.ts:**
 
+- Import `searchCommunityIcons`
+- Call `searchYotoIcons` and `searchCommunityIcons` in parallel via `Promise.allSettled`
+- If community search fails, set `communityError` but still return Yoto results
+
 ```
-GET /api/icons?q=dog&page=1
+GET /api/icons?q=dog
 
 Response: {
   yotoIcons: YotoIcon[],
   communityIcons: CommunityIcon[],
-  communityError?: string,  // If yotoicons.com failed
-  hasMore: boolean
+  communityError?: string,  // If yotoicons.com is down/failed
 }
 ```
 
 **IconPicker.tsx:**
 
-- Add "Community Icons" section below Yoto icons
-- Add "Load More" button for pagination
-- Show error message if yotoicons.com fails (still display Yoto results)
+- Import `CommunityIcon` type
+- Update `IconsResponse` to include `communityIcons` and `communityError`
+- Change `onSelect` prop to accept a union type with discriminator:
+
+    ```typescript
+    type IconSelection =
+        | ({type: "yoto"} & YotoIcon)
+        | ({type: "community"} & CommunityIcon)
+
+    type IconPickerContentProps = {
+        onSelect: (icon: IconSelection) => void
+    }
+    ```
+
+- Add "Community Icons" section below "Yoto Icons" with count label and same grid layout
+- Community icon images use `url` directly (public PNGs, no signed URL needed)
+- Show graceful error if `communityError` present (still display Yoto results)
+- Scrollable results area so modal doesn't get excessively tall with many results
 
 **cards.$id.tsx:**
 
+- Import `CommunityIcon` type and `fetchCommunityIconImage`
+- Update `handleIconSelect` to detect `icon.type` and submit `iconType` ("yoto" | "community") alongside `iconId`
+- Update `updateTrackIcon` action:
+
 ```typescript
 case "updateTrackIcon": {
-  const iconType = formData.get("iconType") as "yoto" | "community"
+  const iconType = (formData.get("iconType") as "yoto" | "community") ?? "yoto"
   const iconId = formData.get("iconId") as string
 
   let mediaId: string
@@ -267,7 +318,7 @@ case "updateTrackIcon": {
   } else {
     // Community icons: fetch PNG, upload to Yoto
     const imageBuffer = await fetchCommunityIconImage(iconId)
-    const sha256 = computeSha256(imageBuffer)
+    const sha256 = createHash("sha256").update(imageBuffer).digest("hex")
     const uploadInfo = await sdk.media.getUploadUrlForTranscode(sha256, `${iconId}.png`)
     if (uploadInfo.uploadUrl) {
       await fetch(uploadInfo.uploadUrl, {
@@ -279,10 +330,37 @@ case "updateTrackIcon": {
     mediaId = sha256
   }
 
-  // Update chapter icon
+  // Update chapter icon (both chapter-level and track-level)
   chapter.display = { ...chapter.display, icon16x16: `yoto:#${mediaId}` }
+  chapter.tracks.forEach(t => t.display = { ...t.display, icon16x16: `yoto:#${mediaId}` })
   await sdk.content.updateCard(card)
 }
+```
+
+#### Data Flow
+
+```
+User searches "dog"
+  → GET /api/icons?q=dog
+    → Promise.allSettled([
+        searchYotoIcons("dog"),         // ~520 cached icons, filtered locally
+        searchCommunityIcons("dog"),    // scrapes yotoicons.com (all pages, p-limit=5)
+      ])
+    → { yotoIcons: [...], communityIcons: [...] }
+  → IconPicker renders both sections
+
+User clicks a community icon
+  → POST cards.$id.tsx {
+      intent: "updateTrackIcon",
+      iconType: "community",
+      iconId: "104",
+      trackKey: "..."
+    }
+    → fetchCommunityIconImage("104")         // GET yotoicons.com/static/uploads/104.png
+    → createHash("sha256").update(buffer)    // compute hash
+    → sdk.media.getUploadUrlForTranscode()   // get upload URL from Yoto
+    → PUT buffer to uploadUrl                // upload PNG to Yoto
+    → update chapter display.icon16x16 = "yoto:#${sha256}"
 ```
 
 ## YouTube Metadata Matching
