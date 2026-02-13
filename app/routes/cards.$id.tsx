@@ -904,9 +904,14 @@ export default function CardDetail({
         hasOrderChangedRef.current = false
     }, [tracks])
 
-    const isBusy = navigation.state !== "idle"
     const isReordering = reorderFetcher.state !== "idle"
     const isNumbering = numberFetcher.state !== "idle"
+    const isBusy =
+        navigation.state !== "idle" ||
+        isReordering ||
+        isNumbering ||
+        iconFetcher.state !== "idle" ||
+        coverFetcher.state !== "idle"
     const pendingIntent = navigation.formData?.get("intent")
     const isDeletingCard = pendingIntent === "deleteCard"
 
@@ -1211,7 +1216,9 @@ export default function CardDetail({
                             <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                                 <AlertDialogAction
+                                    disabled={isNumbering}
                                     onClick={() => {
+                                        if (isNumbering) return
                                         numberFetcher.submit(
                                             {intent: "numberTracks"},
                                             {method: "post"},

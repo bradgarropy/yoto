@@ -15,6 +15,7 @@ vi.mock("./auth.server", () => ({
 import {
     clearIconCache,
     fetchYotoIcons,
+    getNumberIcons,
     searchYotoIcons,
 } from "./yoto-icons.server"
 
@@ -205,5 +206,116 @@ describe("searchYotoIcons", () => {
         const result = await searchYotoIcons("music")
 
         expect(result).toHaveLength(1)
+    })
+})
+
+describe("getNumberIcons", () => {
+    it("should match 'Number - 1' (singular) title", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("num1-id", "Number - 1", ["1", "numbers"]),
+        ])
+
+        const result = await getNumberIcons()
+
+        expect(result.get(1)).toBe("num1-id")
+    })
+
+    it("should match 'Numbers - N' (plural) titles", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("num2-id", "Numbers - 2", ["2", "numbers"]),
+            createMockIcon("num10-id", "Numbers - 10", ["10", "numbers"]),
+            createMockIcon("num30-id", "Numbers - 30", ["30", "numbers"]),
+        ])
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(3)
+        expect(result.get(2)).toBe("num2-id")
+        expect(result.get(10)).toBe("num10-id")
+        expect(result.get(30)).toBe("num30-id")
+    })
+
+    it("should return a complete 1-30 map when all number icons exist", async () => {
+        const icons = [
+            createMockIcon("id-1", "Number - 1", ["1", "numbers"]),
+            ...Array.from({length: 29}, (_, i) =>
+                createMockIcon(`id-${i + 2}`, `Numbers - ${i + 2}`, [
+                    `${i + 2}`,
+                    "numbers",
+                ]),
+            ),
+        ]
+        mockGetDisplayIcons.mockResolvedValue(icons)
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(30)
+        for (let i = 1; i <= 30; i++) {
+            expect(result.get(i)).toBe(`id-${i}`)
+        }
+    })
+
+    it("should ignore non-number icon titles", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("num1-id", "Number - 1", ["1", "numbers"]),
+            createMockIcon("music-id", "Music notes", ["music", "note"]),
+            createMockIcon("dog-id", "Dog", ["animal", "pet"]),
+            createMockIcon("radio-id", "01_MYO_radio_icon_test", [
+                "icon",
+                "radio",
+                "1",
+            ]),
+        ])
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(1)
+        expect(result.get(1)).toBe("num1-id")
+    })
+
+    it("should handle icons with null/undefined titles", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("null-title", null, ["numbers"]),
+            createMockIcon("undef-title", undefined as unknown as string, [
+                "numbers",
+            ]),
+            createMockIcon("num1-id", "Number - 1", ["1", "numbers"]),
+        ])
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(1)
+        expect(result.get(1)).toBe("num1-id")
+    })
+
+    it("should deduplicate by position (first match wins)", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("first-id", "Numbers - 5", ["5", "numbers"]),
+            createMockIcon("dupe-id", "Numbers - 5", ["5", "numbers"]),
+        ])
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(1)
+        expect(result.get(5)).toBe("first-id")
+    })
+
+    it("should return an empty map when no number icons exist", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("music-id", "Music notes", ["music"]),
+            createMockIcon("dog-id", "Dog", ["animal"]),
+        ])
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(0)
+    })
+
+    it("should return an empty map when icon list is empty", async () => {
+        mockGetDisplayIcons.mockResolvedValue([])
+
+        const result = await getNumberIcons()
+
+        expect(result.size).toBe(0)
     })
 })
