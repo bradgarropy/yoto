@@ -130,7 +130,7 @@ All stored in `~/.config/yoto/`:
 - [x] Card cover image customization
 - [x] Icon search for setting track icons (Phase 1: Yoto icons)
 - [x] Icon search for setting track icons (Phase 2: yotoicons.com)
-- [ ] Auto-number track icons (set each track to the official Yoto number icon matching its position)
+- [x] Auto-number track icons (set each track to the official Yoto number icon matching its position)
 - [ ] Cloud hosting for remote access
 
 ## Icon Search
@@ -421,6 +421,47 @@ Both the cover upload dialog and icon picker dialog follow the same pattern for 
 - **During upload:** Inputs disabled, submit button shows loading text, dialog cannot be closed (Escape, overlay click, and X button are blocked)
 - **On completion:** Dialog closes automatically, toast notification shown
 - **No flash on close:** Loading state persists through the dialog close animation (state is not cleared until the dialog fully closes or reopens)
+
+## Auto-Number Track Icons ✅
+
+### Overview
+
+One-click button to set each track's icon to the official Yoto number icon matching its position (track 1 gets "1", track 2 gets "2", etc.). Available in a toolbar row above the track list alongside the Delete Card button.
+
+### How Number Icons Are Identified
+
+Yoto's official icon library (~520 icons) includes number icons 1-30 with titles following the pattern `"Number - 1"` (singular for 1) and `"Numbers - N"` (plural for 2-30). Each has a `"numbers"` tag and a tag matching the number string (e.g., `"1"`, `"2"`).
+
+The `getNumberIcons()` function uses the regex `/^Numbers?\s*-\s*(\d+)$/` to identify these icons and maps position numbers to their `mediaId` values.
+
+### Files
+
+| File                           | Purpose                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `app/lib/yoto-icons.server.ts` | `getNumberIcons()` - returns `Map<number, string>` (position → mediaId) |
+| `app/routes/cards.$id.tsx`     | `numberTracks` action, toolbar UI with confirmation dialog              |
+
+### Data Flow
+
+```
+User clicks "Number Tracks" button
+  → Confirmation dialog: "This will set each track's icon to its position number"
+  → User confirms
+  → POST cards.$id.tsx { intent: "numberTracks" }
+    → getNumberIcons() fetches all Yoto icons, filters by "Numbers? - N" title pattern
+    → Returns Map<number, string> (position → mediaId)
+    → For each chapter at index i: set display.icon16x16 = "yoto:#${numberIcons.get(i+1)}"
+    → Updates both chapter.display and chapter.tracks[].display
+    → Single sdk.content.updateCard() call
+  → Toast: "Track icons numbered"
+  → Loader revalidates, numbered icons displayed
+```
+
+### Edge Cases
+
+- Tracks beyond position 30 are left unchanged (Yoto provides number icons 1-30)
+- Button disabled when no tracks exist or another operation is in progress
+- If number icons can't be found (API failure), returns error
 
 ## YouTube Metadata Matching
 
