@@ -13,7 +13,7 @@ import {
 } from "react-router"
 import {toast} from "sonner"
 
-import {CardCover} from "~/components/CardCover"
+import {CARD_ASPECT_RATIO, CardCover} from "~/components/CardCover"
 import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
 import {
     AlertDialog,
@@ -28,7 +28,14 @@ import {
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
-import {Dialog, DialogContent, DialogTrigger} from "~/components/ui/dialog"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
 import {getAuthenticatedSdk, getToken, requireAuth} from "~/lib/auth.server"
@@ -769,6 +776,11 @@ export default function CardDetail({
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
     const hasOrderChangedRef = useRef(false)
 
+    // State for cover upload dialog
+    const [coverDialogOpen, setCoverDialogOpen] = useState(false)
+    const [coverPreview, setCoverPreview] = useState<string | null>(null)
+    const coverFileRef = useRef<HTMLInputElement>(null)
+
     // State for icon picker modal
     const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(
         null,
@@ -882,12 +894,91 @@ export default function CardDetail({
                 </div>
 
                 <div className="flex gap-6 mb-8">
-                    <div className="w-48 shrink-0">
-                        <CardCover
-                            coverUrl={card.coverUrl}
-                            title={card.title}
-                        />
-                    </div>
+                    <Dialog
+                        open={coverDialogOpen}
+                        onOpenChange={open => {
+                            setCoverDialogOpen(open)
+                            if (!open) {
+                                setCoverPreview(null)
+                                if (coverFileRef.current) {
+                                    coverFileRef.current.value = ""
+                                }
+                            }
+                        }}
+                    >
+                        <DialogTrigger asChild>
+                            <button
+                                type="button"
+                                className="w-48 shrink-0 cursor-pointer"
+                                aria-label="Change cover image"
+                            >
+                                <CardCover
+                                    coverUrl={card.coverUrl}
+                                    title={card.title}
+                                />
+                            </button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Change Cover Image</DialogTitle>
+                                <DialogDescription>
+                                    Upload a new cover image for this card.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                                {coverPreview && (
+                                    <div className="w-32 mx-auto">
+                                        <div
+                                            className={`${CARD_ASPECT_RATIO} rounded-2xl overflow-hidden shadow-md`}
+                                        >
+                                            <img
+                                                src={coverPreview}
+                                                alt="Cover preview"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                <Input
+                                    ref={coverFileRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={e => {
+                                        const file = e.target.files?.[0]
+                                        if (file) {
+                                            const url =
+                                                URL.createObjectURL(file)
+                                            setCoverPreview(url)
+                                        } else {
+                                            setCoverPreview(null)
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    disabled={!coverPreview}
+                                    className="w-full"
+                                    onClick={() => {
+                                        const file =
+                                            coverFileRef.current?.files?.[0]
+                                        if (!file) return
+
+                                        const formData = new FormData()
+                                        formData.set("intent", "updateCover")
+                                        formData.set("coverFile", file)
+
+                                        coverFetcher.submit(formData, {
+                                            method: "post",
+                                            encType: "multipart/form-data",
+                                        })
+                                        setCoverDialogOpen(false)
+                                        setCoverPreview(null)
+                                    }}
+                                >
+                                    Upload
+                                </Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
 
                     <div className="flex-1">
                         <h1 className="text-3xl font-bold mb-2">

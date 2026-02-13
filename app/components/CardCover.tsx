@@ -1,6 +1,9 @@
 import {motion, useMotionValue, useSpring} from "motion/react"
 import {useRef} from "react"
 
+// Yoto card images have an intrinsic aspect ratio of 49:78 (width:height)
+const CARD_ASPECT_RATIO = "aspect-49/78"
+
 function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -36,14 +39,11 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
         scale.set(1)
     }
 
-    // Yoto card images have an intrinsic aspect ratio of 49:78 (width:height)
-    const aspectRatioClass = "aspect-[49/78]"
-
     if (coverUrl) {
         return (
             <div
                 ref={containerRef}
-                className={`${aspectRatioClass} bg-muted rounded-2xl overflow-hidden shadow-md`}
+                className={`${CARD_ASPECT_RATIO} bg-muted rounded-2xl overflow-hidden shadow-md`}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
             >
@@ -64,7 +64,7 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     return (
         <div
             ref={containerRef}
-            className={`${aspectRatioClass} bg-muted rounded-2xl flex items-center justify-center shadow-md`}
+            className={`${CARD_ASPECT_RATIO} bg-muted rounded-2xl flex items-center justify-center shadow-md`}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
         >
@@ -82,4 +82,4 @@ function CardCover({coverUrl, title}: {coverUrl?: string; title: string}) {
     )
 }
 
-export {CardCover}
+export {CARD_ASPECT_RATIO, CardCover}
