@@ -353,6 +353,10 @@ export async function action({
                 const imageBuffer = await fetchCommunityIconImage(iconId)
                 const token = await getToken()
 
+                if (!token) {
+                    return {error: "Authentication required to upload icons"}
+                }
+
                 const uploadResponse = await fetch(
                     `https://api.yotoplay.com/media/displayIcons/user/me/upload?autoConvert=true&filename=${iconId}.png`,
                     {
