@@ -102,6 +102,313 @@ All stored in `~/.config/yoto/`:
 - [ ] Switch auth storage from `auth.json` to encrypted HTTP-only cookies (removes last filesystem dependency)
 - [ ] Cloud hosting for remote access
 
+## Cookie-Based Auth Storage
+
+### Overview
+
+Replace filesystem-based auth token storage (`~/.config/yoto/auth.json`) with encrypted HTTP-only cookies. This removes the last filesystem dependency and enables future cloud hosting.
+
+### Token Structure
+
+The `StoredTokens` object from `@yotoplay/oauth-device-code-flow`:
+
+```typescript
+interface StoredTokens {
+    accessToken: string // JWT (~1,400 bytes)
+    refreshToken?: string // Opaque token (~90 bytes)
+    expiresAt: number // Unix timestamp (ms)
+    tokenType: string // "Bearer"
+}
+```
+
+**Total size:** ~1.6 KB JSON → ~2.2 KB encrypted+base64 (well under 4KB cookie limit)
+
+### Security Approach
+
+Two layers of protection:
+
+1. **Encryption (AES-256-GCM)** - Hides token content using Web Crypto API
+2. **Signing (HMAC)** - React Router's `createCookie` with `secrets` prevents tampering
+
+### Cookie Configuration
+
+```typescript
+{
+    name: "yoto-auth",
+    httpOnly: true,                                    // No JS access
+    secure: process.env.NODE_ENV === "production",    // HTTPS only in prod
+    sameSite: "lax",                                  // Sent on navigation
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,                        // 30 days
+    secrets: [process.env.YOTO_AUTH_SECRET],          // For signing
+}
+```
+
+### Encryption Implementation
+
+Uses Web Crypto API (works in Node.js and Cloudflare Workers):
+
+```typescript
+// Key derivation: SHA-256 hash of secret → 256-bit AES key
+async function deriveKey(secret: string): Promise<CryptoKey> {
+    const encoder = new TextEncoder()
+    const keyMaterial = await crypto.subtle.digest(
+        "SHA-256",
+        encoder.encode(secret),
+    )
+    return crypto.subtle.importKey("raw", keyMaterial, "AES-GCM", false, [
+        "encrypt",
+        "decrypt",
+    ])
+}
+
+// Encrypt: random 12-byte IV + AES-GCM → base64(IV + ciphertext)
+async function encrypt(data: string, secret: string): Promise<string>
+
+// Decrypt: parse base64, extract IV, decrypt
+async function decrypt(encrypted: string, secret: string): Promise<string>
+```
+
+### Files
+
+| File                                | Action     | Purpose                                               |
+| ----------------------------------- | ---------- | ----------------------------------------------------- |
+| `app/lib/auth-cookie.server.ts`     | **Create** | Encryption + cookie helpers                           |
+| `app/lib/auth.server.ts`            | **Modify** | Remove fs, use cookies, return `setCookie` on refresh |
+| `app/lib/paths.server.ts`           | **Delete** | No longer needed                                      |
+| `app/routes/login.tsx`              | **Modify** | Set cookie on login, clear on logout                  |
+| `app/routes/home.tsx`               | **Modify** | Pass `request`, handle `setCookie` header             |
+| `app/routes/cards.$id.tsx`          | **Modify** | Pass `request`, handle `setCookie` header             |
+| `app/routes/api.import.$cardId.tsx` | **Modify** | Pass `request`, handle `setCookie` header             |
+| `app/routes/api.icons.ts`           | **Modify** | Pass `request`, handle `setCookie` header             |
+| `.env.example`                      | **Modify** | Add `YOTO_AUTH_SECRET`                                |
+
+### New File: `app/lib/auth-cookie.server.ts`
+
+```typescript
+import {createCookie} from "react-router"
+import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
+
+// --- Web Crypto Encryption (AES-256-GCM) ---
+
+async function deriveKey(secret: string): Promise<CryptoKey> {
+    const encoder = new TextEncoder()
+    const keyMaterial = await crypto.subtle.digest(
+        "SHA-256",
+        encoder.encode(secret),
+    )
+    return crypto.subtle.importKey("raw", keyMaterial, "AES-GCM", false, [
+        "encrypt",
+        "decrypt",
+    ])
+}
+
+async function encrypt(data: string, secret: string): Promise<string> {
+    const key = await deriveKey(secret)
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const encoded = new TextEncoder().encode(data)
+    const ciphertext = await crypto.subtle.encrypt(
+        {name: "AES-GCM", iv},
+        key,
+        encoded,
+    )
+
+    // Combine IV + ciphertext, then base64
+    const combined = new Uint8Array(iv.length + ciphertext.byteLength)
+    combined.set(iv)
+    combined.set(new Uint8Array(ciphertext), iv.length)
+    return btoa(String.fromCharCode(...combined))
+}
+
+async function decrypt(encrypted: string, secret: string): Promise<string> {
+    const key = await deriveKey(secret)
+    const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0))
+    const iv = combined.slice(0, 12)
+    const ciphertext = combined.slice(12)
+    const decrypted = await crypto.subtle.decrypt(
+        {name: "AES-GCM", iv},
+        key,
+        ciphertext,
+    )
+    return new TextDecoder().decode(decrypted)
+}
+
+// --- Cookie Setup ---
+
+function getSecret(): string {
+    const secret = process.env.YOTO_AUTH_SECRET
+    if (!secret)
+        throw new Error("YOTO_AUTH_SECRET environment variable is required")
+    return secret
+}
+
+const authCookie = createCookie("yoto-auth", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    secrets: [getSecret()],
+})
+
+// --- Public API ---
+
+export async function getTokensFromCookie(
+    request: Request,
+): Promise<StoredTokens | null> {
+    const cookieHeader = request.headers.get("Cookie")
+    const encrypted = await authCookie.parse(cookieHeader)
+    if (!encrypted) return null
+
+    try {
+        const json = await decrypt(encrypted, getSecret())
+        return JSON.parse(json)
+    } catch {
+        return null // Decryption failed
+    }
+}
+
+export async function serializeAuthCookie(
+    tokens: StoredTokens,
+): Promise<string> {
+    const json = JSON.stringify(tokens)
+    const encrypted = await encrypt(json, getSecret())
+    return authCookie.serialize(encrypted)
+}
+
+export async function clearAuthCookie(): Promise<string> {
+    return authCookie.serialize("", {maxAge: 0})
+}
+```
+
+### Changes to `app/lib/auth.server.ts`
+
+**Remove:**
+
+- `TokenManager` import and usage
+- `TOKEN_PATH` constant
+- All `fs` / filesystem operations
+
+**New function signatures:**
+
+```typescript
+// Auth status now takes request and may return setCookie if token was refreshed
+type AuthStatus =
+    | {authenticated: false}
+    | {authenticated: true; tokens: StoredTokens; setCookie?: string}
+
+export async function status(request: Request): Promise<AuthStatus>
+
+// requireAuth throws redirect if not authenticated
+export async function requireAuth(request: Request): Promise<{
+    tokens: StoredTokens
+    setCookie?: string
+}>
+
+// getAuthenticatedSdk returns SDK and optional setCookie header
+export async function getAuthenticatedSdk(request: Request): Promise<{
+    sdk: YotoSDK
+    setCookie?: string
+}>
+
+// getToken returns token string and optional setCookie header
+export async function getToken(request: Request): Promise<{
+    token: string
+    setCookie?: string
+}>
+```
+
+### Route Updates
+
+All routes using auth must:
+
+1. Pass `request` to auth functions
+2. Include `Set-Cookie` header in response when `setCookie` is returned
+
+**Pattern for loaders:**
+
+```typescript
+import {data} from "react-router"
+
+export async function loader({request}: Route.LoaderArgs) {
+    const {sdk, setCookie} = await getAuthenticatedSdk(request)
+    const cards = await sdk.library.getCards()
+
+    if (setCookie) {
+        return data({cards}, {headers: {"Set-Cookie": setCookie}})
+    }
+    return {cards}
+}
+```
+
+**Pattern for actions (login):**
+
+```typescript
+export async function action({request}: Route.ActionArgs) {
+    // ... device code flow ...
+    const setCookie = await serializeAuthCookie(tokens)
+    return redirect("/", {
+        headers: {"Set-Cookie": setCookie},
+    })
+}
+```
+
+**Pattern for actions (logout):**
+
+```typescript
+export async function action({request}: Route.ActionArgs) {
+    const setCookie = await clearAuthCookie()
+    return redirect("/login", {
+        headers: {"Set-Cookie": setCookie},
+    })
+}
+```
+
+### Environment Variable
+
+Add to `.env.example`:
+
+```
+YOTO_AUTH_SECRET=any-secret-string-you-want
+```
+
+The secret can be any length - it's hashed with SHA-256 to derive the 256-bit AES key.
+
+### Data Flow
+
+```
+Login:
+  User completes device code flow
+    → tokens received from Auth0
+    → encrypt(JSON.stringify(tokens))
+    → createCookie.serialize(encrypted)
+    → Set-Cookie header in redirect response
+    → Browser stores encrypted cookie
+
+Authenticated Request:
+  Browser sends Cookie header
+    → createCookie.parse() extracts + verifies signature
+    → decrypt() recovers JSON
+    → JSON.parse() → StoredTokens
+    → Check expiry, refresh if needed
+    → If refreshed: return new Set-Cookie header
+    → Create SDK with access token
+
+Logout:
+  → serialize("", { maxAge: 0 })
+    → Set-Cookie header clears the cookie
+```
+
+### Tech Stack Update
+
+After implementation, update the Tech Stack table:
+
+| Component    | Technology                 |
+| ------------ | -------------------------- |
+| Auth Storage | Encrypted HTTP-only cookie |
+
+And remove the "Config Files" section since `~/.config/yoto/` is no longer used.
+
 ## Icon Search
 
 ### Overview
