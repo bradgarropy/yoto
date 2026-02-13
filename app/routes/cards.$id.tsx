@@ -1273,7 +1273,7 @@ export default function CardDetail({
                                 onReorder={handleReorder}
                                 className="divide-y"
                             >
-                                {orderedTracks.map((track, index) => (
+                                {orderedTracks.map(track => (
                                     <Reorder.Item
                                         key={track.key}
                                         value={track}
