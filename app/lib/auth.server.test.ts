@@ -164,7 +164,7 @@ describe("status", () => {
     it("should return valid status when token is not expired", async () => {
         const tokens = {
             accessToken: "test-token",
-            expiresAt: Date.now() + 7200000, // 2 hours from now in ms
+            expiresAt: Date.now() + 7200000 + 5000, // 2 hours + 5s buffer from now in ms
             tokenType: "Bearer",
         }
         mockGetTokensFromCookie.mockResolvedValue(tokens)
@@ -201,7 +201,7 @@ describe("status", () => {
         const newTokens = {
             accessToken: "new-token",
             refreshToken: "new-refresh-token",
-            expiresAt: Date.now() + 3600000,
+            expiresAt: Date.now() + 3600000 + 5000, // 1 hour + 5s buffer
             tokenType: "Bearer",
         }
         mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
