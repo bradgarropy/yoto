@@ -15,7 +15,7 @@ type YotoIcon = {
 }
 
 // Fetch all native Yoto icons from API (with in-memory cache)
-const fetchYotoIcons = async (): Promise<YotoIcon[]> => {
+const fetchYotoIcons = async (request: Request): Promise<YotoIcon[]> => {
     const now = Date.now()
 
     // Return cached icons if still valid
@@ -24,7 +24,7 @@ const fetchYotoIcons = async (): Promise<YotoIcon[]> => {
     }
 
     // Fetch fresh icons from API
-    const sdk = await getAuthenticatedSdk()
+    const {sdk} = await getAuthenticatedSdk(request)
     const icons: DisplayIcon[] = await sdk.icons.getDisplayIcons()
 
     const yotoIcons = icons.map(icon => ({
@@ -42,8 +42,11 @@ const fetchYotoIcons = async (): Promise<YotoIcon[]> => {
 }
 
 // Search native Yoto icons by query (filters by title and tags)
-const searchYotoIcons = async (query: string): Promise<YotoIcon[]> => {
-    const icons = await fetchYotoIcons()
+const searchYotoIcons = async (
+    request: Request,
+    query: string,
+): Promise<YotoIcon[]> => {
+    const icons = await fetchYotoIcons(request)
     const lowerQuery = query.toLowerCase()
 
     const filtered = icons.filter(icon => {
@@ -69,8 +72,10 @@ const searchYotoIcons = async (query: string): Promise<YotoIcon[]> => {
 
 // Get number icons (1-30) mapped by position number to mediaId
 // Uses the "Number - 1" / "Numbers - N" title pattern from Yoto's official icons
-const getNumberIcons = async (): Promise<Map<number, string>> => {
-    const icons = await fetchYotoIcons()
+const getNumberIcons = async (
+    request: Request,
+): Promise<Map<number, string>> => {
+    const icons = await fetchYotoIcons(request)
     const numberPattern = /^Numbers?\s*-\s*(\d+)$/
     const numberMap = new Map<number, string>()
 

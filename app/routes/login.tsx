@@ -30,8 +30,8 @@ export function meta() {
 }
 
 // Redirect to dashboard if already logged in
-export async function loader() {
-    const authStatus = await status()
+export async function loader({request}: {request: Request}) {
+    const authStatus = await status(request)
 
     if (authStatus.valid) {
         throw redirect("/")
@@ -73,7 +73,9 @@ export async function action({
         const result = await completeLogin(deviceCode, interval)
 
         if (result.success) {
-            return redirect("/")
+            return redirect("/", {
+                headers: {"Set-Cookie": result.setCookie},
+            })
         }
 
         return {

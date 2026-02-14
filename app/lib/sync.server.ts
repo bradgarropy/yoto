@@ -146,11 +146,12 @@ type SyncToCardResult =
  * Sync YouTube content directly to an existing card.
  */
 export async function performSyncToCard(
+    request: Request,
     youtubeUrl: string,
     cardId: string,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
-    const sdk = await getAuthenticatedSdk()
+    const {sdk} = await getAuthenticatedSdk(request)
     const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
 
     try {

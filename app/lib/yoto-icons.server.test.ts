@@ -5,8 +5,10 @@ const mockGetDisplayIcons = vi.fn()
 
 vi.mock("./auth.server", () => ({
     getAuthenticatedSdk: vi.fn(() => ({
-        icons: {
-            getDisplayIcons: mockGetDisplayIcons,
+        sdk: {
+            icons: {
+                getDisplayIcons: mockGetDisplayIcons,
+            },
         },
     })),
 }))
@@ -18,6 +20,9 @@ import {
     getNumberIcons,
     searchYotoIcons,
 } from "./yoto-icons.server"
+
+// Create a mock Request for testing
+const createMockRequest = () => new Request("https://example.com")
 
 beforeEach(() => {
     vi.clearAllMocks()
@@ -47,7 +52,7 @@ describe("fetchYotoIcons", () => {
         ]
         mockGetDisplayIcons.mockResolvedValue(mockIcons)
 
-        const result = await fetchYotoIcons()
+        const result = await fetchYotoIcons(createMockRequest())
 
         expect(result).toEqual([
             {
@@ -68,7 +73,7 @@ describe("fetchYotoIcons", () => {
     it("should handle empty response", async () => {
         mockGetDisplayIcons.mockResolvedValue([])
 
-        const result = await fetchYotoIcons()
+        const result = await fetchYotoIcons(createMockRequest())
 
         expect(result).toEqual([])
     })
@@ -87,40 +92,43 @@ describe("searchYotoIcons", () => {
     })
 
     it("should filter by title (case-insensitive)", async () => {
-        const result = await searchYotoIcons("dog")
+        const result = await searchYotoIcons(createMockRequest(), "dog")
 
         expect(result).toHaveLength(1)
         expect(result[0].title).toBe("Dog")
     })
 
     it("should filter by title with different case", async () => {
-        const result = await searchYotoIcons("DOG")
+        const result = await searchYotoIcons(createMockRequest(), "DOG")
 
         expect(result).toHaveLength(1)
         expect(result[0].title).toBe("Dog")
     })
 
     it("should filter by tags (case-insensitive)", async () => {
-        const result = await searchYotoIcons("animal")
+        const result = await searchYotoIcons(createMockRequest(), "animal")
 
         expect(result).toHaveLength(2)
         expect(result.map(i => i.title)).toEqual(["Dog", "Cat"])
     })
 
     it("should filter by tags with different case", async () => {
-        const result = await searchYotoIcons("ANIMAL")
+        const result = await searchYotoIcons(createMockRequest(), "ANIMAL")
 
         expect(result).toHaveLength(2)
     })
 
     it("should return empty array when no matches", async () => {
-        const result = await searchYotoIcons("xyz123notfound")
+        const result = await searchYotoIcons(
+            createMockRequest(),
+            "xyz123notfound",
+        )
 
         expect(result).toEqual([])
     })
 
     it("should match partial strings in title", async () => {
-        const result = await searchYotoIcons("music")
+        const result = await searchYotoIcons(createMockRequest(), "music")
 
         expect(result).toHaveLength(2)
         expect(result.map(i => i.title)).toEqual([
@@ -130,7 +138,7 @@ describe("searchYotoIcons", () => {
     })
 
     it("should match partial strings in tags", async () => {
-        const result = await searchYotoIcons("pet")
+        const result = await searchYotoIcons(createMockRequest(), "pet")
 
         expect(result).toHaveLength(2)
         expect(result.map(i => i.title)).toEqual(["Dog", "Cat"])
@@ -144,7 +152,7 @@ describe("searchYotoIcons", () => {
         mockGetDisplayIcons.mockResolvedValue(iconsWithNullTitle)
 
         // Should not throw and should find by tag
-        const result = await searchYotoIcons("searchable")
+        const result = await searchYotoIcons(createMockRequest(), "searchable")
 
         expect(result).toHaveLength(1)
         expect(result[0].id).toBe("null-title")
@@ -158,7 +166,7 @@ describe("searchYotoIcons", () => {
         mockGetDisplayIcons.mockResolvedValue(iconsWithNullTags)
 
         // Should not throw and should find by title
-        const result = await searchYotoIcons("Searchable")
+        const result = await searchYotoIcons(createMockRequest(), "Searchable")
 
         expect(result).toHaveLength(1)
         expect(result[0].id).toBe("null-tags")
@@ -175,7 +183,7 @@ describe("searchYotoIcons", () => {
         mockGetDisplayIcons.mockResolvedValue(iconsWithNullTagValue)
 
         // Should not throw and should find by valid tag
-        const result = await searchYotoIcons("valid")
+        const result = await searchYotoIcons(createMockRequest(), "valid")
 
         expect(result).toHaveLength(1)
     })
@@ -188,7 +196,7 @@ describe("searchYotoIcons", () => {
         ]
         mockGetDisplayIcons.mockResolvedValue(iconsWithDuplicates)
 
-        const result = await searchYotoIcons("music")
+        const result = await searchYotoIcons(createMockRequest(), "music")
 
         // Should only have one icon with mediaId abc123
         expect(result).toHaveLength(1)
@@ -203,7 +211,7 @@ describe("searchYotoIcons", () => {
         ]
         mockGetDisplayIcons.mockResolvedValue(iconsWithDuplicates)
 
-        const result = await searchYotoIcons("music")
+        const result = await searchYotoIcons(createMockRequest(), "music")
 
         expect(result).toHaveLength(1)
     })
@@ -215,7 +223,7 @@ describe("getNumberIcons", () => {
             createMockIcon("num1-id", "Number - 1", ["1", "numbers"]),
         ])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.get(1)).toBe("num1-id")
     })
@@ -227,7 +235,7 @@ describe("getNumberIcons", () => {
             createMockIcon("num30-id", "Numbers - 30", ["30", "numbers"]),
         ])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(3)
         expect(result.get(2)).toBe("num2-id")
@@ -247,7 +255,7 @@ describe("getNumberIcons", () => {
         ]
         mockGetDisplayIcons.mockResolvedValue(icons)
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(30)
         for (let i = 1; i <= 30; i++) {
@@ -267,7 +275,7 @@ describe("getNumberIcons", () => {
             ]),
         ])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(1)
         expect(result.get(1)).toBe("num1-id")
@@ -282,7 +290,7 @@ describe("getNumberIcons", () => {
             createMockIcon("num1-id", "Number - 1", ["1", "numbers"]),
         ])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(1)
         expect(result.get(1)).toBe("num1-id")
@@ -294,7 +302,7 @@ describe("getNumberIcons", () => {
             createMockIcon("dupe-id", "Numbers - 5", ["5", "numbers"]),
         ])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(1)
         expect(result.get(5)).toBe("first-id")
@@ -306,7 +314,7 @@ describe("getNumberIcons", () => {
             createMockIcon("dog-id", "Dog", ["animal"]),
         ])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(0)
     })
@@ -314,7 +322,7 @@ describe("getNumberIcons", () => {
     it("should return an empty map when icon list is empty", async () => {
         mockGetDisplayIcons.mockResolvedValue([])
 
-        const result = await getNumberIcons()
+        const result = await getNumberIcons(createMockRequest())
 
         expect(result.size).toBe(0)
     })
