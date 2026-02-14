@@ -25,7 +25,7 @@ import {
 } from "~/components/ui/dropdown-menu"
 import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
-import {getAuthenticatedSdk, requireAuth, status} from "~/lib/auth.server"
+import {getAuthenticatedSdk, status} from "~/lib/auth.server"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
 
 type SortOption = "title" | "tracks" | "updated"
@@ -147,8 +147,6 @@ export async function loader({request}: {request: Request}) {
 }
 
 export async function action({request}: {request: Request}) {
-    await requireAuth(request)
-
     const formData = await request.formData()
     const intent = formData.get("intent") as string
 

@@ -38,7 +38,7 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
-import {getAuthenticatedSdk, getToken, requireAuth} from "~/lib/auth.server"
+import {getAuthenticatedSdk, getToken} from "~/lib/auth.server"
 import {
     getProgressPercent,
     type ImportProgress,
@@ -66,8 +66,6 @@ export async function loader({
     params: {id: string}
     request: Request
 }) {
-    await requireAuth(request)
-
     const cardId = params.id
 
     try {
@@ -180,8 +178,6 @@ export async function action({
     params: {id: string}
     request: Request
 }) {
-    await requireAuth(request)
-
     const cardId = params.id
     const formData = await request.formData()
     const intent = formData.get("intent")
