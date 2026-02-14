@@ -1,11 +1,11 @@
 import {ArrowDownNarrowWide, Plus} from "lucide-react"
 import {useEffect, useState} from "react"
-import {data, Link, useFetcher, useNavigate} from "react-router"
+import {Link, useFetcher, useNavigate} from "react-router"
 import {toast} from "sonner"
 
 import {CardCover} from "~/components/CardCover"
 import {Button} from "~/components/ui/button"
-import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
+import {Card, CardContent} from "~/components/ui/card"
 import {
     Dialog,
     DialogContent,
@@ -25,8 +25,10 @@ import {
 } from "~/components/ui/dropdown-menu"
 import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
-import {getAuthenticatedSdk, status} from "~/lib/auth.server"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
+import {authContext, authMiddleware} from "~/middleware/auth.server"
+
+import type {Route} from "./+types/home"
 
 type SortOption = "title" | "tracks" | "updated"
 
@@ -38,9 +40,9 @@ type CardSummary = {
     updatedAt: string | null
 }
 
-type LoaderData =
-    | {authenticated: false; cards: never[]}
-    | {authenticated: true; cards: CardSummary[]}
+type LoaderData = {
+    cards: CardSummary[]
+}
 
 type YotoContent = {
     activity: string
@@ -62,6 +64,8 @@ type YotoCard = {
     metadata: YotoMetadata
 }
 
+export const middleware: Route.MiddlewareFunction[] = [authMiddleware]
+
 export function meta() {
     return [
         {title: "Yoto"},
@@ -69,16 +73,10 @@ export function meta() {
     ]
 }
 
-export async function loader({request}: {request: Request}) {
-    const authStatus = await status(request)
-
-    if (!authStatus.valid) {
-        // Return unauthenticated state - don't redirect, show login prompt
-        return {authenticated: false as const, cards: []}
-    }
+export async function loader({context}: Route.LoaderArgs) {
+    const {sdk} = context.get(authContext)
 
     try {
-        const {sdk, setCookie} = await getAuthenticatedSdk(request)
         const cards = await sdk.content.getMyCards()
 
         // SDK returns array of UserCard directly
@@ -131,22 +129,14 @@ export async function loader({request}: {request: Request}) {
             }),
         )
 
-        const responseData = {
-            authenticated: true as const,
-            cards: cardsWithDetails,
-        }
-
-        if (setCookie) {
-            return data(responseData, {headers: {"Set-Cookie": setCookie}})
-        }
-        return responseData
+        return {cards: cardsWithDetails}
     } catch (error) {
         console.error("Failed to fetch cards:", error)
-        return {authenticated: true as const, cards: []}
+        return {cards: []}
     }
 }
 
-export async function action({request}: {request: Request}) {
+export async function action({request, context}: Route.ActionArgs) {
     const formData = await request.formData()
     const intent = formData.get("intent") as string
 
@@ -158,7 +148,7 @@ export async function action({request}: {request: Request}) {
         }
 
         try {
-            const {sdk} = await getAuthenticatedSdk(request)
+            const {sdk} = context.get(authContext)
             const cardData = {
                 title: cardName.trim(),
                 content: {
@@ -228,7 +218,7 @@ type ActionData = {
 }
 
 export default function Home({loaderData}: {loaderData: LoaderData}) {
-    const {authenticated, cards} = loaderData
+    const {cards} = loaderData
     const [sortBy, setSortBy] = useState<SortOption>("title")
     const [searchQuery, setSearchQuery] = useState("")
     const [dialogOpen, setDialogOpen] = useState(false)
@@ -253,29 +243,6 @@ export default function Home({loaderData}: {loaderData: LoaderData}) {
         card.title.toLowerCase().includes(searchQuery.toLowerCase()),
     )
     const sortedCards = sortCards(filteredCards, sortBy)
-
-    if (!authenticated) {
-        return (
-            <div className="min-h-screen flex items-center justify-center p-4">
-                <Card className="w-full max-w-md">
-                    <CardHeader>
-                        <CardTitle>Welcome to Yoto Sync</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <p className="text-muted-foreground">
-                            Sync your favorite YouTube playlists to your Yoto
-                            cards.
-                        </p>
-                        <Link to="/login">
-                            <Button className="w-full">
-                                Login to Get Started
-                            </Button>
-                        </Link>
-                    </CardContent>
-                </Card>
-            </div>
-        )
-    }
 
     return (
         <div className="min-h-screen p-8 pb-32">
