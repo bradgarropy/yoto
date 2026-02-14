@@ -1,15 +1,15 @@
-import {beforeEach, describe, expect, it, vi} from "vitest"
 import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
+import {beforeEach, describe, expect, it, vi} from "vitest"
 
 // Mock environment variable
 const mockSecret = "test-secret-key-for-testing"
 
 // Import module
 import {
+    _resetAuthCookie,
+    clearAuthCookie,
     getTokensFromCookie,
     serializeAuthCookie,
-    clearAuthCookie,
-    _resetAuthCookie,
 } from "./auth-cookie.server"
 
 const mockTokens: StoredTokens = {
