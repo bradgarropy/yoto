@@ -26,7 +26,7 @@ import {
 import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
-import {authContext, authMiddleware} from "~/middleware/auth.server"
+import {authContext} from "~/middleware/auth.server"
 
 import type {Route} from "./+types/home"
 
@@ -63,8 +63,6 @@ type YotoCard = {
     content: YotoContent
     metadata: YotoMetadata
 }
-
-export const middleware: Route.MiddlewareFunction[] = [authMiddleware]
 
 export function meta() {
     return [

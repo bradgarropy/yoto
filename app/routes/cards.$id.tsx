@@ -38,7 +38,7 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
-import {getAuthenticatedSdk, getToken} from "~/lib/auth.server"
+import {getToken} from "~/lib/auth.server"
 import {
     getProgressPercent,
     type ImportProgress,
@@ -46,6 +46,9 @@ import {
 } from "~/lib/sync-utils"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
+import {authContext} from "~/middleware/auth.server"
+
+import type {Route} from "./+types/cards.$id"
 
 export function meta({
     data,
@@ -59,17 +62,11 @@ export function meta({
     ]
 }
 
-export async function loader({
-    params,
-    request,
-}: {
-    params: {id: string}
-    request: Request
-}) {
+export async function loader({params, context}: Route.LoaderArgs) {
     const cardId = params.id
+    const {sdk} = context.get(authContext)
 
     try {
-        const {sdk} = await getAuthenticatedSdk(request)
         const card = await sdk.content.getCard(cardId)
 
         // Type assertion for SDK response - getCard returns the card directly
@@ -171,19 +168,13 @@ export async function loader({
     }
 }
 
-export async function action({
-    params,
-    request,
-}: {
-    params: {id: string}
-    request: Request
-}) {
+export async function action({params, request, context}: Route.ActionArgs) {
     const cardId = params.id
     const formData = await request.formData()
     const intent = formData.get("intent")
 
     try {
-        const {sdk} = await getAuthenticatedSdk(request)
+        const {sdk} = context.get(authContext)
 
         if (intent === "deleteTrack") {
             const trackKey = formData.get("trackKey") as string
