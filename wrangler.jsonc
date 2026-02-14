@@ -1,0 +1,27 @@
+{
+    "name": "yoto",
+    "compatibility_date": "2026-02-14",
+    "main": "./workers/app.ts",
+    "containers": [
+        {
+            "class_name": "Sandbox",
+            "image": "./Dockerfile.sandbox",
+            "instance_type": "standard-2",
+            "max_instances": 3,
+        },
+    ],
+    "durable_objects": {
+        "bindings": [
+            {
+                "class_name": "Sandbox",
+                "name": "SANDBOX",
+            },
+        ],
+    },
+    "migrations": [
+        {
+            "new_sqlite_classes": ["Sandbox"],
+            "tag": "v1",
+        },
+    ],
+}
