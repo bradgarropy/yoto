@@ -51,7 +51,7 @@ export default {
             const videoUrl = body.url
 
             const result = await sandbox.exec(
-                `yt-dlp --print "%(id)s\t%(title)s\t%(duration)s" --no-playlist "${videoUrl}"`,
+                `yt-dlp --no-check-certificates --print "%(id)s\t%(title)s\t%(duration)s" --no-playlist "${videoUrl}"`,
             )
 
             if (!result.success) {
@@ -81,8 +81,7 @@ export default {
 
             // Download as mp3
             const downloadResult = await sandbox.exec(
-                `yt-dlp --extract-audio --audio-format mp3 --audio-quality 0 ` +
-                    `--extractor-args "youtube:player_client=tv" ` +
+                `yt-dlp --no-check-certificates --extract-audio --audio-format mp3 --audio-quality 0 ` +
                     `-o "/tmp/yoto-test/%(id)s.%(ext)s" --no-playlist "${videoUrl}"`,
             )
 
