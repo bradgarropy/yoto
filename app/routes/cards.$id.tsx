@@ -38,7 +38,7 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
-import {getAuthenticatedSdk, getToken, requireAuth} from "~/lib/auth.server"
+import {getAuthenticatedSdk, getToken} from "~/lib/auth.server"
 import {
     getProgressPercent,
     type ImportProgress,
@@ -59,13 +59,17 @@ export function meta({
     ]
 }
 
-export async function loader({params}: {params: {id: string}}) {
-    await requireAuth()
-
+export async function loader({
+    params,
+    request,
+}: {
+    params: {id: string}
+    request: Request
+}) {
     const cardId = params.id
 
     try {
-        const sdk = await getAuthenticatedSdk()
+        const {sdk} = await getAuthenticatedSdk(request)
         const card = await sdk.content.getCard(cardId)
 
         // Type assertion for SDK response - getCard returns the card directly
@@ -174,14 +178,12 @@ export async function action({
     params: {id: string}
     request: Request
 }) {
-    await requireAuth()
-
     const cardId = params.id
     const formData = await request.formData()
     const intent = formData.get("intent")
 
     try {
-        const sdk = await getAuthenticatedSdk()
+        const {sdk} = await getAuthenticatedSdk(request)
 
         if (intent === "deleteTrack") {
             const trackKey = formData.get("trackKey") as string
@@ -317,9 +319,9 @@ export async function action({
                 return {error: "Cover image must be a JPEG, PNG, GIF, or WebP"}
             }
 
-            const token = await getToken()
+            const tokenResult = await getToken(request)
 
-            if (!token) {
+            if (!tokenResult) {
                 return {error: "Authentication required to upload cover"}
             }
 
@@ -334,7 +336,7 @@ export async function action({
             const uploadResponse = await fetch(url, {
                 method: "POST",
                 headers: {
-                    "Authorization": `Bearer ${token}`,
+                    "Authorization": `Bearer ${tokenResult.token}`,
                     "Content-Type": coverFile.type,
                 },
                 body: new Uint8Array(imageBuffer),
@@ -402,9 +404,9 @@ export async function action({
             } else {
                 // Community icons: fetch PNG, upload to Yoto via custom icon endpoint
                 const imageBuffer = await fetchCommunityIconImage(iconId)
-                const token = await getToken()
+                const iconTokenResult = await getToken(request)
 
-                if (!token) {
+                if (!iconTokenResult) {
                     return {error: "Authentication required to upload icons"}
                 }
 
@@ -413,7 +415,7 @@ export async function action({
                     {
                         method: "POST",
                         headers: {
-                            "Authorization": `Bearer ${token}`,
+                            "Authorization": `Bearer ${iconTokenResult.token}`,
                             "Content-Type": "image/png",
                         },
                         body: new Uint8Array(imageBuffer),
@@ -505,7 +507,7 @@ export async function action({
         }
 
         if (intent === "numberTracks") {
-            const numberIcons = await getNumberIcons()
+            const numberIcons = await getNumberIcons(request)
 
             if (numberIcons.size === 0) {
                 return {error: "Could not find number icons"}

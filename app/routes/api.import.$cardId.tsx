@@ -11,7 +11,7 @@ export async function loader({
 }) {
     // Use isAuthenticated instead of requireAuth to avoid redirects
     // SSE endpoints should return 401, not redirect (which causes EventSource to hang)
-    const authenticated = await isAuthenticated()
+    const authenticated = await isAuthenticated(request)
     if (!authenticated) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
@@ -38,6 +38,7 @@ export async function loader({
     async function runSync() {
         try {
             const result = await performSyncToCard(
+                request,
                 validatedUrl,
                 cardId,
                 async (progress: ImportProgress) => {

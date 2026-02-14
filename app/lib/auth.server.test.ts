@@ -1,15 +1,19 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
-// Create mock instances that will be returned by constructors
-const mockTokenManager = {
-    saveTokens: vi.fn(),
-    loadTokens: vi.fn(),
-    clearTokens: vi.fn(),
-    areTokensValid: vi.fn(),
-    isTokenExpired: vi.fn(),
-    getTimeUntilExpiry: vi.fn(),
-}
+// Mock the auth-cookie module
+const mockGetTokensFromCookie = vi.fn()
+const mockSerializeAuthCookie = vi.fn()
+const mockClearAuthCookie = vi.fn()
 
+vi.mock("./auth-cookie.server", () => ({
+    getTokensFromCookie: (...args: unknown[]) =>
+        mockGetTokensFromCookie(...args),
+    serializeAuthCookie: (...args: unknown[]) =>
+        mockSerializeAuthCookie(...args),
+    clearAuthCookie: (...args: unknown[]) => mockClearAuthCookie(...args),
+}))
+
+// Create mock instances that will be returned by constructors
 const mockAuth = {
     initiate: vi.fn(),
     pollForToken: vi.fn(),
@@ -18,14 +22,6 @@ const mockAuth = {
 
 // Mock the OAuth package with class constructors
 vi.mock("@yotoplay/oauth-device-code-flow", () => ({
-    TokenManager: class MockTokenManager {
-        saveTokens = mockTokenManager.saveTokens
-        loadTokens = mockTokenManager.loadTokens
-        clearTokens = mockTokenManager.clearTokens
-        areTokensValid = mockTokenManager.areTokensValid
-        isTokenExpired = mockTokenManager.isTokenExpired
-        getTimeUntilExpiry = mockTokenManager.getTimeUntilExpiry
-    },
     DeviceCodeAuth: class MockDeviceCodeAuth {
         initiate = mockAuth.initiate
         pollForToken = mockAuth.pollForToken
@@ -38,12 +34,6 @@ vi.mock("@yotoplay/yoto-sdk", () => ({
     createYotoSdk: vi.fn(() => ({content: {}, media: {}})),
 }))
 
-// Mock paths
-vi.mock("./paths.server", () => ({
-    CONFIG_PATH: "/mock/config/path",
-    ensureConfigDir: vi.fn(),
-}))
-
 // Import after mocks are set up
 import {
     completeLogin,
@@ -54,8 +44,17 @@ import {
     status,
 } from "./auth.server"
 
+// Helper to create a mock Request
+const createMockRequest = () => new Request("http://localhost/")
+
 beforeEach(() => {
     vi.clearAllMocks()
+    mockSerializeAuthCookie.mockResolvedValue(
+        "yoto-auth=encrypted; Path=/; HttpOnly",
+    )
+    mockClearAuthCookie.mockResolvedValue(
+        "yoto-auth=; Max-Age=0; Path=/; HttpOnly",
+    )
 })
 
 describe("initiateLogin", () => {
@@ -90,15 +89,14 @@ describe("initiateLogin", () => {
 })
 
 describe("completeLogin", () => {
-    it("should poll for token and save on success", async () => {
+    it("should poll for token and return setCookie on success", async () => {
         const tokens = {
             accessToken: "test-access-token",
             refreshToken: "test-refresh-token",
-            expiresAt: Date.now() / 1000 + 3600,
+            expiresAt: Date.now() + 3600000 + 5000, // 1 hour + 5s buffer from now in ms
             tokenType: "Bearer",
         }
         mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(3600)
 
         const result = await completeLogin("device-code", 5)
 
@@ -107,8 +105,12 @@ describe("completeLogin", () => {
             5,
             300000,
         )
-        expect(mockTokenManager.saveTokens).toHaveBeenCalledWith(tokens)
-        expect(result).toEqual({success: true, expiresIn: "1 hour"})
+        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(tokens)
+        expect(result).toEqual({
+            success: true,
+            expiresIn: "1 hour",
+            setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
+        })
     })
 
     it("should return error when polling fails", async () => {
@@ -119,18 +121,17 @@ describe("completeLogin", () => {
 
         const result = await completeLogin("device-code", 5)
 
-        expect(mockTokenManager.saveTokens).not.toHaveBeenCalled()
+        expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
         expect(result).toEqual({success: false, error: "Authorization expired"})
     })
 
     it("should use custom timeout when provided", async () => {
         const tokens = {
             accessToken: "test-token",
-            expiresAt: Date.now() / 1000 + 3600,
+            expiresAt: Date.now() + 3600000,
             tokenType: "Bearer",
         }
         mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(3600)
 
         await completeLogin("device-code", 5, 600000)
 
@@ -143,18 +144,19 @@ describe("completeLogin", () => {
 })
 
 describe("logout", () => {
-    it("should clear tokens", async () => {
-        await logout()
+    it("should return clear cookie header", async () => {
+        const result = await logout()
 
-        expect(mockTokenManager.clearTokens).toHaveBeenCalledOnce()
+        expect(mockClearAuthCookie).toHaveBeenCalledOnce()
+        expect(result).toBe("yoto-auth=; Max-Age=0; Path=/; HttpOnly")
     })
 })
 
 describe("status", () => {
     it("should return not_logged_in when no tokens exist", async () => {
-        mockTokenManager.loadTokens.mockResolvedValue(null)
+        mockGetTokensFromCookie.mockResolvedValue(null)
 
-        const result = await status()
+        const result = await status(createMockRequest())
 
         expect(result).toEqual({valid: false, reason: "not_logged_in"})
     })
@@ -162,14 +164,12 @@ describe("status", () => {
     it("should return valid status when token is not expired", async () => {
         const tokens = {
             accessToken: "test-token",
-            expiresAt: Date.now() / 1000 + 7200,
+            expiresAt: Date.now() + 7200000 + 5000, // 2 hours + 5s buffer from now in ms
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(tokens)
-        mockTokenManager.isTokenExpired.mockReturnValue(false)
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(7200)
+        mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await status()
+        const result = await status(createMockRequest())
 
         expect(result).toEqual({
             valid: true,
@@ -181,13 +181,12 @@ describe("status", () => {
     it("should return expired when token is expired and no refresh token", async () => {
         const tokens = {
             accessToken: "test-token",
-            expiresAt: Date.now() / 1000 - 100,
+            expiresAt: Date.now() - 100000, // Expired
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(tokens)
-        mockTokenManager.isTokenExpired.mockReturnValue(true)
+        mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await status()
+        const result = await status(createMockRequest())
 
         expect(result).toEqual({valid: false, reason: "expired"})
     })
@@ -196,40 +195,39 @@ describe("status", () => {
         const expiredTokens = {
             accessToken: "expired-token",
             refreshToken: "refresh-token",
-            expiresAt: Date.now() / 1000 - 100,
+            expiresAt: Date.now() - 100000, // Expired
             tokenType: "Bearer",
         }
         const newTokens = {
             accessToken: "new-token",
             refreshToken: "new-refresh-token",
-            expiresAt: Date.now() / 1000 + 3600,
+            expiresAt: Date.now() + 3600000 + 5000, // 1 hour + 5s buffer
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(expiredTokens)
-        mockTokenManager.isTokenExpired.mockReturnValue(true)
+        mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
         mockAuth.refreshToken.mockResolvedValue({
             success: true,
             tokens: newTokens,
         })
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(3600)
 
-        const result = await status()
+        const result = await status(createMockRequest())
 
         expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
-        expect(mockTokenManager.saveTokens).toHaveBeenCalledWith(newTokens)
+        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(newTokens)
         expect(result).toEqual({
             valid: true,
             expiresIn: "1 hour",
             expiresAt: newTokens.expiresAt,
+            setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
         })
     })
 })
 
 describe("getToken", () => {
     it("should return null when no tokens exist", async () => {
-        mockTokenManager.loadTokens.mockResolvedValue(null)
+        mockGetTokensFromCookie.mockResolvedValue(null)
 
-        const result = await getToken()
+        const result = await getToken(createMockRequest())
 
         expect(result).toBeNull()
     })
@@ -237,60 +235,58 @@ describe("getToken", () => {
     it("should return access token when valid", async () => {
         const tokens = {
             accessToken: "valid-token",
-            expiresAt: Date.now() / 1000 + 3600,
+            expiresAt: Date.now() + 3600000,
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(tokens)
-        mockTokenManager.isTokenExpired.mockReturnValue(false)
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(3600)
+        mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await getToken()
+        const result = await getToken(createMockRequest())
 
-        expect(result).toBe("valid-token")
+        expect(result).toEqual({token: "valid-token"})
     })
 
     it("should refresh token when about to expire", async () => {
         const nearExpiryTokens = {
             accessToken: "near-expiry-token",
             refreshToken: "refresh-token",
-            expiresAt: Date.now() / 1000 + 200, // Less than 5 minutes
+            expiresAt: Date.now() + 200000, // Less than 5 minutes (300s)
             tokenType: "Bearer",
         }
         const newTokens = {
             accessToken: "refreshed-token",
             refreshToken: "new-refresh-token",
-            expiresAt: Date.now() / 1000 + 3600,
+            expiresAt: Date.now() + 3600000,
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(nearExpiryTokens)
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(200)
+        mockGetTokensFromCookie.mockResolvedValue(nearExpiryTokens)
         mockAuth.refreshToken.mockResolvedValue({
             success: true,
             tokens: newTokens,
         })
 
-        const result = await getToken()
+        const result = await getToken(createMockRequest())
 
         expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
-        expect(result).toBe("refreshed-token")
+        expect(result).toEqual({
+            token: "refreshed-token",
+            setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
+        })
     })
 
     it("should return null when expired and refresh fails", async () => {
         const expiredTokens = {
             accessToken: "expired-token",
             refreshToken: "refresh-token",
-            expiresAt: Date.now() / 1000 - 100,
+            expiresAt: Date.now() - 100000, // Expired
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(expiredTokens)
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(-100)
-        mockTokenManager.isTokenExpired.mockReturnValue(true)
+        mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
         mockAuth.refreshToken.mockResolvedValue({
             success: false,
             error: "Invalid refresh token",
         })
 
-        const result = await getToken()
+        const result = await getToken(createMockRequest())
 
         expect(result).toBeNull()
     })
@@ -300,22 +296,20 @@ describe("requireAuthCore", () => {
     it("should return token when valid", async () => {
         const tokens = {
             accessToken: "valid-token",
-            expiresAt: Date.now() / 1000 + 3600,
+            expiresAt: Date.now() + 3600000,
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(tokens)
-        mockTokenManager.isTokenExpired.mockReturnValue(false)
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(3600)
+        mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await requireAuthCore()
+        const result = await requireAuthCore(createMockRequest())
 
-        expect(result).toBe("valid-token")
+        expect(result).toEqual({token: "valid-token"})
     })
 
     it("should throw when not logged in", async () => {
-        mockTokenManager.loadTokens.mockResolvedValue(null)
+        mockGetTokensFromCookie.mockResolvedValue(null)
 
-        await expect(requireAuthCore()).rejects.toThrow(
+        await expect(requireAuthCore(createMockRequest())).rejects.toThrow(
             "Not logged in. Please log in.",
         )
     })
@@ -323,14 +317,12 @@ describe("requireAuthCore", () => {
     it("should throw specific message when expired", async () => {
         const expiredTokens = {
             accessToken: "expired-token",
-            expiresAt: Date.now() / 1000 - 100,
+            expiresAt: Date.now() - 100000, // Expired
             tokenType: "Bearer",
         }
-        mockTokenManager.loadTokens.mockResolvedValue(expiredTokens)
-        mockTokenManager.isTokenExpired.mockReturnValue(true)
-        mockTokenManager.getTimeUntilExpiry.mockReturnValue(-100)
+        mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
 
-        await expect(requireAuthCore()).rejects.toThrow(
+        await expect(requireAuthCore(createMockRequest())).rejects.toThrow(
             "Token expired. Please log in again.",
         )
     })

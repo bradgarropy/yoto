@@ -1,6 +1,6 @@
 import {ArrowDownNarrowWide, Plus} from "lucide-react"
 import {useEffect, useState} from "react"
-import {Link, useFetcher, useNavigate} from "react-router"
+import {data, Link, useFetcher, useNavigate} from "react-router"
 import {toast} from "sonner"
 
 import {CardCover} from "~/components/CardCover"
@@ -25,10 +25,22 @@ import {
 } from "~/components/ui/dropdown-menu"
 import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
-import {getAuthenticatedSdk, requireAuth, status} from "~/lib/auth.server"
+import {getAuthenticatedSdk, status} from "~/lib/auth.server"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
 
 type SortOption = "title" | "tracks" | "updated"
+
+type CardSummary = {
+    id: string
+    title: string
+    coverUrl: string | undefined
+    trackCount: number
+    updatedAt: string | null
+}
+
+type LoaderData =
+    | {authenticated: false; cards: never[]}
+    | {authenticated: true; cards: CardSummary[]}
 
 type YotoContent = {
     activity: string
@@ -57,8 +69,8 @@ export function meta() {
     ]
 }
 
-export async function loader() {
-    const authStatus = await status()
+export async function loader({request}: {request: Request}) {
+    const authStatus = await status(request)
 
     if (!authStatus.valid) {
         // Return unauthenticated state - don't redirect, show login prompt
@@ -66,7 +78,7 @@ export async function loader() {
     }
 
     try {
-        const sdk = await getAuthenticatedSdk()
+        const {sdk, setCookie} = await getAuthenticatedSdk(request)
         const cards = await sdk.content.getMyCards()
 
         // SDK returns array of UserCard directly
@@ -119,10 +131,15 @@ export async function loader() {
             }),
         )
 
-        return {
+        const responseData = {
             authenticated: true as const,
             cards: cardsWithDetails,
         }
+
+        if (setCookie) {
+            return data(responseData, {headers: {"Set-Cookie": setCookie}})
+        }
+        return responseData
     } catch (error) {
         console.error("Failed to fetch cards:", error)
         return {authenticated: true as const, cards: []}
@@ -130,8 +147,6 @@ export async function loader() {
 }
 
 export async function action({request}: {request: Request}) {
-    await requireAuth()
-
     const formData = await request.formData()
     const intent = formData.get("intent") as string
 
@@ -143,7 +158,7 @@ export async function action({request}: {request: Request}) {
         }
 
         try {
-            const sdk = await getAuthenticatedSdk()
+            const {sdk} = await getAuthenticatedSdk(request)
             const cardData = {
                 title: cardName.trim(),
                 content: {
@@ -182,10 +197,7 @@ export async function action({request}: {request: Request}) {
     return {error: "Unknown action"}
 }
 
-const sortCards = (
-    cards: Awaited<ReturnType<typeof loader>>["cards"],
-    sortBy: SortOption,
-) => {
+const sortCards = (cards: CardSummary[], sortBy: SortOption) => {
     return [...cards].sort((a, b) => {
         switch (sortBy) {
             case "title":
@@ -215,11 +227,7 @@ type ActionData = {
     error?: string
 }
 
-export default function Home({
-    loaderData,
-}: {
-    loaderData: Awaited<ReturnType<typeof loader>>
-}) {
+export default function Home({loaderData}: {loaderData: LoaderData}) {
     const {authenticated, cards} = loaderData
     const [sortBy, setSortBy] = useState<SortOption>("title")
     const [searchQuery, setSearchQuery] = useState("")

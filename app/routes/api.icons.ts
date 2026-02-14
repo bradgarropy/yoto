@@ -3,7 +3,7 @@ import {searchYotoIcons} from "~/lib/yoto-icons.server"
 import {searchCommunityIcons} from "~/lib/yotoicons-community.server"
 
 export async function loader({request}: {request: Request}) {
-    const authenticated = await isAuthenticated()
+    const authenticated = await isAuthenticated(request)
     if (!authenticated) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
@@ -16,7 +16,7 @@ export async function loader({request}: {request: Request}) {
     }
 
     const [yotoResult, communityResult] = await Promise.allSettled([
-        searchYotoIcons(query),
+        searchYotoIcons(request, query),
         searchCommunityIcons(query),
     ])
 
