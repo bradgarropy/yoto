@@ -10,6 +10,9 @@
     "observability": {
         "enabled": true,
     },
+    "vars": {
+        "YOTO_AUTH_SECRET": "",
+    },
     "routes": [
         {
             "pattern": "yoto.bradgarropy.com",
