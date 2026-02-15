@@ -2,6 +2,7 @@
     "name": "yoto",
     "compatibility_date": "2026-02-14",
     "compatibility_flags": ["nodejs_compat"],
+    "workers_dev": true,
     "main": "./workers/app.ts",
     "assets": {
         "directory": "./build/client",
@@ -9,6 +10,12 @@
     "observability": {
         "enabled": true,
     },
+    "routes": [
+        {
+            "pattern": "yoto.bradgarropy.com",
+            "custom_domain": true,
+        },
+    ],
     "containers": [
         {
             "class_name": "Sandbox",
