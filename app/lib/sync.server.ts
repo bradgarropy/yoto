@@ -1,19 +1,13 @@
-import {createHash} from "node:crypto"
-import {existsSync, readFileSync, rmSync, statSync} from "node:fs"
-import {mkdtemp} from "node:fs/promises"
-import {tmpdir} from "node:os"
-import {basename, join} from "node:path"
-
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 
 import {getAuthenticatedSdk} from "./auth.server"
+import {downloadTrack, getPlaylistInfo} from "./sandbox.server"
 import {
     createChapter,
     type ImportProgress,
     stripNullValues,
     type YotoChapter,
 } from "./sync-utils"
-import {downloadTrack, getPlaylistInfo} from "./youtube.server"
 
 type YotoContent = {
     activity: string
@@ -35,20 +29,22 @@ type YotoCard = {
     metadata: YotoMetadata
 }
 
-// Calculate SHA256 hash of a file
-const calculateFileSha256 = (filePath: string): string => {
-    const content = readFileSync(filePath)
-    return createHash("sha256").update(content).digest("hex")
+// Calculate SHA256 hash of an ArrayBuffer using Web Crypto
+async function calculateSha256(buffer: ArrayBuffer): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer)
+    return Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("")
 }
 
-// Upload audio file and wait for transcode
-const uploadAudio = async (
+// Upload audio from ArrayBuffer and wait for transcode
+async function uploadAudio(
     sdk: YotoSdk,
-    filePath: string,
+    buffer: ArrayBuffer,
+    filename: string,
     onProgress?: () => void | Promise<void>,
-): Promise<{key: string; duration: number; fileSize: number}> => {
-    const sha256 = calculateFileSha256(filePath)
-    const filename = basename(filePath)
+): Promise<{key: string; duration: number; fileSize: number}> {
+    const sha256 = await calculateSha256(buffer)
 
     type TranscodeResult = {
         progress?: {phase: string}
@@ -84,15 +80,12 @@ const uploadAudio = async (
     )) as unknown as {uploadId: string; uploadUrl: string | null}
 
     if (uploadInfo.uploadUrl) {
-        const fileContent = readFileSync(filePath)
-        const fileStats = statSync(filePath)
-
         const uploadResponse = await fetch(uploadInfo.uploadUrl, {
             method: "PUT",
-            body: fileContent,
+            body: buffer,
             headers: {
                 "Content-Type": "audio/mpeg",
-                "Content-Length": fileStats.size.toString(),
+                "Content-Length": buffer.byteLength.toString(),
             },
         })
 
@@ -147,19 +140,19 @@ type SyncToCardResult =
  */
 export async function performSyncToCard(
     request: Request,
+    env: Env,
     youtubeUrl: string,
     cardId: string,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
-    const {sdk} = await getAuthenticatedSdk(request)
-    const tempDir = await mkdtemp(join(tmpdir(), "yoto-"))
+    const {sdk} = await getAuthenticatedSdk(request, env)
 
     try {
-        // 1. Fetch YouTube playlist/video info
+        // 1. Fetch YouTube playlist/video info via sandbox
         await onProgress?.({phase: "fetching"})
-        const youtubeInfo = await getPlaylistInfo(youtubeUrl)
+        const youtubeInfo = await getPlaylistInfo(env, youtubeUrl)
 
-        // 2. Get existing card - getCard returns the card directly
+        // 2. Get existing card
         const cardResponse = (await sdk.content.getCard(
             cardId,
         )) as unknown as YotoCard | null
@@ -177,30 +170,35 @@ export async function performSyncToCard(
         for (let i = 0; i < tracksToAdd.length; i++) {
             const track = tracksToAdd[i]
 
-            // Download
+            // Download via sandbox (returns ArrayBuffer)
             await onProgress?.({
                 phase: "downloading",
                 current: i + 1,
                 total: tracksToAdd.length,
                 title: track.title,
             })
-            const filePath = await downloadTrack(track, tempDir)
+            const mp3Buffer = await downloadTrack(env, track)
 
-            // Upload
+            // Upload to Yoto (from ArrayBuffer)
             await onProgress?.({
                 phase: "uploading",
                 current: i + 1,
                 total: tracksToAdd.length,
                 title: track.title,
             })
-            const uploaded = await uploadAudio(sdk, filePath, async () => {
-                await onProgress?.({
-                    phase: "transcoding",
-                    current: i + 1,
-                    total: tracksToAdd.length,
-                    title: track.title,
-                })
-            })
+            const uploaded = await uploadAudio(
+                sdk,
+                mp3Buffer,
+                `${track.id}.mp3`,
+                async () => {
+                    await onProgress?.({
+                        phase: "transcoding",
+                        current: i + 1,
+                        total: tracksToAdd.length,
+                        title: track.title,
+                    })
+                },
+            )
 
             // Create chapter
             const chapter = createChapter(
@@ -249,10 +247,6 @@ export async function performSyncToCard(
                     ? error.message
                     : "Sync failed. Please try again.",
         }
-    } finally {
-        // Clean up temp directory
-        if (existsSync(tempDir)) {
-            rmSync(tempDir, {recursive: true, force: true})
-        }
     }
+    // No finally cleanup needed - no temp files!
 }
