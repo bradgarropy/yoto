@@ -17,7 +17,7 @@ async function getPlaylistInfo(
 
     if (isPlaylist) {
         const result = await sandbox.exec(
-            `yt-dlp --flat-playlist --print "%(playlist_id)s\t%(playlist_title)s\t%(id)s\t%(title)s" "${url}"`,
+            `yt-dlp --no-check-certificates --flat-playlist --print "%(playlist_id)s\t%(playlist_title)s\t%(id)s\t%(title)s" "${url}"`,
         )
 
         if (!result.success) {
@@ -44,7 +44,7 @@ async function getPlaylistInfo(
         return {id: playlistId, title: playlistTitle, tracks}
     } else {
         const result = await sandbox.exec(
-            `yt-dlp --print "%(id)s\t%(title)s" --no-playlist "${url}"`,
+            `yt-dlp --no-check-certificates --print "%(id)s\t%(title)s" --no-playlist "${url}"`,
         )
 
         if (!result.success) {
