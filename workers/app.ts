@@ -275,10 +275,7 @@ app.post("/sandbox/import/download", async c => {
     // Convert base64 to binary and return as audio/mpeg
     const base64 = readResult.stdout.trim()
     const binaryString = atob(base64)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
-    }
+    const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0))
 
     return new Response(bytes.buffer, {
         headers: {

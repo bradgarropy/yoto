@@ -334,7 +334,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                     "Authorization": `Bearer ${tokenResult.token}`,
                     "Content-Type": coverFile.type,
                 },
-                body: new Uint8Array(imageBuffer),
+                body: imageBuffer,
             })
 
             if (!uploadResponse.ok) {
@@ -413,7 +413,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                             "Authorization": `Bearer ${iconTokenResult.token}`,
                             "Content-Type": "image/png",
                         },
-                        body: new Uint8Array(imageBuffer),
+                        body: imageBuffer,
                     },
                 )
 

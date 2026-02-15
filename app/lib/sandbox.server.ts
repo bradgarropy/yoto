@@ -108,10 +108,7 @@ async function downloadTrack(
     // Convert base64 to ArrayBuffer
     const base64 = readResult.stdout.trim()
     const binaryString = atob(base64)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
-    }
+    const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0))
 
     return bytes.buffer
 }
