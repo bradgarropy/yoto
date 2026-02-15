@@ -4,7 +4,7 @@ import {defineConfig} from "eslint/config"
 export default defineConfig([
     ...bradgarropy,
     {
-        ignores: [".react-router/"],
+        ignores: [".react-router/", "worker-configuration.d.ts"],
     },
     {
         languageOptions: {
