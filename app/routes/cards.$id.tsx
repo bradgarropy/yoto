@@ -413,7 +413,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                             "Authorization": `Bearer ${iconTokenResult.token}`,
                             "Content-Type": "image/png",
                         },
-                        body: imageBuffer,
+                        body: imageBuffer.buffer as ArrayBuffer,
                     },
                 )
 
