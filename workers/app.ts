@@ -1,18 +1,19 @@
-import {getSandbox, type Sandbox} from "@cloudflare/sandbox"
+import {getSandbox} from "@cloudflare/sandbox"
 import {Hono} from "hono"
+import {createRequestHandler} from "react-router"
 
 // Re-export Sandbox class (required by Cloudflare)
 export {Sandbox} from "@cloudflare/sandbox"
 
-type Bindings = {
-    SANDBOX: DurableObjectNamespace<Sandbox>
-}
-
+// Variables stored in Hono context
 type Variables = {
     sandbox: ReturnType<typeof getSandbox>
 }
 
-const app = new Hono<{Bindings: Bindings; Variables: Variables}>()
+// Use Env from generated worker-configuration.d.ts
+const app = new Hono<{Bindings: Env; Variables: Variables}>()
+
+// ============ Sandbox Routes ============
 
 // Middleware to attach sandbox to context
 app.use("/sandbox/*", async (c, next) => {
@@ -110,18 +111,158 @@ app.post("/sandbox/test-download", async c => {
     })
 })
 
-// Default response
-app.get("/", c => {
-    return c.text(`Sandbox PoC Endpoints:
+// ============ Import Endpoints (Production) ============
 
-GET  /sandbox/health         - Health check
-GET  /sandbox/yt-dlp-version - Check yt-dlp version
-GET  /sandbox/ffmpeg-version - Check ffmpeg version
-POST /sandbox/test-info      - Get video info (body: {"url": "..."})
-POST /sandbox/test-download  - Download video as mp3 (body: {"url": "..."})
+// Get playlist/video info
+app.post("/sandbox/import/info", async c => {
+    const sandbox = c.get("sandbox")
+    const {url} = await c.req.json<{url: string}>()
 
-Test video: https://www.youtube.com/watch?v=R63Dnzexp-U
-`)
+    // Detect if URL is a playlist
+    const isPlaylist = url.includes("list=")
+
+    if (isPlaylist) {
+        const result = await sandbox.exec(
+            `yt-dlp --flat-playlist --print "%(playlist_id)s\t%(playlist_title)s\t%(id)s\t%(title)s" "${url}"`,
+        )
+
+        if (!result.success) {
+            return c.json({success: false, error: result.stderr}, 500)
+        }
+
+        const lines = result.stdout.trim().split("\n").filter(Boolean)
+        if (lines.length === 0) {
+            return c.json(
+                {success: false, error: "No tracks found in playlist"},
+                400,
+            )
+        }
+
+        // Parse first line to get playlist info
+        const [playlistId, playlistTitle] = lines[0].split("\t")
+
+        const tracks = lines.map(line => {
+            const [, , videoId, title] = line.split("\t")
+            return {
+                id: videoId,
+                title,
+                url: `https://www.youtube.com/watch?v=${videoId}`,
+            }
+        })
+
+        return c.json({
+            success: true,
+            id: playlistId,
+            title: playlistTitle,
+            tracks,
+        })
+    } else {
+        const result = await sandbox.exec(
+            `yt-dlp --print "%(id)s\t%(title)s" --no-playlist "${url}"`,
+        )
+
+        if (!result.success) {
+            return c.json({success: false, error: result.stderr}, 500)
+        }
+
+        const line = result.stdout.trim()
+        if (!line) {
+            return c.json({success: false, error: "No video info found"}, 400)
+        }
+
+        const [videoId, title] = line.split("\t")
+
+        return c.json({
+            success: true,
+            id: videoId,
+            title,
+            tracks: [
+                {
+                    id: videoId,
+                    title,
+                    url: `https://www.youtube.com/watch?v=${videoId}`,
+                },
+            ],
+        })
+    }
+})
+
+// Download a single track and return MP3 as binary
+app.post("/sandbox/import/download", async c => {
+    const sandbox = c.get("sandbox")
+    const {trackId, trackUrl} = await c.req.json<{
+        trackId: string
+        trackUrl: string
+    }>()
+
+    const outputPath = `/tmp/${trackId}.mp3`
+
+    // Download and convert to MP3
+    // Note: Removed --cookies-from-browser chrome (not available in sandbox)
+    const downloadResult = await sandbox.exec(
+        `yt-dlp --extract-audio --audio-format mp3 --audio-quality 0 ` +
+            `-o "${outputPath}" --no-playlist ` +
+            `--extractor-args "youtube:player_client=tv" "${trackUrl}"`,
+    )
+
+    if (!downloadResult.success) {
+        return c.json(
+            {
+                success: false,
+                error: downloadResult.stderr || "Download failed",
+            },
+            500,
+        )
+    }
+
+    // Read file as base64
+    const readResult = await sandbox.exec(`base64 -w 0 "${outputPath}"`)
+
+    if (!readResult.success) {
+        return c.json(
+            {success: false, error: "Failed to read downloaded file"},
+            500,
+        )
+    }
+
+    // Clean up
+    await sandbox.exec(`rm -f "${outputPath}"`)
+
+    // Convert base64 to binary and return as audio/mpeg
+    const base64 = readResult.stdout.trim()
+    const binaryString = atob(base64)
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+    }
+
+    return new Response(bytes.buffer, {
+        headers: {
+            "Content-Type": "audio/mpeg",
+            "Content-Length": bytes.length.toString(),
+        },
+    })
+})
+
+// ============ React Router (Catch-all) ============
+
+// React Router request handler
+// Note: Types will fully resolve after @react-router/cloudflare is installed (Task 17)
+const requestHandler = createRequestHandler(
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - virtual module provided by Vite at build time
+    () => import("virtual:react-router/server-build"),
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - import.meta.env is injected by Vite at build time
+    import.meta.env.MODE,
+)
+
+app.all("*", async c => {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - cloudflare context types resolve after @react-router/cloudflare is installed
+    return requestHandler(c.req.raw, {
+        cloudflare: {env: c.env, ctx: c.executionCtx},
+    })
 })
 
 export default app
