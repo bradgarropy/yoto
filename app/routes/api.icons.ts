@@ -1,9 +1,15 @@
 import {isAuthenticated} from "~/lib/auth.server"
+import {cloudflareContext} from "~/lib/cloudflare-context"
 import {searchYotoIcons} from "~/lib/yoto-icons.server"
 import {searchCommunityIcons} from "~/lib/yotoicons-community.server"
 
-export async function loader({request}: {request: Request}) {
-    const authenticated = await isAuthenticated(request)
+import type {Route} from "./+types/api.icons"
+
+export async function loader({request, context}: Route.LoaderArgs) {
+    // Get env from Cloudflare context
+    const {env} = context.get(cloudflareContext)
+
+    const authenticated = await isAuthenticated(request, env)
     if (!authenticated) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
@@ -16,7 +22,7 @@ export async function loader({request}: {request: Request}) {
     }
 
     const [yotoResult, communityResult] = await Promise.allSettled([
-        searchYotoIcons(request, query),
+        searchYotoIcons(request, env, query),
         searchCommunityIcons(query),
     ])
 

@@ -81,11 +81,12 @@ async function downloadTrack(
     const outputPath = `/tmp/${track.id}.mp3`
 
     // Download and convert to MP3
-    // Note: Removed --cookies-from-browser chrome (not available in sandbox)
+    // Note: --js-runtimes node:/usr/local/bin/node specifies Node path for EJS challenge solving
+    // Note: --no-check-certificates handles SSL issues in container environments
     const downloadResult = await sandbox.exec(
-        `yt-dlp --extract-audio --audio-format mp3 --audio-quality 0 ` +
-            `-o "${outputPath}" --no-playlist ` +
-            `--extractor-args "youtube:player_client=tv" "${track.url}"`,
+        `yt-dlp --no-check-certificates --js-runtimes node:/usr/local/bin/node ` +
+            `--extract-audio --audio-format mp3 --audio-quality 0 ` +
+            `-o "${outputPath}" --no-playlist "${track.url}"`,
     )
 
     if (!downloadResult.success) {

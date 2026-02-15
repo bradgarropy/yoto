@@ -259,7 +259,7 @@ describe("searchCommunityIcons", () => {
 })
 
 describe("fetchCommunityIconImage", () => {
-    it("should fetch icon PNG and return a Buffer", async () => {
+    it("should fetch icon PNG and return a Uint8Array", async () => {
         const pngData = new Uint8Array([137, 80, 78, 71]) // PNG magic bytes
         mockFetch.mockResolvedValueOnce({
             ok: true,
@@ -269,7 +269,7 @@ describe("fetchCommunityIconImage", () => {
 
         const result = await fetchCommunityIconImage("844")
 
-        expect(Buffer.isBuffer(result)).toBe(true)
+        expect(result).toBeInstanceOf(Uint8Array)
         expect(result[0]).toBe(137)
         expect(result[1]).toBe(80)
         expect(mockFetch).toHaveBeenCalledWith(

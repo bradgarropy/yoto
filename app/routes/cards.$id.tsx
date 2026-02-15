@@ -39,6 +39,7 @@ import {
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
 import {getToken} from "~/lib/auth.server"
+import {cloudflareContext} from "~/lib/cloudflare-context"
 import {
     getProgressPercent,
     type ImportProgress,
@@ -172,6 +173,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
     const cardId = params.id
     const formData = await request.formData()
     const intent = formData.get("intent")
+
+    // Get env from Cloudflare context
+    const {env} = context.get(cloudflareContext)
 
     try {
         const {sdk} = context.get(authContext)
@@ -310,13 +314,13 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 return {error: "Cover image must be a JPEG, PNG, GIF, or WebP"}
             }
 
-            const tokenResult = await getToken(request)
+            const tokenResult = await getToken(request, env)
 
             if (!tokenResult) {
                 return {error: "Authentication required to upload cover"}
             }
 
-            const imageBuffer = Buffer.from(await coverFile.arrayBuffer())
+            const imageBuffer = new Uint8Array(await coverFile.arrayBuffer())
 
             const url = new URL(
                 "https://api.yotoplay.com/media/coverImage/user/me/upload",
@@ -395,7 +399,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             } else {
                 // Community icons: fetch PNG, upload to Yoto via custom icon endpoint
                 const imageBuffer = await fetchCommunityIconImage(iconId)
-                const iconTokenResult = await getToken(request)
+                const iconTokenResult = await getToken(request, env)
 
                 if (!iconTokenResult) {
                     return {error: "Authentication required to upload icons"}
@@ -498,7 +502,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
         }
 
         if (intent === "numberTracks") {
-            const numberIcons = await getNumberIcons(request)
+            const numberIcons = await getNumberIcons(request, env)
 
             if (numberIcons.size === 0) {
                 return {error: "Could not find number icons"}

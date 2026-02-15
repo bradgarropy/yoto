@@ -102,8 +102,8 @@ const searchCommunityIcons = async (
     return {icons: allIcons}
 }
 
-// Fetch icon PNG as Buffer for upload to Yoto
-const fetchCommunityIconImage = async (iconId: string): Promise<Buffer> => {
+// Fetch icon PNG as Uint8Array for upload to Yoto
+const fetchCommunityIconImage = async (iconId: string): Promise<Uint8Array> => {
     const url = `${BASE_URL}/static/uploads/${iconId}.png`
     const response = await fetch(url)
 
@@ -114,7 +114,7 @@ const fetchCommunityIconImage = async (iconId: string): Promise<Buffer> => {
     }
 
     const arrayBuffer = await response.arrayBuffer()
-    return Buffer.from(arrayBuffer)
+    return new Uint8Array(arrayBuffer)
 }
 
 export {fetchCommunityIconImage, searchCommunityIcons}
