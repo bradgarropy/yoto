@@ -306,7 +306,6 @@ app.all("*", async c => {
     const contextProvider = new RouterContextProvider()
     // @ts-expect-error - Hono's ExecutionContext is compatible with what we need
     contextProvider.set(cloudflareContext, {env: c.env, ctx: c.executionCtx})
-    // @ts-expect-error - RouterContextProvider is the correct type when middleware is enabled
     return requestHandler(c.req.raw, contextProvider)
 })
 
