@@ -1,0 +1,28 @@
+FROM --platform=linux/amd64 docker.io/cloudflare/sandbox:0.7.4
+
+# Update package lists
+RUN apt-get update
+
+# Install ffmpeg (for audio conversion)
+RUN apt-get install -y ffmpeg
+
+# Install python3 (required by yt-dlp)
+RUN apt-get install -y python3
+
+# Install curl (to download yt-dlp)
+RUN apt-get install -y curl
+
+# Clean up apt cache to reduce image size
+RUN rm -rf /var/lib/apt/lists/*
+
+# Download yt-dlp binary
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+
+# Make yt-dlp executable
+RUN chmod a+rx /usr/local/bin/yt-dlp
+
+# Verify yt-dlp works
+RUN yt-dlp --version
+
+# Verify ffmpeg works
+RUN ffmpeg -version

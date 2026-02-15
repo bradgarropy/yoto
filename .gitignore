@@ -12,4 +12,7 @@ build/
 .env
 
 # React Router
-.react-router/
+.react-router
+
+# Cloudflare
+.wrangler
