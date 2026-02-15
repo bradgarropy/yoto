@@ -24,6 +24,7 @@
         "@yotoplay/yoto-sdk": "^1.2.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "hono": "^4.11.9",
         "isbot": "^5.1.31",
         "lucide-react": "^0.563.0",
         "motion": "^12.31.0",
