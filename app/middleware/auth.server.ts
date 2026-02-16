@@ -2,6 +2,7 @@ import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import {createContext, type MiddlewareFunction, redirect} from "react-router"
 
 import {getAuthenticatedSdk, status} from "~/lib/auth.server"
+import {cloudflareContext} from "~/lib/cloudflare-context"
 
 type AuthContext = {
     sdk: YotoSdk
@@ -16,13 +17,16 @@ export const authMiddleware: MiddlewareFunction<Response> = async (
     {request, context},
     next,
 ) => {
-    const authStatus = await status(request)
+    // Get env from Cloudflare context
+    const {env} = context.get(cloudflareContext)
+
+    const authStatus = await status(request, env)
 
     if (!authStatus.valid) {
         throw redirect("/login")
     }
 
-    const {sdk, setCookie} = await getAuthenticatedSdk(request)
+    const {sdk, setCookie} = await getAuthenticatedSdk(request, env)
     context.set(authContext, {sdk, setCookie})
 
     const response = await next()

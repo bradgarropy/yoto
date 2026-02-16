@@ -10,6 +10,9 @@ import {
     CardTitle,
 } from "~/components/ui/card"
 import {completeLogin, initiateLogin, status} from "~/lib/auth.server"
+import {cloudflareContext} from "~/lib/cloudflare-context"
+
+import type {Route} from "./+types/login"
 
 type ActionData =
     | {step: "idle"}
@@ -30,8 +33,10 @@ export function meta() {
 }
 
 // Redirect to dashboard if already logged in
-export async function loader({request}: {request: Request}) {
-    const authStatus = await status(request)
+export async function loader({request, context}: Route.LoaderArgs) {
+    const {env} = context.get(cloudflareContext)
+
+    const authStatus = await status(request, env)
 
     if (authStatus.valid) {
         throw redirect("/")
@@ -43,9 +48,10 @@ export async function loader({request}: {request: Request}) {
 // Handle the two-step device code flow
 export async function action({
     request,
-}: {
-    request: Request
-}): Promise<ActionData | Response> {
+    context,
+}: Route.ActionArgs): Promise<ActionData | Response> {
+    const {env} = context.get(cloudflareContext)
+
     const formData = await request.formData()
     const intent = formData.get("intent")
 
@@ -70,7 +76,7 @@ export async function action({
         const deviceCode = formData.get("deviceCode") as string
         const interval = parseInt(formData.get("interval") as string, 10)
 
-        const result = await completeLogin(deviceCode, interval)
+        const result = await completeLogin(env, deviceCode, interval)
 
         if (result.success) {
             return redirect("/", {

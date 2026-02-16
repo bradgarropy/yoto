@@ -19,6 +19,11 @@ const AUTH_CONFIG = {
     audience: "https://api.yotoplay.com",
 }
 
+// Type for the env we need (subset of full Env)
+type AuthEnv = {
+    YOTO_AUTH_SECRET: string
+}
+
 // Lazy-initialized singletons
 let _auth: DeviceCodeAuth | null = null
 let _sdk: YotoSdk | null = null
@@ -75,6 +80,7 @@ const initiateLogin = async (): Promise<DeviceCodeResult> => {
 // Polls for token after user completes auth in browser
 // Returns the Set-Cookie header value on success
 const completeLogin = async (
+    env: AuthEnv,
     deviceCode: string,
     interval: number,
     timeout: number = 300000, // 5 minutes default
@@ -90,7 +96,7 @@ const completeLogin = async (
         return {success: false, error: result.error ?? "Authentication failed"}
     }
 
-    const setCookie = await serializeAuthCookie(result.tokens)
+    const setCookie = await serializeAuthCookie(result.tokens, env)
     const timeRemaining = getTimeUntilExpiry(result.tokens)
     const expiresIn = formatTimeRemaining(timeRemaining)
 
@@ -98,13 +104,13 @@ const completeLogin = async (
 }
 
 // Returns Set-Cookie header to clear auth
-const logout = async (): Promise<string> => {
-    return clearAuthCookie()
+const logout = async (env: AuthEnv): Promise<string> => {
+    return clearAuthCookie(env)
 }
 
 // Returns token status (requires request to read cookie)
-const status = async (request: Request): Promise<TokenStatus> => {
-    const tokens = await getTokensFromCookie(request)
+const status = async (request: Request, env: AuthEnv): Promise<TokenStatus> => {
+    const tokens = await getTokensFromCookie(request, env)
 
     if (!tokens) {
         return {valid: false, reason: "not_logged_in"}
@@ -113,7 +119,10 @@ const status = async (request: Request): Promise<TokenStatus> => {
     if (isTokenExpired(tokens)) {
         // Try to refresh if we have a refresh token
         if (tokens.refreshToken) {
-            const refreshResult = await tryRefreshToken(tokens.refreshToken)
+            const refreshResult = await tryRefreshToken(
+                env,
+                tokens.refreshToken,
+            )
             if (refreshResult) {
                 const timeRemaining = getTimeUntilExpiry(refreshResult.tokens)
                 return {
@@ -137,6 +146,7 @@ const status = async (request: Request): Promise<TokenStatus> => {
 
 // Attempts to refresh the token, returns new tokens and cookie or null
 const tryRefreshToken = async (
+    env: AuthEnv,
     refreshToken: string,
 ): Promise<{tokens: StoredTokens; setCookie: string} | null> => {
     const auth = getAuth()
@@ -144,7 +154,7 @@ const tryRefreshToken = async (
     try {
         const result = await auth.refreshToken(refreshToken)
         if (result.success && result.tokens) {
-            const setCookie = await serializeAuthCookie(result.tokens)
+            const setCookie = await serializeAuthCookie(result.tokens, env)
             return {tokens: result.tokens, setCookie}
         }
     } catch {
@@ -158,8 +168,9 @@ const tryRefreshToken = async (
 // Returns token and optional setCookie if token was refreshed
 const getToken = async (
     request: Request,
+    env: AuthEnv,
 ): Promise<{token: string; setCookie?: string} | null> => {
-    const tokens = await getTokensFromCookie(request)
+    const tokens = await getTokensFromCookie(request, env)
 
     if (!tokens) {
         return null
@@ -168,7 +179,7 @@ const getToken = async (
     // If token is expired or about to expire (within 5 minutes), try to refresh
     const timeRemaining = getTimeUntilExpiry(tokens)
     if (timeRemaining < 300 && tokens.refreshToken) {
-        const refreshResult = await tryRefreshToken(tokens.refreshToken)
+        const refreshResult = await tryRefreshToken(env, tokens.refreshToken)
         if (refreshResult) {
             return {
                 token: refreshResult.tokens.accessToken,
@@ -187,11 +198,12 @@ const getToken = async (
 // Gets valid token or throws (for use in API calls)
 const requireAuthCore = async (
     request: Request,
+    env: AuthEnv,
 ): Promise<{token: string; setCookie?: string}> => {
-    const result = await getToken(request)
+    const result = await getToken(request, env)
 
     if (!result) {
-        const tokenStatus = await status(request)
+        const tokenStatus = await status(request, env)
         if (tokenStatus.valid === false && tokenStatus.reason === "expired") {
             throw new Error("Token expired. Please log in again.")
         }
@@ -218,13 +230,14 @@ const getYotoSdk = (token: string): YotoSdk => {
 // Redirects to /login if not authenticated
 const requireAuth = async (
     request: Request,
+    env: AuthEnv,
 ): Promise<{
     valid: true
     expiresIn: string
     expiresAt: number
     setCookie?: string
 }> => {
-    const authStatus = await status(request)
+    const authStatus = await status(request, env)
 
     if (!authStatus.valid) {
         throw redirect("/login")
@@ -237,9 +250,10 @@ const requireAuth = async (
 // Returns SDK and optional setCookie if token was refreshed
 const getAuthenticatedSdk = async (
     request: Request,
+    env: AuthEnv,
 ): Promise<{sdk: YotoSdk; setCookie?: string}> => {
-    const {setCookie} = await requireAuth(request)
-    const tokenResult = await getToken(request)
+    const {setCookie} = await requireAuth(request, env)
+    const tokenResult = await getToken(request, env)
 
     if (!tokenResult) {
         throw redirect("/login")
@@ -250,8 +264,11 @@ const getAuthenticatedSdk = async (
 }
 
 // Check if user is authenticated (without redirect)
-const isAuthenticated = async (request: Request): Promise<boolean> => {
-    const authStatus = await status(request)
+const isAuthenticated = async (
+    request: Request,
+    env: AuthEnv,
+): Promise<boolean> => {
+    const authStatus = await status(request, env)
     return authStatus.valid
 }
 

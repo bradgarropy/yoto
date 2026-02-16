@@ -47,46 +47,56 @@ async function decrypt(encrypted: string, secret: string): Promise<string> {
 
 // --- Cookie Setup ---
 
-function getSecret(): string {
-    const secret = process.env.YOTO_AUTH_SECRET
+// Type for the env we need (subset of full Env)
+type AuthEnv = {
+    YOTO_AUTH_SECRET: string
+}
+
+function getSecret(env: AuthEnv): string {
+    const secret = env.YOTO_AUTH_SECRET
     if (!secret)
         throw new Error("YOTO_AUTH_SECRET environment variable is required")
     return secret
 }
 
-// Lazily create the cookie to avoid reading env at module load time
-let _authCookie: ReturnType<typeof createCookie> | null = null
+// Cache cookies by secret to avoid recreating them
+const cookieCache = new Map<string, ReturnType<typeof createCookie>>()
 
-function getAuthCookie() {
-    if (!_authCookie) {
-        _authCookie = createCookie("yoto-auth", {
+function getAuthCookie(env: AuthEnv) {
+    const secret = getSecret(env)
+
+    let cookie = cookieCache.get(secret)
+    if (!cookie) {
+        cookie = createCookie("yoto-auth", {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            secure: true, // Always secure in Workers
             sameSite: "lax",
             path: "/",
             maxAge: 60 * 60 * 24 * 30, // 30 days
-            secrets: [getSecret()],
+            secrets: [secret],
         })
+        cookieCache.set(secret, cookie)
     }
-    return _authCookie
+    return cookie
 }
 
-// For testing: reset the cached cookie
+// For testing: reset the cached cookies
 export function _resetAuthCookie() {
-    _authCookie = null
+    cookieCache.clear()
 }
 
 // --- Public API ---
 
 export async function getTokensFromCookie(
     request: Request,
+    env: AuthEnv,
 ): Promise<StoredTokens | null> {
     const cookieHeader = request.headers.get("Cookie")
-    const encrypted = await getAuthCookie().parse(cookieHeader)
+    const encrypted = await getAuthCookie(env).parse(cookieHeader)
     if (!encrypted) return null
 
     try {
-        const json = await decrypt(encrypted, getSecret())
+        const json = await decrypt(encrypted, getSecret(env))
         return JSON.parse(json)
     } catch {
         return null // Decryption failed
@@ -95,12 +105,13 @@ export async function getTokensFromCookie(
 
 export async function serializeAuthCookie(
     tokens: StoredTokens,
+    env: AuthEnv,
 ): Promise<string> {
     const json = JSON.stringify(tokens)
-    const encrypted = await encrypt(json, getSecret())
-    return getAuthCookie().serialize(encrypted)
+    const encrypted = await encrypt(json, getSecret(env))
+    return getAuthCookie(env).serialize(encrypted)
 }
 
-export async function clearAuthCookie(): Promise<string> {
-    return getAuthCookie().serialize("", {maxAge: 0})
+export async function clearAuthCookie(env: AuthEnv): Promise<string> {
+    return getAuthCookie(env).serialize("", {maxAge: 0})
 }

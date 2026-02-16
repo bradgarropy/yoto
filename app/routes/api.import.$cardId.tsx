@@ -1,17 +1,17 @@
 import {isAuthenticated} from "~/lib/auth.server"
+import {cloudflareContext} from "~/lib/cloudflare-context"
 import {performSyncToCard} from "~/lib/sync.server"
 import type {ImportProgress} from "~/lib/sync-utils"
 
-export async function loader({
-    params,
-    request,
-}: {
-    params: {cardId: string}
-    request: Request
-}) {
+import type {Route} from "./+types/api.import.$cardId"
+
+export async function loader({params, request, context}: Route.LoaderArgs) {
+    // Get env from Cloudflare context
+    const {env} = context.get(cloudflareContext)
+
     // Use isAuthenticated instead of requireAuth to avoid redirects
     // SSE endpoints should return 401, not redirect (which causes EventSource to hang)
-    const authenticated = await isAuthenticated(request)
+    const authenticated = await isAuthenticated(request, env)
     if (!authenticated) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
@@ -39,6 +39,7 @@ export async function loader({
         try {
             const result = await performSyncToCard(
                 request,
+                env,
                 validatedUrl,
                 cardId,
                 async (progress: ImportProgress) => {

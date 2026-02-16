@@ -1,6 +1,6 @@
 # Yoto Sync
 
-A local web application for syncing YouTube content to Yoto cards. Download audio from YouTube videos or playlists and upload them directly to your Yoto cards.
+A web application for syncing YouTube content to Yoto cards. Download audio from YouTube videos or playlists and upload them directly to your Yoto cards. Deployed on Cloudflare Workers with Containers for YouTube downloading.
 
 ## Features
 
@@ -13,11 +13,7 @@ A local web application for syncing YouTube content to Yoto cards. Download audi
 ## Prerequisites
 
 - Node.js 20+
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://www.ffmpeg.org/)
-
-```bash
-brew install yt-dlp ffmpeg
-```
+- [Docker Desktop](https://docs.docker.com/desktop/) (for local development)
 
 ## Installation
 
@@ -55,12 +51,22 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ```bash
 npm run dev         # Start development server
 npm run build       # Build for production
-npm run start       # Run production build
+npm run deploy      # Build and deploy to Cloudflare
 npm run test        # Run tests
 npm run lint        # Check for lint errors
 npm run typecheck   # Check TypeScript types
 npm run format      # Check code formatting
 ```
+
+### Local Development with Containers
+
+This app uses [Cloudflare Containers](https://developers.cloudflare.com/containers/) for YouTube downloading via yt-dlp. For local development:
+
+1. **Docker must be installed and running** - The Vite dev server uses Docker to run containers locally
+2. **First run builds the container** - Takes 2-3 minutes; subsequent runs use cached layers
+3. **Rebuild containers** - Press `r` + Enter in the terminal to rebuild after Dockerfile changes
+
+The local development environment runs your Worker code in [workerd](https://github.com/cloudflare/workerd) (the same runtime as production) and containers in Docker, providing near-production behavior.
 
 ## Project Structure
 
@@ -82,14 +88,11 @@ yoto/
 
 ## Tech Stack
 
+- [Cloudflare Workers](https://developers.cloudflare.com/workers/) - Edge runtime
+- [Cloudflare Containers](https://developers.cloudflare.com/containers/) - Serverless containers for yt-dlp
 - [React Router v7](https://reactrouter.com/) - Full-stack React framework
+- [Hono](https://hono.dev/) - Web framework for Workers
 - [Tailwind CSS](https://tailwindcss.com/) - Styling
 - [shadcn/ui](https://ui.shadcn.com/) - UI components
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube downloading
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube downloading (runs in container)
 - [@yotoplay/yoto-sdk](https://www.npmjs.com/package/@yotoplay/yoto-sdk) - Yoto API client
-
-## Config Files
-
-Authentication tokens are stored in `~/.config/yoto/`:
-
-- `auth.json` - OAuth tokens

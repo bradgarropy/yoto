@@ -47,6 +47,11 @@ import {
 // Helper to create a mock Request
 const createMockRequest = () => new Request("http://localhost/")
 
+// Mock env object
+const mockEnv = {
+    YOTO_AUTH_SECRET: "test-secret-key-for-testing",
+}
+
 beforeEach(() => {
     vi.clearAllMocks()
     mockSerializeAuthCookie.mockResolvedValue(
@@ -98,14 +103,14 @@ describe("completeLogin", () => {
         }
         mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
 
-        const result = await completeLogin("device-code", 5)
+        const result = await completeLogin(mockEnv, "device-code", 5)
 
         expect(mockAuth.pollForToken).toHaveBeenCalledWith(
             "device-code",
             5,
             300000,
         )
-        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(tokens)
+        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(tokens, mockEnv)
         expect(result).toEqual({
             success: true,
             expiresIn: "1 hour",
@@ -119,7 +124,7 @@ describe("completeLogin", () => {
             error: "Authorization expired",
         })
 
-        const result = await completeLogin("device-code", 5)
+        const result = await completeLogin(mockEnv, "device-code", 5)
 
         expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
         expect(result).toEqual({success: false, error: "Authorization expired"})
@@ -133,7 +138,7 @@ describe("completeLogin", () => {
         }
         mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
 
-        await completeLogin("device-code", 5, 600000)
+        await completeLogin(mockEnv, "device-code", 5, 600000)
 
         expect(mockAuth.pollForToken).toHaveBeenCalledWith(
             "device-code",
@@ -145,9 +150,9 @@ describe("completeLogin", () => {
 
 describe("logout", () => {
     it("should return clear cookie header", async () => {
-        const result = await logout()
+        const result = await logout(mockEnv)
 
-        expect(mockClearAuthCookie).toHaveBeenCalledOnce()
+        expect(mockClearAuthCookie).toHaveBeenCalledWith(mockEnv)
         expect(result).toBe("yoto-auth=; Max-Age=0; Path=/; HttpOnly")
     })
 })
@@ -156,7 +161,7 @@ describe("status", () => {
     it("should return not_logged_in when no tokens exist", async () => {
         mockGetTokensFromCookie.mockResolvedValue(null)
 
-        const result = await status(createMockRequest())
+        const result = await status(createMockRequest(), mockEnv)
 
         expect(result).toEqual({valid: false, reason: "not_logged_in"})
     })
@@ -169,7 +174,7 @@ describe("status", () => {
         }
         mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await status(createMockRequest())
+        const result = await status(createMockRequest(), mockEnv)
 
         expect(result).toEqual({
             valid: true,
@@ -186,7 +191,7 @@ describe("status", () => {
         }
         mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await status(createMockRequest())
+        const result = await status(createMockRequest(), mockEnv)
 
         expect(result).toEqual({valid: false, reason: "expired"})
     })
@@ -210,10 +215,10 @@ describe("status", () => {
             tokens: newTokens,
         })
 
-        const result = await status(createMockRequest())
+        const result = await status(createMockRequest(), mockEnv)
 
         expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
-        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(newTokens)
+        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(newTokens, mockEnv)
         expect(result).toEqual({
             valid: true,
             expiresIn: "1 hour",
@@ -227,7 +232,7 @@ describe("getToken", () => {
     it("should return null when no tokens exist", async () => {
         mockGetTokensFromCookie.mockResolvedValue(null)
 
-        const result = await getToken(createMockRequest())
+        const result = await getToken(createMockRequest(), mockEnv)
 
         expect(result).toBeNull()
     })
@@ -240,7 +245,7 @@ describe("getToken", () => {
         }
         mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await getToken(createMockRequest())
+        const result = await getToken(createMockRequest(), mockEnv)
 
         expect(result).toEqual({token: "valid-token"})
     })
@@ -264,7 +269,7 @@ describe("getToken", () => {
             tokens: newTokens,
         })
 
-        const result = await getToken(createMockRequest())
+        const result = await getToken(createMockRequest(), mockEnv)
 
         expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
         expect(result).toEqual({
@@ -286,7 +291,7 @@ describe("getToken", () => {
             error: "Invalid refresh token",
         })
 
-        const result = await getToken(createMockRequest())
+        const result = await getToken(createMockRequest(), mockEnv)
 
         expect(result).toBeNull()
     })
@@ -301,7 +306,7 @@ describe("requireAuthCore", () => {
         }
         mockGetTokensFromCookie.mockResolvedValue(tokens)
 
-        const result = await requireAuthCore(createMockRequest())
+        const result = await requireAuthCore(createMockRequest(), mockEnv)
 
         expect(result).toEqual({token: "valid-token"})
     })
@@ -309,9 +314,9 @@ describe("requireAuthCore", () => {
     it("should throw when not logged in", async () => {
         mockGetTokensFromCookie.mockResolvedValue(null)
 
-        await expect(requireAuthCore(createMockRequest())).rejects.toThrow(
-            "Not logged in. Please log in.",
-        )
+        await expect(
+            requireAuthCore(createMockRequest(), mockEnv),
+        ).rejects.toThrow("Not logged in. Please log in.")
     })
 
     it("should throw specific message when expired", async () => {
@@ -322,8 +327,8 @@ describe("requireAuthCore", () => {
         }
         mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
 
-        await expect(requireAuthCore(createMockRequest())).rejects.toThrow(
-            "Token expired. Please log in again.",
-        )
+        await expect(
+            requireAuthCore(createMockRequest(), mockEnv),
+        ).rejects.toThrow("Token expired. Please log in again.")
     })
 })
