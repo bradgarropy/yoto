@@ -23,7 +23,13 @@ export function getProgressPercent(progress: ImportProgress | null): number {
     }
 
     const trackProgress = (progress.current - 1) / progress.total
-    const phaseBonus = progress.phase === "uploading" ? 0.5 / progress.total : 0
+
+    let phaseBonus = 0
+    if (progress.phase === "uploading") {
+        phaseBonus = 0.33 / progress.total
+    } else if (progress.phase === "transcoding") {
+        phaseBonus = 0.66 / progress.total
+    }
 
     return Math.min(Math.round((trackProgress + phaseBonus) * 100), 100)
 }

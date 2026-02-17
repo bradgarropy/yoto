@@ -91,7 +91,6 @@ yoto/
 - [Cloudflare Workers](https://developers.cloudflare.com/workers/) - Edge runtime
 - [Cloudflare Containers](https://developers.cloudflare.com/containers/) - Serverless containers for yt-dlp
 - [React Router v7](https://reactrouter.com/) - Full-stack React framework
-- [Hono](https://hono.dev/) - Web framework for Workers
 - [Tailwind CSS](https://tailwindcss.com/) - Styling
 - [shadcn/ui](https://ui.shadcn.com/) - UI components
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube downloading (runs in container)
