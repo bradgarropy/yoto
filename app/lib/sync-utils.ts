@@ -1,6 +1,11 @@
 // Import progress tracking type (shared between client and server)
 export type ImportProgress = {
-    phase: "fetching" | "downloading" | "uploading" | "transcoding" | "updating"
+    phase:
+        | "preparing"
+        | "downloading"
+        | "uploading"
+        | "transcoding"
+        | "finalizing"
     current?: number
     total?: number
     title?: string
@@ -19,12 +24,12 @@ export function getProgressPercent(progress: ImportProgress | null): number {
     if (!progress) return 0
 
     // Preparing phase stays at 0%
-    if (progress.phase === "fetching") {
+    if (progress.phase === "preparing") {
         return 0
     }
 
     // Finalizing phase shows 95%
-    if (progress.phase === "updating") {
+    if (progress.phase === "finalizing") {
         return 95
     }
 

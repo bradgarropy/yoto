@@ -629,7 +629,7 @@ function getProgressMessage(progress: ImportProgress | null): string {
     if (!progress) return "Preparing..."
 
     switch (progress.phase) {
-        case "fetching":
+        case "preparing":
             return "Preparing..."
         case "downloading":
             return progress.current && progress.total
@@ -643,7 +643,7 @@ function getProgressMessage(progress: ImportProgress | null): string {
             return progress.current && progress.total
                 ? `Transcoding... (${progress.current}/${progress.total})`
                 : "Transcoding..."
-        case "updating":
+        case "finalizing":
             return "Finalizing..."
         default:
             return "Processing..."

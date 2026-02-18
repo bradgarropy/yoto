@@ -7,12 +7,12 @@ describe("getProgressPercent", () => {
         expect(getProgressPercent(null)).toBe(0)
     })
 
-    it("should return 0 for fetching phase (preparing)", () => {
-        expect(getProgressPercent({phase: "fetching"})).toBe(0)
+    it("should return 0 for preparing phase", () => {
+        expect(getProgressPercent({phase: "preparing"})).toBe(0)
     })
 
-    it("should return 95 for updating phase (finalizing)", () => {
-        expect(getProgressPercent({phase: "updating"})).toBe(95)
+    it("should return 95 for finalizing phase", () => {
+        expect(getProgressPercent({phase: "finalizing"})).toBe(95)
     })
 
     it("should return 5 for downloading phase without counts", () => {
