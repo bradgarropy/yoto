@@ -15,10 +15,12 @@ export type ImportProgress = {
  * Calculate the progress percentage for an import operation.
  *
  * Progress distribution:
- * - Preparing (fetching): 0%
- * - Track work (downloading/uploading/transcoding): 5-95%
- * - Finalizing (updating): 95%
- * - Complete: 100%
+ * - preparing: 0%
+ * - downloading/uploading/transcoding: 5-95%
+ * - finalizing: 95%
+ *
+ * Note: 100% is not returned by this function; completion is handled
+ * separately when the import finishes successfully.
  */
 export function getProgressPercent(progress: ImportProgress | null): number {
     if (!progress) return 0
