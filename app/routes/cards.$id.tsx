@@ -626,23 +626,25 @@ type ImportState =
     | {status: "error"; error: string}
 
 function getProgressMessage(progress: ImportProgress | null): string {
-    if (!progress) return "Starting import..."
+    if (!progress) return "Preparing..."
 
     switch (progress.phase) {
-        case "fetching":
-            return "Fetching video information from YouTube..."
+        case "preparing":
+            return "Preparing..."
         case "downloading":
             return progress.current && progress.total
-                ? `Downloading track ${progress.current} of ${progress.total}: ${progress.title || "..."}`
+                ? `Downloading... (${progress.current}/${progress.total})`
                 : "Downloading..."
         case "uploading":
             return progress.current && progress.total
-                ? `Uploading track ${progress.current} of ${progress.total}: ${progress.title || "..."}`
+                ? `Uploading... (${progress.current}/${progress.total})`
                 : "Uploading..."
         case "transcoding":
-            return "Processing audio..."
-        case "updating":
-            return "Updating card..."
+            return progress.current && progress.total
+                ? `Transcoding... (${progress.current}/${progress.total})`
+                : "Transcoding..."
+        case "finalizing":
+            return "Finalizing..."
         default:
             return "Processing..."
     }
@@ -811,7 +813,7 @@ function AddTracksDialog({
                         disabled={isBusy || isImporting || !youtubeUrl.trim()}
                         className="w-full"
                     >
-                        {isImporting ? "Importing..." : "Import"}
+                        Import
                     </Button>
 
                     {isImporting && (

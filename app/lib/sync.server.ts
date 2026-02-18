@@ -149,7 +149,7 @@ export async function performSyncToCard(
 
     try {
         // 1. Fetch YouTube playlist/video info via sandbox
-        await onProgress?.({phase: "fetching"})
+        await onProgress?.({phase: "preparing"})
         const youtubeInfo = await getPlaylistInfo(env, youtubeUrl)
 
         // 2. Get existing card
@@ -212,7 +212,7 @@ export async function performSyncToCard(
         }
 
         // 4. Update card with new chapters
-        await onProgress?.({phase: "updating"})
+        await onProgress?.({phase: "finalizing"})
         const cleanedChapters = stripNullValues(newChapters)
 
         const updatedCard: YotoCard = {

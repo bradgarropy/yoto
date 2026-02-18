@@ -7,115 +7,119 @@ describe("getProgressPercent", () => {
         expect(getProgressPercent(null)).toBe(0)
     })
 
-    it("should return 0 for fetching phase without counts", () => {
-        expect(getProgressPercent({phase: "fetching"})).toBe(0)
+    it("should return 0 for preparing phase", () => {
+        expect(getProgressPercent({phase: "preparing"})).toBe(0)
     })
 
-    it("should return 100 for updating phase without counts", () => {
-        expect(getProgressPercent({phase: "updating"})).toBe(100)
+    it("should return 95 for finalizing phase", () => {
+        expect(getProgressPercent({phase: "finalizing"})).toBe(95)
     })
 
-    it("should return 0 for downloading phase without counts", () => {
-        expect(getProgressPercent({phase: "downloading"})).toBe(0)
+    it("should return 5 for downloading phase without counts", () => {
+        expect(getProgressPercent({phase: "downloading"})).toBe(5)
     })
 
-    it("should return 0 for transcoding phase without counts", () => {
-        expect(getProgressPercent({phase: "transcoding"})).toBe(0)
+    it("should return 5 for transcoding phase without counts", () => {
+        expect(getProgressPercent({phase: "transcoding"})).toBe(5)
     })
 
     it("should calculate progress for downloading phase", () => {
-        // (1-1)/2 = 0%
+        // 2 tracks: trackSlice=45, phaseSlice=15
+        // track 1: 5 + (0 * 45) + (0 * 15) = 5%
         expect(
             getProgressPercent({phase: "downloading", current: 1, total: 2}),
-        ).toBe(0)
-        // (2-1)/2 = 50%
+        ).toBe(5)
+        // track 2: 5 + (1 * 45) + (0 * 15) = 50%
         expect(
             getProgressPercent({phase: "downloading", current: 2, total: 2}),
         ).toBe(50)
     })
 
-    it("should add phase bonus for uploading phase", () => {
-        // (1-1)/2 + 0.33/2 = 0.165 = 17%
+    it("should calculate progress for uploading phase", () => {
+        // 2 tracks: trackSlice=45, phaseSlice=15
+        // track 1: 5 + (0 * 45) + (1 * 15) = 20%
         expect(
             getProgressPercent({phase: "uploading", current: 1, total: 2}),
-        ).toBe(17)
-        // (2-1)/2 + 0.33/2 = 0.665 = 67%
+        ).toBe(20)
+        // track 2: 5 + (1 * 45) + (1 * 15) = 65%
         expect(
             getProgressPercent({phase: "uploading", current: 2, total: 2}),
-        ).toBe(67)
+        ).toBe(65)
     })
 
-    it("should add phase bonus for transcoding phase", () => {
-        // (1-1)/2 + 0.66/2 = 0.33 = 33%
+    it("should calculate progress for transcoding phase", () => {
+        // 2 tracks: trackSlice=45, phaseSlice=15
+        // track 1: 5 + (0 * 45) + (2 * 15) = 35%
         expect(
             getProgressPercent({phase: "transcoding", current: 1, total: 2}),
-        ).toBe(33)
-        // (2-1)/2 + 0.66/2 = 0.83 = 83%
+        ).toBe(35)
+        // track 2: 5 + (1 * 45) + (2 * 15) = 80%
         expect(
             getProgressPercent({phase: "transcoding", current: 2, total: 2}),
-        ).toBe(83)
+        ).toBe(80)
     })
 
-    it("should cap progress at 100%", () => {
-        // Even with high values, should not exceed 100
+    it("should cap progress at 95%", () => {
+        // Even with high values, should not exceed 95 (finalizing is 95%)
         expect(
             getProgressPercent({phase: "uploading", current: 10, total: 2}),
-        ).toBe(100)
+        ).toBe(95)
     })
 
     it("should handle single track imports", () => {
-        // (1-1)/1 = 0%
+        // 1 track: trackSlice=90, phaseSlice=30
+        // downloading: 5 + (0 * 90) + (0 * 30) = 5%
         expect(
             getProgressPercent({phase: "downloading", current: 1, total: 1}),
-        ).toBe(0)
-        // (1-1)/1 + 0.33/1 = 33%
+        ).toBe(5)
+        // uploading: 5 + (0 * 90) + (1 * 30) = 35%
         expect(
             getProgressPercent({phase: "uploading", current: 1, total: 1}),
-        ).toBe(33)
-        // (1-1)/1 + 0.66/1 = 66%
+        ).toBe(35)
+        // transcoding: 5 + (0 * 90) + (2 * 30) = 65%
         expect(
             getProgressPercent({phase: "transcoding", current: 1, total: 1}),
-        ).toBe(66)
+        ).toBe(65)
     })
 
     it("should handle multi-track imports with progress through phases", () => {
-        // Simulate a 3-track import progress
-        // downloading track 1: (1-1)/3 = 0%
+        // 3 tracks: trackSlice=30, phaseSlice=10
+        // downloading track 1: 5 + (0 * 30) + (0 * 10) = 5%
         expect(
             getProgressPercent({phase: "downloading", current: 1, total: 3}),
-        ).toBe(0)
-        // uploading track 1: (1-1)/3 + 0.33/3 = 11%
+        ).toBe(5)
+        // uploading track 1: 5 + (0 * 30) + (1 * 10) = 15%
         expect(
             getProgressPercent({phase: "uploading", current: 1, total: 3}),
-        ).toBe(11)
-        // transcoding track 1: (1-1)/3 + 0.66/3 = 22%
+        ).toBe(15)
+        // transcoding track 1: 5 + (0 * 30) + (2 * 10) = 25%
         expect(
             getProgressPercent({phase: "transcoding", current: 1, total: 3}),
-        ).toBe(22)
-        // downloading track 2: (2-1)/3 = 33%
+        ).toBe(25)
+        // downloading track 2: 5 + (1 * 30) + (0 * 10) = 35%
         expect(
             getProgressPercent({phase: "downloading", current: 2, total: 3}),
-        ).toBe(33)
-        // uploading track 2: (2-1)/3 + 0.33/3 = 44%
+        ).toBe(35)
+        // uploading track 2: 5 + (1 * 30) + (1 * 10) = 45%
         expect(
             getProgressPercent({phase: "uploading", current: 2, total: 3}),
-        ).toBe(44)
-        // transcoding track 2: (2-1)/3 + 0.66/3 = 55%
+        ).toBe(45)
+        // transcoding track 2: 5 + (1 * 30) + (2 * 10) = 55%
         expect(
             getProgressPercent({phase: "transcoding", current: 2, total: 3}),
         ).toBe(55)
-        // downloading track 3: (3-1)/3 = 67%
+        // downloading track 3: 5 + (2 * 30) + (0 * 10) = 65%
         expect(
             getProgressPercent({phase: "downloading", current: 3, total: 3}),
-        ).toBe(67)
-        // uploading track 3: (3-1)/3 + 0.33/3 = 78%
+        ).toBe(65)
+        // uploading track 3: 5 + (2 * 30) + (1 * 10) = 75%
         expect(
             getProgressPercent({phase: "uploading", current: 3, total: 3}),
-        ).toBe(78)
-        // transcoding track 3: (3-1)/3 + 0.66/3 = 89%
+        ).toBe(75)
+        // transcoding track 3: 5 + (2 * 30) + (2 * 10) = 85%
         expect(
             getProgressPercent({phase: "transcoding", current: 3, total: 3}),
-        ).toBe(89)
+        ).toBe(85)
     })
 })
 
