@@ -8,30 +8,48 @@ export type ImportProgress = {
 
 /**
  * Calculate the progress percentage for an import operation.
- * Handles phases that don't have current/total counts (like "fetching" and "updating").
+ *
+ * Progress distribution:
+ * - Preparing (fetching): 0%
+ * - Track work (downloading/uploading/transcoding): 5-95%
+ * - Finalizing (updating): 95%
+ * - Complete: 100%
  */
 export function getProgressPercent(progress: ImportProgress | null): number {
     if (!progress) return 0
 
-    // Handle phases that don't have current/total counts
-    if (!progress.current || !progress.total) {
-        // "updating" is the final phase after all tracks are processed
-        if (progress.phase === "updating") {
-            return 100
-        }
+    // Preparing phase stays at 0%
+    if (progress.phase === "fetching") {
         return 0
     }
 
-    const trackProgress = (progress.current - 1) / progress.total
-
-    let phaseBonus = 0
-    if (progress.phase === "uploading") {
-        phaseBonus = 0.33 / progress.total
-    } else if (progress.phase === "transcoding") {
-        phaseBonus = 0.66 / progress.total
+    // Finalizing phase shows 95%
+    if (progress.phase === "updating") {
+        return 95
     }
 
-    return Math.min(Math.round((trackProgress + phaseBonus) * 100), 100)
+    // Handle track phases without counts
+    if (!progress.current || !progress.total) {
+        return 5
+    }
+
+    // Track phases scale within 5-95% (90% range)
+    // Each track gets an equal slice, and each phase (downloading/uploading/transcoding)
+    // gets 1/3 of that track's slice
+    const trackSlice = 90 / progress.total
+    const phaseSlice = trackSlice / 3
+    const completedTracks = progress.current - 1
+
+    let phaseOffset = 0
+    if (progress.phase === "uploading") {
+        phaseOffset = 1
+    } else if (progress.phase === "transcoding") {
+        phaseOffset = 2
+    }
+
+    const percent = 5 + completedTracks * trackSlice + phaseOffset * phaseSlice
+
+    return Math.min(Math.round(percent), 95)
 }
 
 // Yoto types for card content
