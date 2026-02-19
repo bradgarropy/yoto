@@ -1,4 +1,5 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
+import pLimit from "p-limit"
 
 import {getAuthenticatedSdk} from "./auth.server"
 import {downloadTrack, getPlaylistInfo} from "./sandbox.server"
@@ -37,20 +38,23 @@ async function calculateSha256(buffer: ArrayBuffer): Promise<string> {
         .join("")
 }
 
-// Upload audio from ArrayBuffer and wait for transcode
+type TranscodeResult = {
+    progress?: {phase: string}
+    transcodedSha256?: string
+    transcodedInfo?: {duration: number; fileSize: number}
+}
+
+type UploadResult =
+    | {alreadyTranscoded: true; key: string; duration: number; fileSize: number}
+    | {alreadyTranscoded: false; sha256: string}
+
+// Upload audio from ArrayBuffer, returns sha256 for transcode polling
 async function uploadAudio(
     sdk: YotoSdk,
     buffer: ArrayBuffer,
     filename: string,
-    onProgress?: () => void | Promise<void>,
-): Promise<{key: string; duration: number; fileSize: number}> {
+): Promise<UploadResult> {
     const sha256 = await calculateSha256(buffer)
-
-    type TranscodeResult = {
-        progress?: {phase: string}
-        transcodedSha256?: string
-        transcodedInfo?: {duration: number; fileSize: number}
-    }
 
     // Check if already transcoded
     try {
@@ -64,6 +68,7 @@ async function uploadAudio(
             existingStatus.transcodedSha256
         ) {
             return {
+                alreadyTranscoded: true,
                 key: existingStatus.transcodedSha256,
                 duration: existingStatus.transcodedInfo?.duration ?? 0,
                 fileSize: existingStatus.transcodedInfo?.fileSize ?? 0,
@@ -94,7 +99,15 @@ async function uploadAudio(
         }
     }
 
-    // Poll for transcode completion
+    return {alreadyTranscoded: false, sha256}
+}
+
+// Poll for transcode completion
+async function waitForTranscode(
+    sdk: YotoSdk,
+    sha256: string,
+    onProgress?: () => void | Promise<void>,
+): Promise<{key: string; duration: number; fileSize: number}> {
     const maxAttempts = 60
     const pollInterval = 5000
 
@@ -135,8 +148,12 @@ type SyncToCardResult =
       }
     | {error: string}
 
+// Concurrency limit for parallel operations
+const CONCURRENCY_LIMIT = 5
+
 /**
  * Sync YouTube content directly to an existing card.
+ * Processes tracks in parallel phases: download → upload → transcode
  */
 export async function performSyncToCard(
     request: Request,
@@ -146,6 +163,7 @@ export async function performSyncToCard(
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
     const {sdk} = await getAuthenticatedSdk(request, env)
+    const limit = pLimit(CONCURRENCY_LIMIT)
 
     try {
         // 1. Fetch YouTube playlist/video info via sandbox
@@ -162,56 +180,114 @@ export async function performSyncToCard(
         }
 
         const existingChapters = cardResponse.content?.chapters ?? []
-
-        // 3. Download and upload new tracks
         const tracksToAdd = youtubeInfo.tracks
+        const total = tracksToAdd.length
+
+        // 3. Download phase - download all tracks in parallel (5 at a time)
+        let downloadedCount = 0
+        await onProgress?.({phase: "downloading", current: 1, total})
+
+        const downloadedBuffers = await Promise.all(
+            tracksToAdd.map((track, index) =>
+                limit(async () => {
+                    const buffer = await downloadTrack(env, track)
+                    downloadedCount++
+                    // Report next track in progress (if there are more)
+                    if (downloadedCount < total) {
+                        await onProgress?.({
+                            phase: "downloading",
+                            current: downloadedCount + 1,
+                            total,
+                        })
+                    }
+                    return {index, buffer, track}
+                }),
+            ),
+        )
+
+        // 4. Upload phase - upload all tracks in parallel (5 at a time)
+        let uploadedCount = 0
+        await onProgress?.({phase: "uploading", current: 1, total})
+
+        const uploadResults = await Promise.all(
+            downloadedBuffers.map(({index, buffer, track}) =>
+                limit(async () => {
+                    const result = await uploadAudio(
+                        sdk,
+                        buffer,
+                        `${track.id}.mp3`,
+                    )
+                    uploadedCount++
+                    // Report next track in progress (if there are more)
+                    if (uploadedCount < total) {
+                        await onProgress?.({
+                            phase: "uploading",
+                            current: uploadedCount + 1,
+                            total,
+                        })
+                    }
+                    return {index, result, track}
+                }),
+            ),
+        )
+
+        // 5. Transcode phase - wait for all transcodes in parallel (5 at a time)
+        let transcodedCount = 0
+        await onProgress?.({phase: "transcoding", current: 1, total})
+
+        const transcodeResults = await Promise.all(
+            uploadResults.map(({index, result, track}) =>
+                limit(async () => {
+                    let transcoded: {
+                        key: string
+                        duration: number
+                        fileSize: number
+                    }
+
+                    if (result.alreadyTranscoded) {
+                        // Already transcoded, use cached result
+                        transcoded = {
+                            key: result.key,
+                            duration: result.duration,
+                            fileSize: result.fileSize,
+                        }
+                    } else {
+                        // Wait for transcode to complete
+                        transcoded = await waitForTranscode(sdk, result.sha256)
+                    }
+
+                    transcodedCount++
+                    // Report next track in progress (if there are more)
+                    if (transcodedCount < total) {
+                        await onProgress?.({
+                            phase: "transcoding",
+                            current: transcodedCount + 1,
+                            total,
+                        })
+                    }
+                    return {index, transcoded, track}
+                }),
+            ),
+        )
+
+        // 6. Build chapters in order
         const newChapters: YotoChapter[] = [...existingChapters]
 
-        for (let i = 0; i < tracksToAdd.length; i++) {
-            const track = tracksToAdd[i]
+        // Sort by original index to maintain track order
+        transcodeResults.sort((a, b) => a.index - b.index)
 
-            // Download via sandbox (returns ArrayBuffer)
-            await onProgress?.({
-                phase: "downloading",
-                current: i + 1,
-                total: tracksToAdd.length,
-                title: track.title,
-            })
-            const mp3Buffer = await downloadTrack(env, track)
-
-            // Upload to Yoto (from ArrayBuffer)
-            await onProgress?.({
-                phase: "uploading",
-                current: i + 1,
-                total: tracksToAdd.length,
-                title: track.title,
-            })
-            const uploaded = await uploadAudio(
-                sdk,
-                mp3Buffer,
-                `${track.id}.mp3`,
-                async () => {
-                    await onProgress?.({
-                        phase: "transcoding",
-                        current: i + 1,
-                        total: tracksToAdd.length,
-                        title: track.title,
-                    })
-                },
-            )
-
-            // Create chapter
+        for (const {transcoded, track} of transcodeResults) {
             const chapter = createChapter(
                 track.title,
-                uploaded.key,
+                transcoded.key,
                 newChapters.length + 1,
-                uploaded.duration,
-                uploaded.fileSize,
+                transcoded.duration,
+                transcoded.fileSize,
             )
             newChapters.push(chapter)
         }
 
-        // 4. Update card with new chapters
+        // 7. Update card with new chapters
         await onProgress?.({phase: "finalizing"})
         const cleanedChapters = stripNullValues(newChapters)
 
@@ -248,5 +324,4 @@ export async function performSyncToCard(
                     : "Sync failed. Please try again.",
         }
     }
-    // No finally cleanup needed - no temp files!
 }
