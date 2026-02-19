@@ -14,10 +14,16 @@ export type ImportProgress = {
 /**
  * Calculate the progress percentage for an import operation.
  *
- * Progress distribution:
+ * Progress is phase-based, where each phase completes for all tracks
+ * before moving to the next phase:
  * - preparing: 0%
- * - downloading/uploading/transcoding: 5-95%
+ * - downloading: 5-35% (current track in progress, 1-indexed)
+ * - uploading: 35-65% (current track in progress, 1-indexed)
+ * - transcoding: 65-95% (current track in progress, 1-indexed)
  * - finalizing: 95%
+ *
+ * The `current` value represents which track is currently being worked on (1-indexed).
+ * For example, current=2, total=3 means "working on track 2 of 3".
  *
  * Note: 100% is not returned by this function; completion is handled
  * separately when the import finishes successfully.
@@ -35,26 +41,31 @@ export function getProgressPercent(progress: ImportProgress | null): number {
         return 95
     }
 
-    // Handle track phases without counts
-    if (!progress.current || !progress.total) {
+    // Handle track phases without counts - return start of phase
+    if (progress.total === undefined || progress.total === 0) {
+        if (progress.phase === "downloading") return 5
+        if (progress.phase === "uploading") return 35
+        if (progress.phase === "transcoding") return 65
         return 5
     }
 
-    // Track phases scale within 5-95% (90% range)
-    // Each track gets an equal slice, and each phase (downloading/uploading/transcoding)
-    // gets 1/3 of that track's slice
-    const trackSlice = 90 / progress.total
-    const phaseSlice = trackSlice / 3
-    const completedTracks = progress.current - 1
+    // Each phase gets 30% of the progress bar (5-35, 35-65, 65-95)
+    // current is 1-indexed (track currently in progress)
+    // Progress within phase = (current - 1) / total
+    // e.g., current=1/total=3 → 0/3 = 0% into phase (start of phase)
+    // e.g., current=2/total=3 → 1/3 = 33% into phase
+    // e.g., current=3/total=3 → 2/3 = 67% into phase
+    const phaseSize = 30
+    const progressInPhase = ((progress.current ?? 1) - 1) / progress.total
 
-    let phaseOffset = 0
+    let phaseStart = 5
     if (progress.phase === "uploading") {
-        phaseOffset = 1
+        phaseStart = 35
     } else if (progress.phase === "transcoding") {
-        phaseOffset = 2
+        phaseStart = 65
     }
 
-    const percent = 5 + completedTracks * trackSlice + phaseOffset * phaseSlice
+    const percent = phaseStart + progressInPhase * phaseSize
 
     return Math.min(Math.round(percent), 95)
 }
