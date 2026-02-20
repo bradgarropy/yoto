@@ -15,7 +15,8 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "typecheck": "react-router typegen && wrangler types && tsc",
-        "types": "wrangler types"
+        "typecheck:ci": "react-router typegen && tsc",
+        "typegen": "react-router typegen && wrangler types"
     },
     "dependencies": {
         "@cloudflare/sandbox": "^0.7.4",
