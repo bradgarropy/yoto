@@ -47,12 +47,7 @@ async function decrypt(encrypted: string, secret: string): Promise<string> {
 
 // --- Cookie Setup ---
 
-// Type for the env we need (subset of full Env)
-type AuthEnv = {
-    YOTO_AUTH_SECRET: string
-}
-
-function getSecret(env: AuthEnv): string {
+function getSecret(env: Env): string {
     const secret = env.YOTO_AUTH_SECRET
     if (!secret)
         throw new Error("YOTO_AUTH_SECRET environment variable is required")
@@ -62,7 +57,7 @@ function getSecret(env: AuthEnv): string {
 // Cache cookies by secret to avoid recreating them
 const cookieCache = new Map<string, ReturnType<typeof createCookie>>()
 
-function getAuthCookie(env: AuthEnv) {
+function getAuthCookie(env: Env) {
     const secret = getSecret(env)
 
     let cookie = cookieCache.get(secret)
@@ -89,7 +84,7 @@ export function _resetAuthCookie() {
 
 export async function getTokensFromCookie(
     request: Request,
-    env: AuthEnv,
+    env: Env,
 ): Promise<StoredTokens | null> {
     const cookieHeader = request.headers.get("Cookie")
     const encrypted = await getAuthCookie(env).parse(cookieHeader)
@@ -105,13 +100,13 @@ export async function getTokensFromCookie(
 
 export async function serializeAuthCookie(
     tokens: StoredTokens,
-    env: AuthEnv,
+    env: Env,
 ): Promise<string> {
     const json = JSON.stringify(tokens)
     const encrypted = await encrypt(json, getSecret(env))
     return getAuthCookie(env).serialize(encrypted)
 }
 
-export async function clearAuthCookie(env: AuthEnv): Promise<string> {
+export async function clearAuthCookie(env: Env): Promise<string> {
     return getAuthCookie(env).serialize("", {maxAge: 0})
 }

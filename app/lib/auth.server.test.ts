@@ -50,6 +50,7 @@ const createMockRequest = () => new Request("http://localhost/")
 // Mock env object
 const mockEnv = {
     YOTO_AUTH_SECRET: "test-secret-key-for-testing",
+    SANDBOX: {} as Env["SANDBOX"],
 }
 
 beforeEach(() => {
