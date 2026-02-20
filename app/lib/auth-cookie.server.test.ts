@@ -12,6 +12,7 @@ import {
 // Mock env object
 const mockEnv = {
     YOTO_AUTH_SECRET: "test-secret-key-for-testing",
+    SANDBOX: {} as Env["SANDBOX"],
 }
 
 const mockTokens: StoredTokens = {
@@ -203,7 +204,10 @@ describe("auth-cookie", () => {
             const cookieValue = cookieString.split(";")[0]
 
             // Create a different env with wrong secret
-            const wrongEnv = {YOTO_AUTH_SECRET: "different-secret-key"}
+            const wrongEnv = {
+                YOTO_AUTH_SECRET: "different-secret-key",
+                SANDBOX: {} as Env["SANDBOX"],
+            }
 
             const request = new Request("http://localhost/", {
                 headers: {

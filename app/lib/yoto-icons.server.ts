@@ -2,11 +2,6 @@ import type {DisplayIcon} from "@yotoplay/yoto-sdk"
 
 import {getAuthenticatedSdk} from "./auth.server"
 
-// Type for the env we need (subset of full Env)
-type AuthEnv = {
-    YOTO_AUTH_SECRET: string
-}
-
 // Cache for Yoto icons (module-level, shared across requests)
 let iconCache: YotoIcon[] | null = null
 let cacheTimestamp: number = 0
@@ -22,7 +17,7 @@ type YotoIcon = {
 // Fetch all native Yoto icons from API (with in-memory cache)
 const fetchYotoIcons = async (
     request: Request,
-    env: AuthEnv,
+    env: Env,
 ): Promise<YotoIcon[]> => {
     const now = Date.now()
 
@@ -52,7 +47,7 @@ const fetchYotoIcons = async (
 // Search native Yoto icons by query (filters by title and tags)
 const searchYotoIcons = async (
     request: Request,
-    env: AuthEnv,
+    env: Env,
     query: string,
 ): Promise<YotoIcon[]> => {
     const icons = await fetchYotoIcons(request, env)
@@ -83,7 +78,7 @@ const searchYotoIcons = async (
 // Uses the "Number - 1" / "Numbers - N" title pattern from Yoto's official icons
 const getNumberIcons = async (
     request: Request,
-    env: AuthEnv,
+    env: Env,
 ): Promise<Map<number, string>> => {
     const icons = await fetchYotoIcons(request, env)
     const numberPattern = /^Numbers?\s*-\s*(\d+)$/
