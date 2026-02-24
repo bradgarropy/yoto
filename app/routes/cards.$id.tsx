@@ -1265,14 +1265,14 @@ export default function CardDetail({
                     </div>
                 </div>
 
-                <div className="flex gap-2 mb-4">
+                <div className="flex flex-wrap gap-2 mb-4">
                     <Button
                         variant="outline"
                         disabled={isBusy}
                         onClick={() => setAddTracksDialogOpen(true)}
                     >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Tracks
+                        <Plus className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Add Tracks</span>
                     </Button>
 
                     <AlertDialog>
@@ -1285,8 +1285,12 @@ export default function CardDetail({
                                     orderedTracks.length === 0
                                 }
                             >
-                                <ListOrdered className="h-4 w-4 mr-2" />
-                                {isNumbering ? "Numbering..." : "Number Tracks"}
+                                <ListOrdered className="h-4 w-4 sm:mr-2" />
+                                <span className="hidden sm:inline">
+                                    {isNumbering
+                                        ? "Numbering..."
+                                        : "Number Tracks"}
+                                </span>
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -1321,7 +1325,12 @@ export default function CardDetail({
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
                             <Button variant="destructive" disabled={isBusy}>
-                                {isDeletingCard ? "Deleting..." : "Delete Card"}
+                                <Trash2 className="h-4 w-4 sm:mr-2" />
+                                <span className="hidden sm:inline">
+                                    {isDeletingCard
+                                        ? "Deleting..."
+                                        : "Delete Card"}
+                                </span>
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
