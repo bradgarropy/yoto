@@ -622,7 +622,6 @@ type Track = {
 function TrackItem({
     track,
     onDragEnd,
-    onIconClick,
     isBusy,
     isReordering,
     isIconDialogOpen,
@@ -631,7 +630,6 @@ function TrackItem({
 }: {
     track: Track
     onDragEnd: () => void
-    onIconClick: () => void
     isBusy: boolean
     isReordering: boolean
     isIconDialogOpen: boolean
@@ -1374,9 +1372,6 @@ export default function CardDetail({
                                         key={track.key}
                                         track={track}
                                         onDragEnd={handleDragEnd}
-                                        onIconClick={() =>
-                                            setSelectedTrackKey(track.key)
-                                        }
                                         isBusy={isBusy}
                                         isReordering={isReordering}
                                         isIconDialogOpen={
