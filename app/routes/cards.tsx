@@ -28,7 +28,7 @@ import {Label} from "~/components/ui/label"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
 import {authContext} from "~/middleware/auth.server"
 
-import type {Route} from "./+types/home"
+import type {Route} from "./+types/cards"
 
 type SortOption = "title" | "tracks" | "updated"
 
@@ -66,8 +66,8 @@ type YotoCard = {
 
 export function meta() {
     return [
-        {title: "Yoto"},
-        {name: "description", content: "Sync YouTube playlists to Yoto"},
+        {title: "My Cards - Yoto Sync"},
+        {name: "description", content: "Manage your Yoto cards"},
     ]
 }
 
@@ -215,7 +215,7 @@ type ActionData = {
     error?: string
 }
 
-export default function Home({loaderData}: {loaderData: LoaderData}) {
+export default function Cards({loaderData}: {loaderData: LoaderData}) {
     const {cards} = loaderData
     const [sortBy, setSortBy] = useState<SortOption>("title")
     const [searchQuery, setSearchQuery] = useState("")

@@ -39,7 +39,7 @@ export async function loader({request, context}: Route.LoaderArgs) {
     const authStatus = await status(request, env)
 
     if (authStatus.valid) {
-        throw redirect("/")
+        throw redirect("/cards")
     }
 
     return {}
@@ -79,7 +79,7 @@ export async function action({
         const result = await completeLogin(env, deviceCode, interval)
 
         if (result.success) {
-            return redirect("/", {
+            return redirect("/cards", {
                 headers: {"Set-Cookie": result.setCookie},
             })
         }
