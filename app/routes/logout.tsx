@@ -14,7 +14,7 @@ export async function action({context}: Route.ActionArgs) {
     })
 }
 
-// Redirect GET requests to home
+// Redirect GET requests to landing page
 export async function loader() {
     return redirect("/")
 }

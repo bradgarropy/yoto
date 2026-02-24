@@ -1,5 +1,5 @@
 import {ListMusic, Sparkles, Wallet} from "lucide-react"
-import {redirect} from "react-router"
+import {Link, redirect} from "react-router"
 
 import {Button} from "~/components/ui/button"
 import {Card, CardContent, CardHeader, CardTitle} from "~/components/ui/card"
@@ -45,7 +45,7 @@ export default function Landing() {
                 </p>
                 <div className="mt-10">
                     <Button asChild size="lg">
-                        <a href="/login">Get Started</a>
+                        <Link to="/login">Get Started</Link>
                     </Button>
                 </div>
             </section>
