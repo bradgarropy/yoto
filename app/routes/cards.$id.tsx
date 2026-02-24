@@ -1,5 +1,5 @@
 import {GripVertical, ListOrdered, Plus, Trash2} from "lucide-react"
-import {Reorder} from "motion/react"
+import {Reorder, useDragControls} from "motion/react"
 import pLimit from "p-limit"
 import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
 import {
@@ -233,7 +233,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
         if (intent === "deleteCard") {
             await sdk.content.deleteCard(cardId)
 
-            return redirect("/")
+            return redirect("/cards")
         }
 
         if (intent === "reorderTracks") {
@@ -617,6 +617,140 @@ type Track = {
     title: string
     duration?: number
     iconUrl?: string
+}
+
+function TrackItem({
+    track,
+    onDragEnd,
+    onIconClick,
+    isBusy,
+    isReordering,
+    isIconDialogOpen,
+    onIconDialogChange,
+    iconPickerContent,
+}: {
+    track: Track
+    onDragEnd: () => void
+    onIconClick: () => void
+    isBusy: boolean
+    isReordering: boolean
+    isIconDialogOpen: boolean
+    onIconDialogChange: (open: boolean) => void
+    iconPickerContent: React.ReactNode
+}) {
+    const dragControls = useDragControls()
+
+    return (
+        <Reorder.Item
+            key={track.key}
+            value={track}
+            className="py-3 flex items-center gap-4 bg-background"
+            onDragEnd={onDragEnd}
+            dragListener={false}
+            dragControls={dragControls}
+            initial={{
+                scale: 1,
+                boxShadow: "none",
+            }}
+            whileDrag={{
+                scale: 1.02,
+                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                zIndex: 1,
+            }}
+            animate={{
+                scale: 1,
+                boxShadow: "none",
+            }}
+            transition={{
+                duration: 0.2,
+            }}
+        >
+            <button
+                type="button"
+                className="touch-none cursor-grab active:cursor-grabbing p-1 -m-1"
+                onPointerDown={e => dragControls.start(e)}
+                aria-label="Drag to reorder"
+            >
+                <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+            <Dialog open={isIconDialogOpen} onOpenChange={onIconDialogChange}>
+                <DialogTrigger asChild>
+                    <button
+                        type="button"
+                        className="shrink-0 p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors"
+                        aria-label={`Change icon for ${track.title}`}
+                    >
+                        {track.iconUrl ? (
+                            <img
+                                src={track.iconUrl}
+                                alt=""
+                                className="w-8 h-8"
+                                style={{
+                                    imageRendering: "pixelated",
+                                }}
+                            />
+                        ) : (
+                            <div className="w-8 h-8 bg-zinc-700 rounded" />
+                        )}
+                    </button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg">
+                    {iconPickerContent}
+                </DialogContent>
+            </Dialog>
+            <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{track.title}</p>
+            </div>
+            {track.duration && (
+                <span className="text-sm text-muted-foreground">
+                    {formatDuration(track.duration)}
+                </span>
+            )}
+            <AlertDialog>
+                <AlertDialogTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        disabled={isBusy || isReordering}
+                        aria-label={`Delete track: ${track.title}`}
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Track</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete &ldquo;{track.title}
+                            &rdquo;? This will remove the track from the card.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <Form method="post">
+                            <input
+                                type="hidden"
+                                name="intent"
+                                value="deleteTrack"
+                            />
+                            <input
+                                type="hidden"
+                                name="trackKey"
+                                value={track.key}
+                            />
+                            <AlertDialogAction
+                                type="submit"
+                                className="bg-destructive text-white hover:bg-destructive/90"
+                            >
+                                Delete
+                            </AlertDialogAction>
+                        </Form>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </Reorder.Item>
+    )
 }
 
 type ImportState =
@@ -1012,7 +1146,7 @@ export default function CardDetail({
         <div className="min-h-screen p-8">
             <div className="max-w-4xl mx-auto">
                 <div className="mb-6">
-                    <Link to="/" className="text-primary hover:underline">
+                    <Link to="/cards" className="text-primary hover:underline">
                         &larr; Back to Cards
                     </Link>
                 </div>
@@ -1236,139 +1370,36 @@ export default function CardDetail({
                                 className="divide-y"
                             >
                                 {orderedTracks.map(track => (
-                                    <Reorder.Item
+                                    <TrackItem
                                         key={track.key}
-                                        value={track}
-                                        className="py-3 flex items-center gap-4 bg-background cursor-grab active:cursor-grabbing"
+                                        track={track}
                                         onDragEnd={handleDragEnd}
-                                        initial={{
-                                            scale: 1,
-                                            boxShadow: "none",
-                                        }}
-                                        whileDrag={{
-                                            scale: 1.02,
-                                            boxShadow:
-                                                "0 4px 12px rgba(0, 0, 0, 0.15)",
-                                            zIndex: 1,
-                                        }}
-                                        animate={{
-                                            scale: 1,
-                                            boxShadow: "none",
-                                        }}
-                                        transition={{
-                                            duration: 0.2,
-                                        }}
-                                    >
-                                        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                                        <Dialog
-                                            open={
-                                                selectedTrackKey === track.key
+                                        onIconClick={() =>
+                                            setSelectedTrackKey(track.key)
+                                        }
+                                        isBusy={isBusy}
+                                        isReordering={isReordering}
+                                        isIconDialogOpen={
+                                            selectedTrackKey === track.key
+                                        }
+                                        onIconDialogChange={(open: boolean) => {
+                                            if (
+                                                !open &&
+                                                iconFetcher.state !== "idle"
+                                            )
+                                                return
+                                            if (open) {
+                                                setSelectedTrackKey(track.key)
+                                            } else {
+                                                setSelectedTrackKey(null)
                                             }
-                                            onOpenChange={(open: boolean) => {
-                                                if (
-                                                    !open &&
-                                                    iconFetcher.state !== "idle"
-                                                )
-                                                    return
-                                                if (open) {
-                                                    setSelectedTrackKey(
-                                                        track.key,
-                                                    )
-                                                } else {
-                                                    setSelectedTrackKey(null)
-                                                }
-                                            }}
-                                        >
-                                            <DialogTrigger asChild>
-                                                <button
-                                                    type="button"
-                                                    className="shrink-0 p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors"
-                                                    aria-label={`Change icon for ${track.title}`}
-                                                >
-                                                    {track.iconUrl ? (
-                                                        <img
-                                                            src={track.iconUrl}
-                                                            alt=""
-                                                            className="w-8 h-8"
-                                                            style={{
-                                                                imageRendering:
-                                                                    "pixelated",
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <div className="w-8 h-8 bg-zinc-700 rounded" />
-                                                    )}
-                                                </button>
-                                            </DialogTrigger>
-                                            <DialogContent className="sm:max-w-lg">
-                                                <IconPickerContent
-                                                    onSelect={handleIconSelect}
-                                                />
-                                            </DialogContent>
-                                        </Dialog>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-medium truncate">
-                                                {track.title}
-                                            </p>
-                                        </div>
-                                        {track.duration && (
-                                            <span className="text-sm text-muted-foreground">
-                                                {formatDuration(track.duration)}
-                                            </span>
-                                        )}
-                                        <AlertDialog>
-                                            <AlertDialogTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-muted-foreground hover:text-destructive"
-                                                    disabled={
-                                                        isBusy || isReordering
-                                                    }
-                                                    aria-label={`Delete track: ${track.title}`}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </AlertDialogTrigger>
-                                            <AlertDialogContent>
-                                                <AlertDialogHeader>
-                                                    <AlertDialogTitle>
-                                                        Delete Track
-                                                    </AlertDialogTitle>
-                                                    <AlertDialogDescription>
-                                                        Are you sure you want to
-                                                        delete &ldquo;
-                                                        {track.title}&rdquo;?
-                                                        This will remove the
-                                                        track from the card.
-                                                    </AlertDialogDescription>
-                                                </AlertDialogHeader>
-                                                <AlertDialogFooter>
-                                                    <AlertDialogCancel>
-                                                        Cancel
-                                                    </AlertDialogCancel>
-                                                    <Form method="post">
-                                                        <input
-                                                            type="hidden"
-                                                            name="intent"
-                                                            value="deleteTrack"
-                                                        />
-                                                        <input
-                                                            type="hidden"
-                                                            name="trackKey"
-                                                            value={track.key}
-                                                        />
-                                                        <AlertDialogAction
-                                                            type="submit"
-                                                            className="bg-destructive text-white hover:bg-destructive/90"
-                                                        >
-                                                            Delete
-                                                        </AlertDialogAction>
-                                                    </Form>
-                                                </AlertDialogFooter>
-                                            </AlertDialogContent>
-                                        </AlertDialog>
-                                    </Reorder.Item>
+                                        }}
+                                        iconPickerContent={
+                                            <IconPickerContent
+                                                onSelect={handleIconSelect}
+                                            />
+                                        }
+                                    />
                                 ))}
                             </Reorder.Group>
                         )}

@@ -1,7 +1,9 @@
 import "./app.css"
 
+import {LogOut, User} from "lucide-react"
 import {
     isRouteErrorResponse,
+    Form,
     Link,
     Links,
     Meta,
@@ -11,6 +13,13 @@ import {
     useLocation,
 } from "react-router"
 
+import {Avatar, AvatarFallback} from "~/components/ui/avatar"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu"
 import {Toaster} from "~/components/ui/sonner"
 
 export const links = () => [
@@ -30,17 +39,43 @@ export const links = () => [
 function Header() {
     const location = useLocation()
     const isLoginPage = location.pathname === "/login"
+    const isLandingPage = location.pathname === "/"
 
-    if (isLoginPage) {
+    if (isLoginPage || isLandingPage) {
         return null
     }
 
     return (
-        <header className="border-b bg-background">
-            <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-                <Link to="/" className="font-bold text-lg">
-                    Yoto
+        <header className="border-b bg-background px-8">
+            <div className="max-w-6xl mx-auto h-14 flex items-center justify-between">
+                <Link to="/cards" className="font-bold text-lg">
+                    Yoto Sync
                 </Link>
+
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button
+                            type="button"
+                            className="rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        >
+                            <Avatar>
+                                <AvatarFallback>
+                                    <User className="h-4 w-4" />
+                                </AvatarFallback>
+                            </Avatar>
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <Form action="/logout" method="post">
+                            <DropdownMenuItem asChild>
+                                <button type="submit" className="w-full">
+                                    <LogOut className="mr-2 h-4 w-4" />
+                                    Logout
+                                </button>
+                            </DropdownMenuItem>
+                        </Form>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
         </header>
     )
