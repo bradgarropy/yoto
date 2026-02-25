@@ -1,9 +1,25 @@
 {
     "name": "yoto",
     "version": "1.0.0",
-    "description": "Sync YouTube content to Yoto",
+    "description": "🎧 yoto sync",
     "private": true,
     "type": "module",
+    "keywords": [
+        "yoto",
+        "typescript",
+        "react",
+        "react-router",
+        "tailwind",
+        "shadcn",
+        "lucide",
+        "eslint",
+        "prettier",
+        "vite",
+        "vitest",
+        "cloudflare",
+        "cloudflare-worker",
+        "cloudflare-sandbox"
+    ],
     "scripts": {
         "build": "react-router build",
         "dev": "vite dev",
