@@ -1,7 +1,7 @@
 // Sandbox client for calling yt-dlp operations via Durable Object
 // Uses the sandbox endpoints defined in workers/app.ts
 
-import {getSandbox} from "@cloudflare/sandbox"
+import {collectFile, getSandbox} from "@cloudflare/sandbox"
 import shellEscape from "shell-escape"
 
 import type {YouTubePlaylistInfo, YouTubeTrack} from "./youtube.server"
@@ -105,10 +105,9 @@ async function downloadTrack(
     const escapedUrl = escapeShellArg(track.url)
 
     // Download and convert to MP3
-    // Note: --js-runtimes node:/usr/local/bin/node specifies Node path for EJS challenge solving
     // Note: --no-check-certificates handles SSL issues in container environments
     const downloadResult = await sandbox.exec(
-        `yt-dlp --no-check-certificates --js-runtimes node:/usr/local/bin/node ` +
+        `yt-dlp --no-check-certificates ` +
             `--extract-audio --audio-format mp3 --audio-quality 0 ` +
             `-o ${escapedOutputPath} --no-playlist ${escapedUrl}`,
     )
@@ -119,22 +118,21 @@ async function downloadTrack(
         )
     }
 
-    // Read file as base64
-    const readResult = await sandbox.exec(`base64 -w 0 ${escapedOutputPath}`)
+    // Stream file from sandbox to avoid 32MiB RPC serialization limit
+    try {
+        const stream = await sandbox.readFileStream(outputPath)
+        const {content} = await collectFile(stream)
 
-    if (!readResult.success) {
-        throw new Error(`Failed to read downloaded file: ${readResult.stderr}`)
+        if (content instanceof Uint8Array) {
+            return content.buffer as ArrayBuffer
+        }
+
+        // Fallback: content is a string (text encoding), convert to ArrayBuffer
+        const encoder = new TextEncoder()
+        return encoder.encode(content).buffer as ArrayBuffer
+    } finally {
+        await sandbox.exec(`rm -f ${escapedOutputPath}`)
     }
-
-    // Clean up
-    await sandbox.exec(`rm -f ${escapedOutputPath}`)
-
-    // Convert base64 to ArrayBuffer
-    const base64 = readResult.stdout.trim()
-    const binaryString = atob(base64)
-    const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0))
-
-    return bytes.buffer
 }
 
 export {downloadTrack, getPlaylistInfo}
