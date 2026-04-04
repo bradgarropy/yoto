@@ -105,10 +105,9 @@ async function downloadTrack(
     const escapedUrl = escapeShellArg(track.url)
 
     // Download and convert to MP3
-    // Note: --js-runtimes node:/usr/local/bin/node specifies Node path for EJS challenge solving
     // Note: --no-check-certificates handles SSL issues in container environments
     const downloadResult = await sandbox.exec(
-        `yt-dlp --no-check-certificates --js-runtimes node:/usr/local/bin/node ` +
+        `yt-dlp --no-check-certificates ` +
             `--extract-audio --audio-format mp3 --audio-quality 0 ` +
             `-o ${escapedOutputPath} --no-playlist ${escapedUrl}`,
     )
