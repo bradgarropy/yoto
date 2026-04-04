@@ -119,19 +119,20 @@ async function downloadTrack(
     }
 
     // Stream file from sandbox to avoid 32MiB RPC serialization limit
-    const stream = await sandbox.readFileStream(outputPath)
-    const {content} = await collectFile(stream)
+    try {
+        const stream = await sandbox.readFileStream(outputPath)
+        const {content} = await collectFile(stream)
 
-    // Clean up
-    await sandbox.exec(`rm -f ${escapedOutputPath}`)
+        if (content instanceof Uint8Array) {
+            return content.buffer as ArrayBuffer
+        }
 
-    if (content instanceof Uint8Array) {
-        return content.buffer as ArrayBuffer
+        // Fallback: content is a string (text encoding), convert to ArrayBuffer
+        const encoder = new TextEncoder()
+        return encoder.encode(content).buffer as ArrayBuffer
+    } finally {
+        await sandbox.exec(`rm -f ${escapedOutputPath}`)
     }
-
-    // Fallback: content is a string (text encoding), convert to ArrayBuffer
-    const encoder = new TextEncoder()
-    return encoder.encode(content).buffer as ArrayBuffer
 }
 
 export {downloadTrack, getPlaylistInfo}
