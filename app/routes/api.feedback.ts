@@ -1,10 +1,15 @@
 import {Resend} from "resend"
 
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {isValidOrigin} from "~/lib/security.server"
 
 import type {Route} from "./+types/api.feedback"
 
 export async function action({request, context}: Route.ActionArgs) {
+    if (!isValidOrigin(request)) {
+        return Response.json({error: "Forbidden"}, {status: 403})
+    }
+
     const {env} = context.get(cloudflareContext)
 
     const formData = await request.formData()

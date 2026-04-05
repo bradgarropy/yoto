@@ -15,7 +15,8 @@ vi.mock("~/lib/cloudflare-context", () => ({
 }))
 
 // Import after mocks are set up
-import {action} from "./api.feedback"
+import * as security from "~/lib/security.server"
+import {action} from "~/routes/api.feedback"
 
 // Mock env object
 const mockEnv = {
@@ -51,9 +52,27 @@ const callAction = (formData: FormData) => {
 
 beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(security, "isValidOrigin").mockReturnValue(true)
 })
 
 describe("api/feedback action", () => {
+    it("should return 403 when origin is invalid", async () => {
+        vi.spyOn(security, "isValidOrigin").mockReturnValue(false)
+
+        const formData = createFormData({
+            category: "bug",
+            message: "Something broke",
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(403)
+
+        const data = (await response.json()) as {error?: string}
+        expect(data.error).toBe("Forbidden")
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
     it("should return 400 when category is missing", async () => {
         const formData = createFormData({message: "Something broke"})
         const response = await callAction(formData)
