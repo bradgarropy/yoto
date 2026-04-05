@@ -1,5 +1,6 @@
 import {MessageSquare} from "lucide-react"
-import {useState} from "react"
+import {useEffect, useState} from "react"
+import {useFetcher} from "react-router"
 import {toast} from "sonner"
 
 import {Button} from "~/components/ui/button"
@@ -28,6 +29,27 @@ const FeedbackDialog = () => {
     const [category, setCategory] = useState("")
     const [message, setMessage] = useState("")
     const [email, setEmail] = useState("")
+    const fetcher = useFetcher()
+
+    const isSubmitting = fetcher.state !== "idle"
+
+    useEffect(() => {
+        if (fetcher.state !== "idle" || !fetcher.data) {
+            return
+        }
+
+        const data = fetcher.data as {success?: boolean; error?: string}
+
+        if (data.success) {
+            toast.success("Thanks for your feedback!")
+            setCategory("")
+            setMessage("")
+            setEmail("")
+            setOpen(false)
+        } else if (data.error) {
+            toast.error(data.error)
+        }
+    }, [fetcher.state, fetcher.data])
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -37,13 +59,15 @@ const FeedbackDialog = () => {
             return
         }
 
-        // TODO: Replace with useFetcher POST to /api/feedback in Phase 3
-        toast.success("Thanks for your feedback!")
+        const formData = new FormData()
+        formData.set("category", category)
+        formData.set("message", message)
+        formData.set("email", email)
 
-        setCategory("")
-        setMessage("")
-        setEmail("")
-        setOpen(false)
+        fetcher.submit(formData, {
+            method: "post",
+            action: "/api/feedback",
+        })
     }
 
     return (
@@ -95,6 +119,7 @@ const FeedbackDialog = () => {
 
                         <Textarea
                             id="message"
+                            name="message"
                             placeholder="Tell us what's on your mind..."
                             rows={4}
                             value={message}
@@ -113,6 +138,7 @@ const FeedbackDialog = () => {
 
                         <Input
                             id="email"
+                            name="email"
                             type="email"
                             placeholder="your@email.com"
                             value={email}
@@ -125,7 +151,9 @@ const FeedbackDialog = () => {
                     </div>
 
                     <DialogFooter>
-                        <Button type="submit">Send Feedback</Button>
+                        <Button type="submit" disabled={isSubmitting}>
+                            {isSubmitting ? "Sending..." : "Send Feedback"}
+                        </Button>
                     </DialogFooter>
                 </form>
             </DialogContent>
