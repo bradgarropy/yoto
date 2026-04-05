@@ -38,7 +38,7 @@ export async function action({request, context}: Route.ActionArgs) {
         const resend = new Resend(env.RESEND_API_KEY)
 
         await resend.emails.send({
-            from: "Yoto Sync <onboarding@resend.dev>",
+            from: "Yoto Sync <feedback@yoto.bradgarropy.com>",
             to: "bradgarropy@gmail.com",
             subject,
             text: body,
