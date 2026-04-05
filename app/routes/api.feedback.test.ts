@@ -139,12 +139,13 @@ describe("api/feedback action", () => {
             to: "bradgarropy@gmail.com",
             subject: "Bug Report",
             text: [
-                "**Category:** Bug Report",
-                "**Email:** user@example.com",
+                "Category: Bug Report",
+                "Email: user@example.com",
                 "",
-                "**Message:**",
+                "Message:",
                 "The import button is broken",
             ].join("\n"),
+            html: expect.stringContaining("Bug Report"),
         })
     })
 
@@ -169,7 +170,8 @@ describe("api/feedback action", () => {
         expect(mockSend).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
                 subject: "Feature Request",
-                text: expect.stringContaining("**Email:** Not provided"),
+                text: expect.stringContaining("Email: Not provided"),
+                html: expect.stringContaining("Not provided"),
             }),
         )
     })
