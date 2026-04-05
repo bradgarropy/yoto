@@ -13,6 +13,7 @@ import {
     useLocation,
 } from "react-router"
 
+import {Footer} from "~/components/Footer"
 import {Avatar, AvatarFallback} from "~/components/ui/avatar"
 import {
     DropdownMenu,
@@ -106,10 +107,15 @@ export function Layout({children}: {children: React.ReactNode}) {
 
 export default function App() {
     return (
-        <>
+        <div className="flex min-h-screen flex-col">
             <Header />
-            <Outlet />
-        </>
+
+            <div className="flex-1">
+                <Outlet />
+            </div>
+
+            <Footer />
+        </div>
     )
 }
 
