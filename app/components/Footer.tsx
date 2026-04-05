@@ -13,19 +13,17 @@ const Footer = () => {
                     </p>
                 </div>
 
-                <div className="flex flex-col items-start gap-2 sm:items-end">
-                    <div className="flex items-center gap-4">
-                        <FeedbackDialog />
-                        <a
-                            href="https://github.com/bradgarropy/yoto"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                            <Github className="h-4 w-4" />
-                            GitHub
-                        </a>
-                    </div>
+                <div className="flex flex-col items-start gap-2">
+                    <a
+                        href="https://github.com/bradgarropy/yoto"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        <Github className="h-4 w-4" />
+                        GitHub
+                    </a>
+                    <FeedbackDialog />
                     <p className="text-sm text-muted-foreground">
                         Made by{" "}
                         <a
