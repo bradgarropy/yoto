@@ -32,7 +32,7 @@ export async function loader({request, context}: Route.LoaderArgs) {
 
 export default function Landing() {
     return (
-        <div className="min-h-screen">
+        <div>
             {/* Hero Section */}
             <section className="flex flex-col items-center justify-center px-4 py-24 text-center">
                 <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">

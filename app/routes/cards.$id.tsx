@@ -1141,7 +1141,7 @@ export default function CardDetail({
     }
 
     return (
-        <div className="min-h-screen p-8">
+        <div className="p-8">
             <div className="max-w-4xl mx-auto">
                 <div className="mb-6">
                     <Link to="/cards" className="text-primary hover:underline">
