@@ -1,6 +1,6 @@
-import type {z} from "zod"
+import type {ZodType} from "zod"
 
-const parseFormData = <T extends z.ZodType>(formData: FormData, schema: T) => {
+const parseFormData = <T extends ZodType>(formData: FormData, schema: T) => {
     const raw = Object.fromEntries(formData)
     return schema.safeParse(raw)
 }
