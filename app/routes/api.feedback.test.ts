@@ -130,6 +130,23 @@ describe("api/feedback action", () => {
         expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it("should return 400 when message is only whitespace", async () => {
+        const formData = createFormData({
+            category: "bug",
+            message: "   ",
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(400)
+
+        const data = (await response.json()) as {
+            errors?: Record<string, string[]>
+        }
+        expect(data.errors?.message?.[0]).toBe("Message is required")
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
     it("should return 400 when message exceeds max length", async () => {
         const formData = createFormData({
             category: "bug",
