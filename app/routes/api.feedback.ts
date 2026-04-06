@@ -98,7 +98,9 @@ export async function action({request, context}: Route.ActionArgs) {
         })
 
         return Response.json({success: true})
-    } catch {
+    } catch (error) {
+        console.error("Failed to send feedback email:", error)
+
         return Response.json(
             {error: "Failed to send feedback. Please try again."},
             {status: 500},

@@ -196,6 +196,7 @@ describe("api/feedback action", () => {
     })
 
     it("should return 500 when Resend throws an error", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {})
         mockSend.mockRejectedValue(new Error("Resend API error"))
 
         const formData = createFormData({
@@ -206,6 +207,7 @@ describe("api/feedback action", () => {
         const response = await callAction(formData)
 
         expect(response.status).toBe(500)
+        expect(console.error).toHaveBeenCalledOnce()
 
         const data = (await response.json()) as {
             error?: string
