@@ -1,5 +1,4 @@
 import {MessageSquare} from "lucide-react"
-import type {FormEvent} from "react"
 import {useEffect, useState} from "react"
 import {useFetcher} from "react-router"
 import {toast} from "sonner"
@@ -24,13 +23,14 @@ import {
     SelectValue,
 } from "~/components/ui/select"
 import {Textarea} from "~/components/ui/textarea"
+import type {FeedbackResponse} from "~/routes/api.feedback"
 
 const FeedbackDialog = () => {
     const [open, setOpen] = useState(false)
     const [category, setCategory] = useState("")
     const [message, setMessage] = useState("")
     const [email, setEmail] = useState("")
-    const fetcher = useFetcher()
+    const fetcher = useFetcher<FeedbackResponse>()
 
     const isSubmitting = fetcher.state !== "idle"
 
@@ -39,20 +39,23 @@ const FeedbackDialog = () => {
             return
         }
 
-        const data = fetcher.data as {success?: boolean; error?: string}
+        const data = fetcher.data
 
-        if (data.success) {
+        if ("success" in data) {
             toast.success("Thanks for your feedback!")
             setCategory("")
             setMessage("")
             setEmail("")
             setOpen(false)
-        } else if (data.error) {
+        } else if ("errors" in data) {
+            const firstError = Object.values(data.errors).flat()[0]
+            toast.error(firstError ?? "Invalid input.")
+        } else if ("error" in data) {
             toast.error(data.error)
         }
     }, [fetcher.state, fetcher.data])
 
-    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
 
         if (!category || !message.trim()) {

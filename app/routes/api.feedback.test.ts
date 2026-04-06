@@ -80,10 +80,9 @@ describe("api/feedback action", () => {
         expect(response.status).toBe(400)
 
         const data = (await response.json()) as {
-            error?: string
-            success?: boolean
+            errors?: Record<string, string[]>
         }
-        expect(data.error).toBe("Category and message are required.")
+        expect(data.errors?.category).toBeDefined()
         expect(mockSend).not.toHaveBeenCalled()
     })
 
@@ -94,10 +93,9 @@ describe("api/feedback action", () => {
         expect(response.status).toBe(400)
 
         const data = (await response.json()) as {
-            error?: string
-            success?: boolean
+            errors?: Record<string, string[]>
         }
-        expect(data.error).toBe("Category and message are required.")
+        expect(data.errors?.message).toBeDefined()
         expect(mockSend).not.toHaveBeenCalled()
     })
 
@@ -108,10 +106,79 @@ describe("api/feedback action", () => {
         expect(response.status).toBe(400)
 
         const data = (await response.json()) as {
-            error?: string
-            success?: boolean
+            errors?: Record<string, string[]>
         }
-        expect(data.error).toBe("Category and message are required.")
+        expect(data.errors?.category).toBeDefined()
+        expect(data.errors?.message).toBeDefined()
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("should return 400 when category is invalid", async () => {
+        const formData = createFormData({
+            category: "unknown",
+            message: "Some feedback",
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(400)
+
+        const data = (await response.json()) as {
+            errors?: Record<string, string[]>
+        }
+        expect(data.errors?.category).toBeDefined()
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("should return 400 when message is only whitespace", async () => {
+        const formData = createFormData({
+            category: "bug",
+            message: "   ",
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(400)
+
+        const data = (await response.json()) as {
+            errors?: Record<string, string[]>
+        }
+        expect(data.errors?.message?.[0]).toBe("Message is required")
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("should return 400 when message exceeds max length", async () => {
+        const formData = createFormData({
+            category: "bug",
+            message: "a".repeat(5001),
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(400)
+
+        const data = (await response.json()) as {
+            errors?: Record<string, string[]>
+        }
+        expect(data.errors?.message?.[0]).toBe("Message is too long")
+        expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("should return 400 when email is invalid", async () => {
+        const formData = createFormData({
+            category: "bug",
+            message: "Something broke",
+            email: "not-an-email",
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(400)
+
+        const data = (await response.json()) as {
+            errors?: Record<string, string[]>
+        }
+        expect(data.errors?.email).toBeDefined()
         expect(mockSend).not.toHaveBeenCalled()
     })
 
@@ -128,10 +195,7 @@ describe("api/feedback action", () => {
 
         expect(response.status).toBe(200)
 
-        const data = (await response.json()) as {
-            error?: string
-            success?: boolean
-        }
+        const data = (await response.json()) as {success?: boolean}
         expect(data.success).toBe(true)
 
         expect(mockSend).toHaveBeenCalledExactlyOnceWith({
@@ -158,10 +222,7 @@ describe("api/feedback action", () => {
 
         expect(response.status).toBe(200)
 
-        const data = (await response.json()) as {
-            error?: string
-            success?: boolean
-        }
+        const data = (await response.json()) as {success?: boolean}
         expect(data.success).toBe(true)
 
         expect(mockSend).toHaveBeenCalledExactlyOnceWith(
@@ -172,21 +233,26 @@ describe("api/feedback action", () => {
         )
     })
 
-    it("should use fallback subject for unknown category", async () => {
+    it("should send email with empty email field", async () => {
         mockSend.mockResolvedValue({id: "email-789"})
 
         const formData = createFormData({
-            category: "unknown",
-            message: "Some feedback",
+            category: "feedback",
+            message: "Great app!",
+            email: "",
         })
 
         const response = await callAction(formData)
 
         expect(response.status).toBe(200)
 
-        expect(mockSend).toHaveBeenCalledWith(
+        const data = (await response.json()) as {success?: boolean}
+        expect(data.success).toBe(true)
+
+        expect(mockSend).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
-                subject: "Feedback",
+                subject: "General Feedback",
+                html: expect.stringContaining("Not provided"),
             }),
         )
     })
@@ -205,10 +271,7 @@ describe("api/feedback action", () => {
         expect(response.status).toBe(500)
         expect(console.error).toHaveBeenCalledOnce()
 
-        const data = (await response.json()) as {
-            error?: string
-            success?: boolean
-        }
+        const data = (await response.json()) as {error?: string}
         expect(data.error).toBe("Failed to send feedback. Please try again.")
     })
 })

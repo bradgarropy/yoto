@@ -89,3 +89,5 @@ yoto/
 - [x] Cloud hosting for remote access (Cloudflare Workers + Containers)
 - [x] Remove Hono dependency (use standard React Router + Cloudflare pattern)
 - [x] Feedback system (footer + feedback form + Resend email integration)
+- [x] Zod form validation for feedback route (`app/schemas/feedback.ts` + `app/lib/validation.server.ts`)
+- [ ] Migrate remaining route actions to Zod validation (cards, login, card detail, import, icons)
