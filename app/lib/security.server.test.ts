@@ -48,6 +48,15 @@ describe("isValidOrigin", () => {
         expect(isValidOrigin(request)).toBe(false)
     })
 
+    it("should return false when scheme does not match", () => {
+        const request = createRequest(
+            "https://yoto.bradgarropy.com/api/feedback",
+            "http://yoto.bradgarropy.com",
+        )
+
+        expect(isValidOrigin(request)).toBe(false)
+    })
+
     it("should return false when origin is a malformed URL", () => {
         const request = createRequest(
             "https://yoto.bradgarropy.com/api/feedback",

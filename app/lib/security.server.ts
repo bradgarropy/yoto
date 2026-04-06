@@ -7,7 +7,7 @@ const isValidOrigin = (request: Request): boolean => {
 
     try {
         const url = new URL(request.url)
-        return new URL(origin).host === url.host
+        return new URL(origin).origin === url.origin
     } catch {
         return false
     }

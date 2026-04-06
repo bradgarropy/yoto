@@ -36,6 +36,7 @@
     },
     "dependencies": {
         "@cloudflare/sandbox": "^0.7.4",
+        "@react-email/render": "^2.0.5",
         "@react-router/cloudflare": "7.12.0",
         "@yotoplay/oauth-device-code-flow": "^1.2.1",
         "@yotoplay/yoto-sdk": "^1.2.0",

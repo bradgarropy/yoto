@@ -1,4 +1,5 @@
 import {MessageSquare} from "lucide-react"
+import type {FormEvent} from "react"
 import {useEffect, useState} from "react"
 import {useFetcher} from "react-router"
 import {toast} from "sonner"
@@ -51,7 +52,7 @@ const FeedbackDialog = () => {
         }
     }, [fetcher.state, fetcher.data])
 
-    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
 
         if (!category || !message.trim()) {

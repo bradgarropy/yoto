@@ -138,15 +138,12 @@ describe("api/feedback action", () => {
             from: "Yoto Sync <feedback@yoto.bradgarropy.com>",
             to: "bradgarropy@gmail.com",
             subject: "Bug Report",
-            text: [
-                "Category: Bug Report",
-                "Email: user@example.com",
-                "",
-                "Message:",
-                "The import button is broken",
-            ].join("\n"),
             html: expect.stringContaining("Bug Report"),
         })
+
+        const sentHtml = mockSend.mock.calls[0][0].html as string
+        expect(sentHtml).toContain("user@example.com")
+        expect(sentHtml).toContain("The import button is broken")
     })
 
     it("should send email without reply email when not provided", async () => {
@@ -170,7 +167,6 @@ describe("api/feedback action", () => {
         expect(mockSend).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
                 subject: "Feature Request",
-                text: expect.stringContaining("Email: Not provided"),
                 html: expect.stringContaining("Not provided"),
             }),
         )
