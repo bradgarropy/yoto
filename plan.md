@@ -88,3 +88,4 @@ yoto/
 - [x] Switch auth storage from `auth.json` to encrypted HTTP-only cookies (removes last filesystem dependency)
 - [x] Cloud hosting for remote access (Cloudflare Workers + Containers)
 - [x] Remove Hono dependency (use standard React Router + Cloudflare pattern)
+- [x] Feedback system (footer + feedback form + Resend email integration)
