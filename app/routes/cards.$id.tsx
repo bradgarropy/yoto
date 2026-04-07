@@ -1,5 +1,5 @@
-import {GripVertical, ListOrdered, Plus, Trash2} from "lucide-react"
-import {Reorder, useDragControls} from "motion/react"
+import {ListOrdered, Plus, Trash2} from "lucide-react"
+import {Reorder} from "motion/react"
 import pLimit from "p-limit"
 import {useEffect, useRef, useState} from "react"
 import {
@@ -14,7 +14,9 @@ import {toast} from "sonner"
 
 import {AddTracksDialog} from "~/components/AddTracksDialog"
 import {CARD_ASPECT_RATIO, CardCover} from "~/components/CardCover"
+import {CopyTrackDialog} from "~/components/CopyTrackDialog"
 import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
+import {type Track, TrackItem} from "~/components/TrackItem"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -698,13 +700,6 @@ export async function action({params, request, context}: Route.ActionArgs) {
     }
 }
 
-function formatDuration(seconds?: number): string {
-    if (!seconds) return ""
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, "0")}`
-}
-
 type ActionData = {
     error?: string
     success?: boolean
@@ -720,157 +715,19 @@ type ActionData = {
     destinationCardTitle?: string
 }
 
-type Track = {
-    key: string
-    title: string
-    duration?: number
-    iconUrl?: string
-}
-
-function TrackItem({
-    track,
-    onDragEnd,
-    isBusy,
-    isReordering,
-    isIconDialogOpen,
-    onIconDialogChange,
-    iconPickerContent,
-}: {
-    track: Track
-    onDragEnd: () => void
-    isBusy: boolean
-    isReordering: boolean
-    isIconDialogOpen: boolean
-    onIconDialogChange: (open: boolean) => void
-    iconPickerContent: React.ReactNode
-}) {
-    const dragControls = useDragControls()
-
-    return (
-        <Reorder.Item
-            key={track.key}
-            value={track}
-            className="py-3 flex items-center gap-4 bg-background"
-            onDragEnd={onDragEnd}
-            dragListener={false}
-            dragControls={dragControls}
-            initial={{
-                scale: 1,
-                boxShadow: "none",
-            }}
-            whileDrag={{
-                scale: 1.02,
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                zIndex: 1,
-            }}
-            animate={{
-                scale: 1,
-                boxShadow: "none",
-            }}
-            transition={{
-                duration: 0.2,
-            }}
-        >
-            <button
-                type="button"
-                className="touch-none cursor-grab active:cursor-grabbing p-1 -m-1"
-                onPointerDown={e => dragControls.start(e)}
-                aria-label="Drag to reorder"
-            >
-                <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
-            <Dialog open={isIconDialogOpen} onOpenChange={onIconDialogChange}>
-                <DialogTrigger asChild>
-                    <button
-                        type="button"
-                        className="shrink-0 p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors"
-                        aria-label={`Change icon for ${track.title}`}
-                    >
-                        {track.iconUrl ? (
-                            <img
-                                src={track.iconUrl}
-                                alt=""
-                                className="w-8 h-8"
-                                style={{
-                                    imageRendering: "pixelated",
-                                }}
-                            />
-                        ) : (
-                            <div className="w-8 h-8 bg-zinc-700 rounded" />
-                        )}
-                    </button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-lg">
-                    {iconPickerContent}
-                </DialogContent>
-            </Dialog>
-            <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{track.title}</p>
-            </div>
-            {track.duration && (
-                <span className="text-sm text-muted-foreground">
-                    {formatDuration(track.duration)}
-                </span>
-            )}
-            <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-destructive"
-                        disabled={isBusy || isReordering}
-                        aria-label={`Delete track: ${track.title}`}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Track</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Are you sure you want to delete &ldquo;{track.title}
-                            &rdquo;? This will remove the track from the card.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <Form method="post">
-                            <input
-                                type="hidden"
-                                name="intent"
-                                value="deleteTrack"
-                            />
-                            <input
-                                type="hidden"
-                                name="trackKey"
-                                value={track.key}
-                            />
-                            <AlertDialogAction
-                                type="submit"
-                                className="bg-destructive text-white hover:bg-destructive/90"
-                            >
-                                Delete
-                            </AlertDialogAction>
-                        </Form>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </Reorder.Item>
-    )
-}
-
 export default function CardDetail({
     loaderData,
 }: {
     loaderData: Awaited<ReturnType<typeof loader>>
 }) {
-    const {card, tracks} = loaderData
+    const {card, tracks, otherCards} = loaderData
     const navigation = useNavigation()
     const actionData = useActionData<ActionData>()
     const reorderFetcher = useFetcher<ActionData>()
     const iconFetcher = useFetcher<ActionData>()
     const coverFetcher = useFetcher<ActionData>()
     const numberFetcher = useFetcher<ActionData>()
+    const copyFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
@@ -897,6 +754,9 @@ export default function CardDetail({
 
     // State for add tracks dialog
     const [addTracksDialogOpen, setAddTracksDialogOpen] = useState(false)
+
+    // State for copy track dialog
+    const [copyTrackKey, setCopyTrackKey] = useState<string | null>(null)
 
     // Sync local state with loader data when it changes
     useEffect(() => {
@@ -1021,6 +881,26 @@ export default function CardDetail({
         }
         prevNumberState.current = numberFetcher.state
     }, [numberFetcher.state, numberFetcher.data])
+
+    // Show toast for copy track results and close dialog on completion
+    const prevCopyState = useRef(copyFetcher.state)
+    useEffect(() => {
+        if (
+            prevCopyState.current !== "idle" &&
+            copyFetcher.state === "idle" &&
+            copyFetcher.data
+        ) {
+            if (copyFetcher.data.copied) {
+                toast.success(
+                    `Track copied to ${copyFetcher.data.destinationCardTitle}`,
+                )
+                setCopyTrackKey(null)
+            } else if (copyFetcher.data.error) {
+                toast.error(copyFetcher.data.error)
+            }
+        }
+        prevCopyState.current = copyFetcher.state
+    }, [copyFetcher.state, copyFetcher.data])
 
     // Handle icon selection from picker
     const handleIconSelect = (icon: IconSelection) => {
@@ -1300,6 +1180,9 @@ export default function CardDetail({
                                                 onSelect={handleIconSelect}
                                             />
                                         }
+                                        onCopy={() =>
+                                            setCopyTrackKey(track.key)
+                                        }
                                     />
                                 ))}
                             </Reorder.Group>
@@ -1313,6 +1196,23 @@ export default function CardDetail({
                     open={addTracksDialogOpen}
                     onOpenChange={setAddTracksDialogOpen}
                 />
+
+                {copyTrackKey && (
+                    <CopyTrackDialog
+                        track={
+                            orderedTracks.find(t => t.key === copyTrackKey) ?? {
+                                key: copyTrackKey,
+                                title: "Unknown Track",
+                            }
+                        }
+                        cards={otherCards}
+                        open={true}
+                        onOpenChange={open => {
+                            if (!open) setCopyTrackKey(null)
+                        }}
+                        copyFetcher={copyFetcher}
+                    />
+                )}
             </div>
         </div>
     )
