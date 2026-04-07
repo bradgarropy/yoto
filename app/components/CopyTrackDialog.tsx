@@ -1,5 +1,6 @@
 import type {useFetcher} from "react-router"
 
+import {CARD_ASPECT_RATIO} from "~/components/CardCover"
 import {
     Dialog,
     DialogContent,
@@ -75,10 +76,12 @@ const CopyTrackDialog = ({
                                         <img
                                             src={card.coverUrl}
                                             alt=""
-                                            className="w-10 h-10 rounded object-cover shrink-0"
+                                            className={`w-8 ${CARD_ASPECT_RATIO} rounded object-cover shrink-0`}
                                         />
                                     ) : (
-                                        <div className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0">
+                                        <div
+                                            className={`w-8 ${CARD_ASPECT_RATIO} rounded bg-muted flex items-center justify-center shrink-0`}
+                                        >
                                             <span className="text-muted-foreground text-sm">
                                                 ?
                                             </span>
