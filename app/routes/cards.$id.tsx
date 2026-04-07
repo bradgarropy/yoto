@@ -45,6 +45,7 @@ import {
     type ImportProgress,
     stripNullValues,
 } from "~/lib/sync-utils"
+import {getCardCoverUrl} from "~/lib/types"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
@@ -68,7 +69,20 @@ export async function loader({params, context}: Route.LoaderArgs) {
     const {sdk} = context.get(authContext)
 
     try {
-        const card = await sdk.content.getCard(cardId)
+        // Fetch current card and all cards in parallel
+        const [card, allCards] = await Promise.all([
+            sdk.content.getCard(cardId),
+            sdk.content.getMyCards(),
+        ])
+
+        // Build other cards list (excluding current card)
+        const otherCards = allCards
+            .filter(c => c.cardId !== cardId)
+            .map(c => ({
+                id: c.cardId,
+                title: c.title ?? "Untitled Card",
+                coverUrl: getCardCoverUrl(c),
+            }))
 
         // Type assertion for SDK response - getCard returns the card directly
         const cardData = card as unknown as {
@@ -162,6 +176,7 @@ export async function loader({params, context}: Route.LoaderArgs) {
                 coverUrl,
             },
             tracks,
+            otherCards,
         }
     } catch (error) {
         console.error("Failed to fetch card:", error)
