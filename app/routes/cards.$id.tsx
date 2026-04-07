@@ -42,7 +42,7 @@ import {Input} from "~/components/ui/input"
 import {getToken} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {stripNullValues} from "~/lib/sync-utils"
-import {getCardCoverUrl} from "~/lib/types"
+import {type CardData, getCardCoverUrl} from "~/lib/types"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
@@ -82,27 +82,7 @@ export async function loader({params, context}: Route.LoaderArgs) {
             }))
 
         // Type assertion for SDK response - getCard returns the card directly
-        const cardData = card as unknown as {
-            cardId: string
-            title?: string
-            metadata?: {
-                coverImageUrl?: string
-                cover?: {
-                    imageL?: string
-                    imageM?: string
-                    imageS?: string
-                }
-            }
-            content?: {
-                chapters?: Array<{
-                    key?: string
-                    title?: string
-                    duration?: number
-                    display?: {icon16x16?: string} | null
-                    tracks?: Array<{trackUrl?: string}>
-                }>
-            }
-        }
+        const cardData = card as unknown as CardData
 
         if (!cardData) {
             throw new Error("Card not found")
@@ -200,22 +180,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             }
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        tracks?: Array<{trackUrl?: string}>
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             // Filter out the track to delete
             const updatedChapters = card.content.chapters.filter(
@@ -262,37 +229,8 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 sdk.content.getCard(destinationCardId),
             ])
 
-            const sourceCardData = sourceCard as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
-
-            const destCardData = destCard as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const sourceCardData = sourceCard as unknown as CardData
+            const destCardData = destCard as unknown as CardData
 
             // Find the chapter to copy from the source card
             const chapterToCopy = sourceCardData.content.chapters.find(
@@ -354,18 +292,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const newOrder = JSON.parse(trackKeysJson) as string[]
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{key?: string; [key: string]: unknown}>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             // Create a map of key -> chapter for reordering
             const chapterMap = new Map(
@@ -458,14 +387,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const {mediaUrl} = uploadResult.coverImage
 
             // Get current card and update cover metadata
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: Record<string, unknown>
-                metadata: Record<string, unknown> & {
-                    cover?: {imageL?: string; imageM?: string; imageS?: string}
-                }
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             const updatedCard = {
                 cardId,
@@ -539,43 +463,21 @@ export async function action({params, request, context}: Route.ActionArgs) {
             }
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        display?: {icon16x16?: string} | null
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             // Find and update the chapter's icon (both chapter-level and track-level)
             const updatedChapters = card.content.chapters.map(chapter => {
                 if (chapter.key === trackKey) {
-                    const chapterWithIcon = chapter as typeof chapter & {
-                        tracks?: Array<{
-                            display?: {icon16x16?: string} | null
-                            [key: string]: unknown
-                        }>
-                    }
-
                     // Update tracks display if present
-                    const updatedTracks = chapterWithIcon.tracks?.map(
-                        track => ({
-                            ...track,
-                            display: {
-                                ...track.display,
-                                icon16x16: `yoto:#${mediaId}`,
-                            },
-                        }),
-                    )
+                    const updatedTracks = chapter.tracks?.map(track => ({
+                        ...track,
+                        display: {
+                            ...track.display,
+                            icon16x16: `yoto:#${mediaId}`,
+                        },
+                    }))
 
                     return {
                         ...chapter,
@@ -617,26 +519,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             }
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        display?: {icon16x16?: string} | null
-                        tracks?: Array<{
-                            display?: {icon16x16?: string} | null
-                            [key: string]: unknown
-                        }>
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             const updatedChapters = card.content.chapters.map(
                 (chapter, index) => {
@@ -646,22 +531,13 @@ export async function action({params, request, context}: Route.ActionArgs) {
                     // Leave unchanged if no number icon for this position
                     if (!mediaId) return chapter
 
-                    const chapterWithTracks = chapter as typeof chapter & {
-                        tracks?: Array<{
-                            display?: {icon16x16?: string} | null
-                            [key: string]: unknown
-                        }>
-                    }
-
-                    const updatedTracks = chapterWithTracks.tracks?.map(
-                        track => ({
-                            ...track,
-                            display: {
-                                ...track.display,
-                                icon16x16: `yoto:#${mediaId}`,
-                            },
-                        }),
-                    )
+                    const updatedTracks = chapter.tracks?.map(track => ({
+                        ...track,
+                        display: {
+                            ...track.display,
+                            icon16x16: `yoto:#${mediaId}`,
+                        },
+                    }))
 
                     return {
                         ...chapter,
