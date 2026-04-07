@@ -41,7 +41,7 @@ import {
 import {Input} from "~/components/ui/input"
 import {getToken} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
-import {stripNullValues} from "~/lib/sync-utils"
+import {getNextChapterKey, stripNullValues} from "~/lib/sync-utils"
 import {type CardData, getCardCoverUrl} from "~/lib/types"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
@@ -241,9 +241,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 return {error: "Track not found on source card"}
             }
 
-            // Generate the next sequential key for the destination card
+            // Generate the next chapter key based on existing keys
             const destChapters = destCardData.content.chapters
-            const nextKey = String(destChapters.length).padStart(2, "0")
+            const nextKey = getNextChapterKey(destChapters)
 
             // Append the copied chapter with a new key
             const copiedChapter = {...chapterToCopy, key: nextKey}

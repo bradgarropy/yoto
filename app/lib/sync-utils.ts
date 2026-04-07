@@ -114,7 +114,21 @@ export const stripNullValues = <T>(obj: T): T => {
 }
 
 /**
+ * Compute the next chapter key based on existing chapters.
+ * Uses the max numeric key + 1 to avoid collisions when chapters
+ * have been deleted (which leaves gaps in the key sequence).
+ */
+export const getNextChapterKey = (chapters: Array<{key?: string}>): string => {
+    const maxKey = chapters.reduce((max, ch) => {
+        const num = parseInt(ch.key ?? "0", 10)
+        return num > max ? num : max
+    }, -1)
+    return String(maxKey + 1).padStart(2, "0")
+}
+
+/**
  * Create a chapter object from an uploaded audio file.
+ *
  * @param title - The chapter/track title
  * @param transcodedSha256 - The SHA256 hash of the transcoded audio file
  * @param position - The 1-based position of the chapter in the playlist

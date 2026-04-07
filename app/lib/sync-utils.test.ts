@@ -1,6 +1,11 @@
 import {describe, expect, it} from "vitest"
 
-import {createChapter, getProgressPercent, stripNullValues} from "./sync-utils"
+import {
+    createChapter,
+    getNextChapterKey,
+    getProgressPercent,
+    stripNullValues,
+} from "./sync-utils"
 
 describe("getProgressPercent", () => {
     it("should return 0 when progress is null", () => {
@@ -332,5 +337,40 @@ describe("createChapter", () => {
         expect(chapter.tracks[0].format).toBe("opus")
         expect(chapter.tracks[0].type).toBe("audio")
         expect(chapter.tracks[0].channels).toBe("stereo")
+    })
+})
+
+describe("getNextChapterKey", () => {
+    it("should return '00' for an empty array", () => {
+        expect(getNextChapterKey([])).toBe("00")
+    })
+
+    it("should return next key for sequential chapters", () => {
+        const chapters = [{key: "00"}, {key: "01"}, {key: "02"}]
+        expect(getNextChapterKey(chapters)).toBe("03")
+    })
+
+    it("should handle gaps from deleted chapters", () => {
+        const chapters = [{key: "00"}, {key: "02"}]
+        expect(getNextChapterKey(chapters)).toBe("03")
+    })
+
+    it("should handle a single chapter", () => {
+        expect(getNextChapterKey([{key: "05"}])).toBe("06")
+    })
+
+    it("should handle chapters with undefined keys", () => {
+        const chapters = [{key: undefined}, {key: "03"}]
+        expect(getNextChapterKey(chapters)).toBe("04")
+    })
+
+    it("should pad single-digit keys with leading zero", () => {
+        const chapters = [{key: "08"}]
+        expect(getNextChapterKey(chapters)).toBe("09")
+    })
+
+    it("should handle double-digit keys", () => {
+        const chapters = [{key: "10"}, {key: "11"}]
+        expect(getNextChapterKey(chapters)).toBe("12")
     })
 })
