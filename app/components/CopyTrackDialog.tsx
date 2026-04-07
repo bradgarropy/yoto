@@ -1,4 +1,4 @@
-import type {useFetcher} from "react-router"
+import type {FetcherWithComponents} from "react-router"
 
 import {CARD_ASPECT_RATIO} from "~/components/CardCover"
 import {
@@ -9,6 +9,7 @@ import {
     DialogTitle,
 } from "~/components/ui/dialog"
 import type {TransferCard} from "~/lib/types"
+import type {ActionData} from "~/routes/cards.$id"
 
 const CopyTrackDialog = ({
     track,
@@ -21,7 +22,7 @@ const CopyTrackDialog = ({
     cards: TransferCard[]
     open: boolean
     onOpenChange: (open: boolean) => void
-    copyFetcher: ReturnType<typeof useFetcher>
+    copyFetcher: FetcherWithComponents<ActionData>
 }) => {
     const isCopying = copyFetcher.state !== "idle"
 

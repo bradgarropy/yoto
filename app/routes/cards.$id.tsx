@@ -576,7 +576,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
     }
 }
 
-type ActionData = {
+export type ActionData = {
     error?: string
     success?: boolean
     message?: string
