@@ -1,4 +1,4 @@
-import {Github} from "lucide-react"
+import {CircleDollarSign, Github} from "lucide-react"
 
 import {FeedbackDialog} from "~/components/FeedbackDialog"
 
@@ -8,8 +8,21 @@ const Footer = () => {
             <div className="max-w-6xl mx-auto flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <p className="font-bold text-lg">Yoto Sync</p>
+
                     <p className="text-sm text-muted-foreground mt-1">
                         Sync YouTube content to Yoto cards.
+                    </p>
+
+                    <p className="text-sm text-muted-foreground mt-1">
+                        Made by{" "}
+                        <a
+                            href="https://bradgarropy.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-foreground transition-colors underline underline-offset-4"
+                        >
+                            Brad Garropy
+                        </a>
                     </p>
                 </div>
 
@@ -23,18 +36,18 @@ const Footer = () => {
                         <Github className="h-4 w-4" />
                         GitHub
                     </a>
+
+                    <a
+                        href="https://bradgarropy.com/donate"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        <CircleDollarSign className="h-4 w-4" />
+                        Donate
+                    </a>
+
                     <FeedbackDialog />
-                    <p className="text-sm text-muted-foreground">
-                        Made by{" "}
-                        <a
-                            href="https://bradgarropy.com"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-foreground transition-colors underline underline-offset-4"
-                        >
-                            Brad Garropy
-                        </a>
-                    </p>
                 </div>
             </div>
         </footer>
