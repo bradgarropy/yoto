@@ -1,7 +1,7 @@
-import {GripVertical, ListOrdered, Plus, Trash2} from "lucide-react"
-import {Reorder, useDragControls} from "motion/react"
+import {ListOrdered, Plus, Trash2} from "lucide-react"
+import {Reorder} from "motion/react"
 import pLimit from "p-limit"
-import {type SubmitEvent, useCallback, useEffect, useRef, useState} from "react"
+import {useEffect, useRef, useState} from "react"
 import {
     Form,
     Link,
@@ -9,12 +9,14 @@ import {
     useActionData,
     useFetcher,
     useNavigation,
-    useRevalidator,
 } from "react-router"
 import {toast} from "sonner"
 
+import {AddTracksDialog} from "~/components/AddTracksDialog"
 import {CARD_ASPECT_RATIO, CardCover} from "~/components/CardCover"
+import {CopyTrackDialog} from "~/components/CopyTrackDialog"
 import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
+import {type Track, TrackItem} from "~/components/TrackItem"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -37,14 +39,11 @@ import {
     DialogTrigger,
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
-import {Progress} from "~/components/ui/progress"
 import {getToken} from "~/lib/auth.server"
+import {getCardCoverUrl} from "~/lib/card-utils"
 import {cloudflareContext} from "~/lib/cloudflare-context"
-import {
-    getProgressPercent,
-    type ImportProgress,
-    stripNullValues,
-} from "~/lib/sync-utils"
+import {getNextChapterKey, stripNullValues} from "~/lib/sync-utils"
+import type {CardData} from "~/lib/types"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
@@ -68,30 +67,23 @@ export async function loader({params, context}: Route.LoaderArgs) {
     const {sdk} = context.get(authContext)
 
     try {
-        const card = await sdk.content.getCard(cardId)
+        // Fetch current card and all cards in parallel
+        const [card, allCards] = await Promise.all([
+            sdk.content.getCard(cardId),
+            sdk.content.getMyCards(),
+        ])
+
+        // Build other cards list (excluding current card)
+        const otherCards = allCards
+            .filter(c => c.cardId !== cardId)
+            .map(c => ({
+                id: c.cardId,
+                title: c.title ?? "Untitled Card",
+                coverUrl: getCardCoverUrl(c),
+            }))
 
         // Type assertion for SDK response - getCard returns the card directly
-        const cardData = card as unknown as {
-            cardId: string
-            title?: string
-            metadata?: {
-                coverImageUrl?: string
-                cover?: {
-                    imageL?: string
-                    imageM?: string
-                    imageS?: string
-                }
-            }
-            content?: {
-                chapters?: Array<{
-                    key?: string
-                    title?: string
-                    duration?: number
-                    display?: {icon16x16?: string} | null
-                    tracks?: Array<{trackUrl?: string}>
-                }>
-            }
-        }
+        const cardData = card as unknown as CardData
 
         if (!cardData) {
             throw new Error("Card not found")
@@ -99,12 +91,7 @@ export async function loader({params, context}: Route.LoaderArgs) {
 
         const chapters = cardData.content?.chapters ?? []
 
-        // Get cover URL - check metadata.cover first, then coverImageUrl as fallback
-        const coverUrl =
-            cardData.metadata?.cover?.imageL ??
-            cardData.metadata?.cover?.imageM ??
-            cardData.metadata?.cover?.imageS ??
-            cardData.metadata?.coverImageUrl
+        const coverUrl = getCardCoverUrl(cardData)
 
         // Build tracks with icon media IDs
         const tracksWithIconIds = chapters.map(
@@ -162,6 +149,7 @@ export async function loader({params, context}: Route.LoaderArgs) {
                 coverUrl,
             },
             tracks,
+            otherCards,
         }
     } catch (error) {
         console.error("Failed to fetch card:", error)
@@ -188,22 +176,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             }
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        tracks?: Array<{trackUrl?: string}>
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             // Filter out the track to delete
             const updatedChapters = card.content.chapters.filter(
@@ -230,6 +205,77 @@ export async function action({params, request, context}: Route.ActionArgs) {
             return {success: true, deleted: trackKey}
         }
 
+        if (intent === "copyTrack") {
+            const trackKey = formData.get("trackKey") as string
+            const destinationCardId = formData.get(
+                "destinationCardId",
+            ) as string
+
+            if (!trackKey) {
+                return {error: "Track key is required"}
+            }
+
+            if (!destinationCardId) {
+                return {error: "Destination card is required"}
+            }
+
+            if (destinationCardId === cardId) {
+                return {error: "Cannot copy a track to the same card"}
+            }
+
+            // Fetch source and destination cards in parallel
+            const [sourceCard, destCard] = await Promise.all([
+                sdk.content.getCard(cardId),
+                sdk.content.getCard(destinationCardId),
+            ])
+
+            const sourceCardData = sourceCard as unknown as CardData
+            const destCardData = destCard as unknown as CardData
+
+            // Find the chapter to copy from the source card
+            const chapterToCopy = sourceCardData.content.chapters.find(
+                chapter => chapter.key === trackKey,
+            )
+
+            if (!chapterToCopy) {
+                return {error: "Track not found on source card"}
+            }
+
+            // Generate the next chapter key based on existing keys
+            const destChapters = destCardData.content.chapters
+            const nextKey = getNextChapterKey(destChapters)
+
+            // Append the copied chapter with a new key
+            const copiedChapter = {...chapterToCopy, key: nextKey}
+            const updatedChapters = [
+                ...stripNullValues(destChapters),
+                stripNullValues(copiedChapter),
+            ]
+
+            // Update the destination card
+            const updatedDestCard = {
+                cardId: destinationCardId,
+                title: destCardData.title,
+                content: {
+                    ...destCardData.content,
+                    chapters: updatedChapters,
+                },
+                metadata: destCardData.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedDestCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {
+                success: true,
+                copied: true,
+                destinationCardTitle: destCardData.title ?? "Untitled Card",
+            }
+        }
+
         if (intent === "deleteCard") {
             await sdk.content.deleteCard(cardId)
 
@@ -246,18 +292,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const newOrder = JSON.parse(trackKeysJson) as string[]
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{key?: string; [key: string]: unknown}>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             // Create a map of key -> chapter for reordering
             const chapterMap = new Map(
@@ -350,14 +387,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const {mediaUrl} = uploadResult.coverImage
 
             // Get current card and update cover metadata
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: Record<string, unknown>
-                metadata: Record<string, unknown> & {
-                    cover?: {imageL?: string; imageM?: string; imageS?: string}
-                }
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             const updatedCard = {
                 cardId,
@@ -431,43 +463,21 @@ export async function action({params, request, context}: Route.ActionArgs) {
             }
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        display?: {icon16x16?: string} | null
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             // Find and update the chapter's icon (both chapter-level and track-level)
             const updatedChapters = card.content.chapters.map(chapter => {
                 if (chapter.key === trackKey) {
-                    const chapterWithIcon = chapter as typeof chapter & {
-                        tracks?: Array<{
-                            display?: {icon16x16?: string} | null
-                            [key: string]: unknown
-                        }>
-                    }
-
                     // Update tracks display if present
-                    const updatedTracks = chapterWithIcon.tracks?.map(
-                        track => ({
-                            ...track,
-                            display: {
-                                ...track.display,
-                                icon16x16: `yoto:#${mediaId}`,
-                            },
-                        }),
-                    )
+                    const updatedTracks = chapter.tracks?.map(track => ({
+                        ...track,
+                        display: {
+                            ...track.display,
+                            icon16x16: `yoto:#${mediaId}`,
+                        },
+                    }))
 
                     return {
                         ...chapter,
@@ -509,26 +519,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             }
 
             // Get current card
-            const card = (await sdk.content.getCard(cardId)) as unknown as {
-                cardId: string
-                title?: string
-                content: {
-                    activity: string
-                    chapters: Array<{
-                        key?: string
-                        display?: {icon16x16?: string} | null
-                        tracks?: Array<{
-                            display?: {icon16x16?: string} | null
-                            [key: string]: unknown
-                        }>
-                        [key: string]: unknown
-                    }>
-                    restricted: boolean
-                    config: {onlineOnly: boolean}
-                    version: string
-                }
-                metadata: Record<string, unknown>
-            }
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
 
             const updatedChapters = card.content.chapters.map(
                 (chapter, index) => {
@@ -538,22 +531,13 @@ export async function action({params, request, context}: Route.ActionArgs) {
                     // Leave unchanged if no number icon for this position
                     if (!mediaId) return chapter
 
-                    const chapterWithTracks = chapter as typeof chapter & {
-                        tracks?: Array<{
-                            display?: {icon16x16?: string} | null
-                            [key: string]: unknown
-                        }>
-                    }
-
-                    const updatedTracks = chapterWithTracks.tracks?.map(
-                        track => ({
-                            ...track,
-                            display: {
-                                ...track.display,
-                                icon16x16: `yoto:#${mediaId}`,
-                            },
-                        }),
-                    )
+                    const updatedTracks = chapter.tracks?.map(track => ({
+                        ...track,
+                        display: {
+                            ...track.display,
+                            icon16x16: `yoto:#${mediaId}`,
+                        },
+                    }))
 
                     return {
                         ...chapter,
@@ -592,14 +576,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
     }
 }
 
-function formatDuration(seconds?: number): string {
-    if (!seconds) return ""
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, "0")}`
-}
-
-type ActionData = {
+export type ActionData = {
     error?: string
     success?: boolean
     message?: string
@@ -610,356 +587,8 @@ type ActionData = {
     iconUpdated?: boolean
     coverUpdated?: boolean
     tracksNumbered?: boolean
-}
-
-type Track = {
-    key: string
-    title: string
-    duration?: number
-    iconUrl?: string
-}
-
-function TrackItem({
-    track,
-    onDragEnd,
-    isBusy,
-    isReordering,
-    isIconDialogOpen,
-    onIconDialogChange,
-    iconPickerContent,
-}: {
-    track: Track
-    onDragEnd: () => void
-    isBusy: boolean
-    isReordering: boolean
-    isIconDialogOpen: boolean
-    onIconDialogChange: (open: boolean) => void
-    iconPickerContent: React.ReactNode
-}) {
-    const dragControls = useDragControls()
-
-    return (
-        <Reorder.Item
-            key={track.key}
-            value={track}
-            className="py-3 flex items-center gap-4 bg-background"
-            onDragEnd={onDragEnd}
-            dragListener={false}
-            dragControls={dragControls}
-            initial={{
-                scale: 1,
-                boxShadow: "none",
-            }}
-            whileDrag={{
-                scale: 1.02,
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                zIndex: 1,
-            }}
-            animate={{
-                scale: 1,
-                boxShadow: "none",
-            }}
-            transition={{
-                duration: 0.2,
-            }}
-        >
-            <button
-                type="button"
-                className="touch-none cursor-grab active:cursor-grabbing p-1 -m-1"
-                onPointerDown={e => dragControls.start(e)}
-                aria-label="Drag to reorder"
-            >
-                <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
-            <Dialog open={isIconDialogOpen} onOpenChange={onIconDialogChange}>
-                <DialogTrigger asChild>
-                    <button
-                        type="button"
-                        className="shrink-0 p-2 rounded-md bg-zinc-900 hover:bg-zinc-700 transition-colors"
-                        aria-label={`Change icon for ${track.title}`}
-                    >
-                        {track.iconUrl ? (
-                            <img
-                                src={track.iconUrl}
-                                alt=""
-                                className="w-8 h-8"
-                                style={{
-                                    imageRendering: "pixelated",
-                                }}
-                            />
-                        ) : (
-                            <div className="w-8 h-8 bg-zinc-700 rounded" />
-                        )}
-                    </button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-lg">
-                    {iconPickerContent}
-                </DialogContent>
-            </Dialog>
-            <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{track.title}</p>
-            </div>
-            {track.duration && (
-                <span className="text-sm text-muted-foreground">
-                    {formatDuration(track.duration)}
-                </span>
-            )}
-            <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-destructive"
-                        disabled={isBusy || isReordering}
-                        aria-label={`Delete track: ${track.title}`}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Track</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Are you sure you want to delete &ldquo;{track.title}
-                            &rdquo;? This will remove the track from the card.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <Form method="post">
-                            <input
-                                type="hidden"
-                                name="intent"
-                                value="deleteTrack"
-                            />
-                            <input
-                                type="hidden"
-                                name="trackKey"
-                                value={track.key}
-                            />
-                            <AlertDialogAction
-                                type="submit"
-                                className="bg-destructive text-white hover:bg-destructive/90"
-                            >
-                                Delete
-                            </AlertDialogAction>
-                        </Form>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </Reorder.Item>
-    )
-}
-
-type ImportState =
-    | {status: "idle"}
-    | {status: "importing"; progress: ImportProgress | null}
-    | {status: "complete"; added: number; skipped: number; message: string}
-    | {status: "error"; error: string}
-
-function getProgressMessage(progress: ImportProgress | null): string {
-    if (!progress) return "Preparing..."
-
-    switch (progress.phase) {
-        case "preparing":
-            return "Preparing..."
-        case "downloading":
-            return progress.current && progress.total
-                ? `Downloading... (${progress.current}/${progress.total})`
-                : "Downloading..."
-        case "uploading":
-            return progress.current && progress.total
-                ? `Uploading... (${progress.current}/${progress.total})`
-                : "Uploading..."
-        case "transcoding":
-            return progress.current && progress.total
-                ? `Transcoding... (${progress.current}/${progress.total})`
-                : "Transcoding..."
-        case "finalizing":
-            return "Finalizing..."
-        default:
-            return "Processing..."
-    }
-}
-
-function AddTracksDialog({
-    cardId,
-    isBusy,
-    open,
-    onOpenChange,
-}: {
-    cardId: string
-    isBusy: boolean
-    open: boolean
-    onOpenChange: (open: boolean) => void
-}) {
-    const [importState, setImportState] = useState<ImportState>({
-        status: "idle",
-    })
-    const [youtubeUrl, setYoutubeUrl] = useState("")
-    const eventSourceRef = useRef<EventSource | null>(null)
-    const revalidator = useRevalidator()
-
-    const isImporting = importState.status === "importing"
-
-    const startImport = useCallback(() => {
-        if (!youtubeUrl.trim()) return
-
-        // Clean up any existing connection
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close()
-        }
-
-        setImportState({status: "importing", progress: null})
-
-        const url = `/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`
-        const eventSource = new EventSource(url)
-        eventSourceRef.current = eventSource
-
-        eventSource.onmessage = event => {
-            try {
-                const data = JSON.parse(event.data)
-
-                if (data.type === "progress") {
-                    setImportState({
-                        status: "importing",
-                        progress: {
-                            phase: data.phase,
-                            current: data.current,
-                            total: data.total,
-                            title: data.title,
-                        },
-                    })
-                } else if (data.type === "complete") {
-                    setImportState({
-                        status: "complete",
-                        added: data.added,
-                        skipped: data.skipped,
-                        message: data.message,
-                    })
-                    eventSource.close()
-                    setYoutubeUrl("")
-                    revalidator.revalidate()
-                } else if (data.type === "error") {
-                    setImportState({status: "error", error: data.error})
-                    eventSource.close()
-                } else {
-                    // Unexpected payload shape or type
-                    setImportState({
-                        status: "error",
-                        error: "Unexpected response from server. Please try again.",
-                    })
-                    eventSource.close()
-                }
-            } catch {
-                // Treat JSON parse failures as an error so the user can retry
-                setImportState({
-                    status: "error",
-                    error: "Unexpected response from server. Please try again.",
-                })
-                eventSource.close()
-            }
-        }
-
-        eventSource.onerror = () => {
-            setImportState({
-                status: "error",
-                error: "Connection lost. Please try again.",
-            })
-            eventSource.close()
-        }
-    }, [cardId, youtubeUrl, revalidator])
-
-    // Clean up on unmount
-    useEffect(() => {
-        return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close()
-            }
-        }
-    }, [])
-
-    // Show toast and close dialog on completion/error
-    useEffect(() => {
-        if (importState.status === "complete") {
-            toast.success(importState.message)
-            onOpenChange(false)
-            // Reset to idle after closing
-            const timer = setTimeout(
-                () => setImportState({status: "idle"}),
-                300,
-            )
-            return () => clearTimeout(timer)
-        } else if (importState.status === "error") {
-            toast.error(importState.error)
-            // Reset to idle after showing toast
-            const timer = setTimeout(
-                () => setImportState({status: "idle"}),
-                3000,
-            )
-            return () => clearTimeout(timer)
-        }
-    }, [importState, onOpenChange])
-
-    const progress =
-        importState.status === "importing" ? importState.progress : null
-
-    const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
-        e.preventDefault()
-        startImport()
-    }
-
-    // Block closing the dialog while importing
-    const handleOpenChange = (newOpen: boolean) => {
-        if (!newOpen && isImporting) return
-        onOpenChange(newOpen)
-    }
-
-    return (
-        <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent
-                onPointerDownOutside={e => {
-                    if (isImporting) e.preventDefault()
-                }}
-                onEscapeKeyDown={e => {
-                    if (isImporting) e.preventDefault()
-                }}
-            >
-                <DialogHeader>
-                    <DialogTitle>Add Tracks</DialogTitle>
-                    <DialogDescription>
-                        Paste a YouTube video or playlist URL to import tracks.
-                    </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <Input
-                        type="url"
-                        placeholder="https://www.youtube.com/watch?v=abc123"
-                        required
-                        disabled={isBusy || isImporting}
-                        value={youtubeUrl}
-                        onChange={e => setYoutubeUrl(e.target.value)}
-                    />
-                    <Button
-                        type="submit"
-                        disabled={isBusy || isImporting || !youtubeUrl.trim()}
-                        className="w-full"
-                    >
-                        Import
-                    </Button>
-
-                    {isImporting && (
-                        <div className="space-y-2">
-                            <Progress value={getProgressPercent(progress)} />
-                            <p className="text-sm text-muted-foreground">
-                                {getProgressMessage(progress)}
-                            </p>
-                        </div>
-                    )}
-                </form>
-            </DialogContent>
-        </Dialog>
-    )
+    copied?: boolean
+    destinationCardTitle?: string
 }
 
 export default function CardDetail({
@@ -967,13 +596,14 @@ export default function CardDetail({
 }: {
     loaderData: Awaited<ReturnType<typeof loader>>
 }) {
-    const {card, tracks} = loaderData
+    const {card, tracks, otherCards} = loaderData
     const navigation = useNavigation()
     const actionData = useActionData<ActionData>()
     const reorderFetcher = useFetcher<ActionData>()
     const iconFetcher = useFetcher<ActionData>()
     const coverFetcher = useFetcher<ActionData>()
     const numberFetcher = useFetcher<ActionData>()
+    const copyFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
@@ -1000,6 +630,9 @@ export default function CardDetail({
 
     // State for add tracks dialog
     const [addTracksDialogOpen, setAddTracksDialogOpen] = useState(false)
+
+    // State for copy track dialog
+    const [copyTrackKey, setCopyTrackKey] = useState<string | null>(null)
 
     // Sync local state with loader data when it changes
     useEffect(() => {
@@ -1124,6 +757,26 @@ export default function CardDetail({
         }
         prevNumberState.current = numberFetcher.state
     }, [numberFetcher.state, numberFetcher.data])
+
+    // Show toast for copy track results and close dialog on completion
+    const prevCopyState = useRef(copyFetcher.state)
+    useEffect(() => {
+        if (
+            prevCopyState.current !== "idle" &&
+            copyFetcher.state === "idle" &&
+            copyFetcher.data
+        ) {
+            if (copyFetcher.data.copied) {
+                toast.success(
+                    `Track copied to ${copyFetcher.data.destinationCardTitle}`,
+                )
+                setCopyTrackKey(null)
+            } else if (copyFetcher.data.error) {
+                toast.error(copyFetcher.data.error)
+            }
+        }
+        prevCopyState.current = copyFetcher.state
+    }, [copyFetcher.state, copyFetcher.data])
 
     // Handle icon selection from picker
     const handleIconSelect = (icon: IconSelection) => {
@@ -1403,6 +1056,9 @@ export default function CardDetail({
                                                 onSelect={handleIconSelect}
                                             />
                                         }
+                                        onCopy={() =>
+                                            setCopyTrackKey(track.key)
+                                        }
                                     />
                                 ))}
                             </Reorder.Group>
@@ -1416,6 +1072,23 @@ export default function CardDetail({
                     open={addTracksDialogOpen}
                     onOpenChange={setAddTracksDialogOpen}
                 />
+
+                {copyTrackKey && (
+                    <CopyTrackDialog
+                        track={
+                            orderedTracks.find(t => t.key === copyTrackKey) ?? {
+                                key: copyTrackKey,
+                                title: "Unknown Track",
+                            }
+                        }
+                        cards={otherCards}
+                        open={true}
+                        onOpenChange={open => {
+                            if (!open) setCopyTrackKey(null)
+                        }}
+                        copyFetcher={copyFetcher}
+                    />
+                )}
             </div>
         </div>
     )

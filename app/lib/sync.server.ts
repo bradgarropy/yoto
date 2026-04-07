@@ -5,6 +5,7 @@ import {getAuthenticatedSdk} from "./auth.server"
 import {downloadTrack, getPlaylistInfo} from "./sandbox.server"
 import {
     createChapter,
+    getNextChapterKey,
     type ImportProgress,
     stripNullValues,
     type YotoChapter,
@@ -277,13 +278,17 @@ export async function performSyncToCard(
         transcodeResults.sort((a, b) => a.index - b.index)
 
         for (const {transcoded, track} of transcodeResults) {
+            const nextKey = getNextChapterKey(newChapters)
+            const position = parseInt(nextKey, 10) + 1
+
             const chapter = createChapter(
                 track.title,
                 transcoded.key,
-                newChapters.length + 1,
+                position,
                 transcoded.duration,
                 transcoded.fileSize,
             )
+
             newChapters.push(chapter)
         }
 

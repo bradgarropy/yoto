@@ -25,6 +25,7 @@ import {
 } from "~/components/ui/dropdown-menu"
 import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
+import {getCardCoverUrl} from "~/lib/card-utils"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
 import {authContext} from "~/middleware/auth.server"
 
@@ -77,18 +78,9 @@ export async function loader({context}: Route.LoaderArgs) {
     try {
         const cards = await sdk.content.getMyCards()
 
-        // SDK returns array of UserCard directly
-        // The actual API response includes metadata.cover, not cover directly
-        type CardWithMetadata = (typeof cards)[0] & {
-            metadata?: {
-                cover?: {imageL?: string; imageM?: string; imageS?: string}
-            }
-        }
-
         // Fetch full card details in parallel to get track counts
         const cardsWithDetails = await Promise.all(
             cards.map(async card => {
-                const cardWithMeta = card as CardWithMetadata
                 try {
                     const fullCard = (await sdk.content.getCard(
                         card.cardId,
@@ -98,13 +90,7 @@ export async function loader({context}: Route.LoaderArgs) {
                     return {
                         id: card.cardId,
                         title: card.title ?? "Untitled Card",
-                        coverUrl:
-                            cardWithMeta.metadata?.cover?.imageL ??
-                            cardWithMeta.metadata?.cover?.imageM ??
-                            cardWithMeta.metadata?.cover?.imageS ??
-                            card.cover?.imageL ??
-                            card.cover?.imageM ??
-                            card.cover?.imageS,
+                        coverUrl: getCardCoverUrl(card),
                         trackCount: fullCard.content?.chapters?.length ?? 0,
                         updatedAt: card.updatedAt ?? null,
                     }
@@ -113,13 +99,7 @@ export async function loader({context}: Route.LoaderArgs) {
                     return {
                         id: card.cardId,
                         title: card.title ?? "Untitled Card",
-                        coverUrl:
-                            cardWithMeta.metadata?.cover?.imageL ??
-                            cardWithMeta.metadata?.cover?.imageM ??
-                            cardWithMeta.metadata?.cover?.imageS ??
-                            card.cover?.imageL ??
-                            card.cover?.imageM ??
-                            card.cover?.imageS,
+                        coverUrl: getCardCoverUrl(card),
                         trackCount: 0,
                         updatedAt: card.updatedAt ?? null,
                     }
