@@ -245,6 +245,102 @@ export async function action({params, request, context}: Route.ActionArgs) {
             return {success: true, deleted: trackKey}
         }
 
+        if (intent === "copyTrack") {
+            const trackKey = formData.get("trackKey") as string
+            const destinationCardId = formData.get(
+                "destinationCardId",
+            ) as string
+
+            if (!trackKey) {
+                return {error: "Track key is required"}
+            }
+
+            if (!destinationCardId) {
+                return {error: "Destination card is required"}
+            }
+
+            // Fetch source and destination cards in parallel
+            const [sourceCard, destCard] = await Promise.all([
+                sdk.content.getCard(cardId),
+                sdk.content.getCard(destinationCardId),
+            ])
+
+            const sourceCardData = sourceCard as unknown as {
+                cardId: string
+                title?: string
+                content: {
+                    activity: string
+                    chapters: Array<{
+                        key?: string
+                        [key: string]: unknown
+                    }>
+                    restricted: boolean
+                    config: {onlineOnly: boolean}
+                    version: string
+                }
+                metadata: Record<string, unknown>
+            }
+
+            const destCardData = destCard as unknown as {
+                cardId: string
+                title?: string
+                content: {
+                    activity: string
+                    chapters: Array<{
+                        key?: string
+                        [key: string]: unknown
+                    }>
+                    restricted: boolean
+                    config: {onlineOnly: boolean}
+                    version: string
+                }
+                metadata: Record<string, unknown>
+            }
+
+            // Find the chapter to copy from the source card
+            const chapterToCopy = sourceCardData.content.chapters.find(
+                chapter => chapter.key === trackKey,
+            )
+
+            if (!chapterToCopy) {
+                return {error: "Track not found on source card"}
+            }
+
+            // Generate the next sequential key for the destination card
+            const destChapters = destCardData.content.chapters
+            const nextKey = String(destChapters.length).padStart(2, "0")
+
+            // Append the copied chapter with a new key
+            const copiedChapter = {...chapterToCopy, key: nextKey}
+            const updatedChapters = [
+                ...stripNullValues(destChapters),
+                stripNullValues(copiedChapter),
+            ]
+
+            // Update the destination card
+            const updatedDestCard = {
+                cardId: destinationCardId,
+                title: destCardData.title,
+                content: {
+                    ...destCardData.content,
+                    chapters: updatedChapters,
+                },
+                metadata: destCardData.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedDestCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {
+                success: true,
+                copied: true,
+                destinationCardTitle: destCardData.title ?? "Untitled Card",
+            }
+        }
+
         if (intent === "deleteCard") {
             await sdk.content.deleteCard(cardId)
 
@@ -625,6 +721,8 @@ type ActionData = {
     iconUpdated?: boolean
     coverUpdated?: boolean
     tracksNumbered?: boolean
+    copied?: boolean
+    destinationCardTitle?: string
 }
 
 type Track = {
