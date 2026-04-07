@@ -25,8 +25,8 @@ import {
 } from "~/components/ui/dropdown-menu"
 import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
+import {getCardCoverUrl} from "~/lib/card-utils"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
-import {getCardCoverUrl} from "~/lib/types"
 import {authContext} from "~/middleware/auth.server"
 
 import type {Route} from "./+types/cards"

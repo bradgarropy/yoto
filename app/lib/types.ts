@@ -6,6 +6,7 @@ import type {UserCard} from "@yotoplay/yoto-sdk"
  */
 export type CardWithMetadata = UserCard & {
     metadata?: {
+        coverImageUrl?: string
         cover?: {
             imageL?: string
             imageM?: string
@@ -32,6 +33,11 @@ export type TransferCard = {
 export type CardData = {
     cardId: string
     title?: string
+    cover?: {
+        imageL?: string
+        imageM?: string
+        imageS?: string
+    }
     content: {
         activity: string
         chapters: Array<{
@@ -58,19 +64,4 @@ export type CardData = {
             imageS?: string
         }
     }
-}
-
-/**
- * Extract the best available cover image URL from a card.
- * Checks metadata.cover first, then falls back to the top-level cover.
- */
-export function getCardCoverUrl(card: CardWithMetadata): string | undefined {
-    return (
-        card.metadata?.cover?.imageL ??
-        card.metadata?.cover?.imageM ??
-        card.metadata?.cover?.imageS ??
-        card.cover?.imageL ??
-        card.cover?.imageM ??
-        card.cover?.imageS
-    )
 }

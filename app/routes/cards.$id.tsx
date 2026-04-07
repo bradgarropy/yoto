@@ -40,9 +40,10 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {getToken} from "~/lib/auth.server"
+import {getCardCoverUrl} from "~/lib/card-utils"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/sync-utils"
-import {type CardData, getCardCoverUrl} from "~/lib/types"
+import type {CardData} from "~/lib/types"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
@@ -90,12 +91,7 @@ export async function loader({params, context}: Route.LoaderArgs) {
 
         const chapters = cardData.content?.chapters ?? []
 
-        // Get cover URL - check metadata.cover first, then coverImageUrl as fallback
-        const coverUrl =
-            cardData.metadata?.cover?.imageL ??
-            cardData.metadata?.cover?.imageM ??
-            cardData.metadata?.cover?.imageS ??
-            cardData.metadata?.coverImageUrl
+        const coverUrl = getCardCoverUrl(cardData)
 
         // Build tracks with icon media IDs
         const tracksWithIconIds = chapters.map(
