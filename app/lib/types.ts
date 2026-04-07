@@ -11,6 +11,16 @@ export type CardWithMetadata = UserCard & {
 }
 
 /**
+ * Lightweight card summary used when presenting a list of cards
+ * for transferring tracks between cards.
+ */
+export type TransferCard = {
+    id: string
+    title: string
+    coverUrl: string | undefined
+}
+
+/**
  * Extract the best available cover image URL from a card.
  * Checks metadata.cover first, then falls back to the top-level cover.
  */
