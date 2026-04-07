@@ -223,6 +223,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 return {error: "Destination card is required"}
             }
 
+            if (destinationCardId === cardId) {
+                return {error: "Cannot copy a track to the same card"}
+            }
+
             // Fetch source and destination cards in parallel
             const [sourceCard, destCard] = await Promise.all([
                 sdk.content.getCard(cardId),
