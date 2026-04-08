@@ -18,6 +18,7 @@ const EditableTitle = ({
     const [editValue, setEditValue] = useState(value)
     const pendingValueRef = useRef<string | null>(null)
     const inputRef = useRef<HTMLInputElement>(null)
+    const handledRef = useRef(false)
 
     // Clear pending value when the save completes (disabled transitions to false)
     // Handles both success (value matches) and failure (reverts to original value)
@@ -37,7 +38,7 @@ const EditableTitle = ({
 
     const displayValue = pendingValueRef.current ?? value
 
-    const handleSave = () => {
+    const save = () => {
         const trimmed = editValue.trim()
 
         if (!trimmed || trimmed === displayValue) {
@@ -48,6 +49,11 @@ const EditableTitle = ({
 
         pendingValueRef.current = trimmed
         onSave(trimmed)
+        setIsEditing(false)
+    }
+
+    const cancel = () => {
+        setEditValue(displayValue)
         setIsEditing(false)
     }
 
@@ -63,14 +69,21 @@ const EditableTitle = ({
                 onKeyDown={e => {
                     if (e.key === "Enter") {
                         e.preventDefault()
-                        handleSave()
+                        handledRef.current = true
+                        save()
                     }
                     if (e.key === "Escape") {
-                        setEditValue(displayValue)
-                        setIsEditing(false)
+                        handledRef.current = true
+                        cancel()
                     }
                 }}
-                onBlur={handleSave}
+                onBlur={() => {
+                    if (handledRef.current) {
+                        handledRef.current = false
+                        return
+                    }
+                    save()
+                }}
                 disabled={disabled}
             />
         )
