@@ -80,6 +80,7 @@ const EditableTitle = ({
         <button
             type="button"
             disabled={disabled}
+            aria-label={ariaLabel}
             className={`${className} inline-flex items-center gap-2 text-left border-b-2 border-transparent transition-opacity ${disabled ? "cursor-default opacity-50" : "group cursor-pointer"}`}
             onClick={() => {
                 setEditValue(displayValue)
