@@ -17,15 +17,13 @@ const EditableTitle = ({
     const pendingValueRef = useRef<string | null>(null)
     const inputRef = useRef<HTMLInputElement>(null)
 
-    // Clear pending value once the prop catches up
+    // Clear pending value when the save completes (disabled transitions to false)
+    // Handles both success (value matches) and failure (reverts to original value)
     useEffect(() => {
-        if (
-            pendingValueRef.current !== null &&
-            value === pendingValueRef.current
-        ) {
+        if (!disabled) {
             pendingValueRef.current = null
         }
-    }, [value])
+    }, [disabled])
 
     // Focus and select text when entering edit mode
     useEffect(() => {
