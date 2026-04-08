@@ -1,0 +1,108 @@
+import {Pencil} from "lucide-react"
+import {useEffect, useRef, useState} from "react"
+
+const EditableTitle = ({
+    value,
+    onSave,
+    disabled = false,
+    className = "",
+    ariaLabel = "Edit title",
+}: {
+    value: string
+    onSave: (newValue: string) => void
+    disabled?: boolean
+    className?: string
+    ariaLabel?: string
+}) => {
+    const [isEditing, setIsEditing] = useState(false)
+    const [editValue, setEditValue] = useState(value)
+    const pendingValueRef = useRef<string | null>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
+    const handledRef = useRef(false)
+
+    // Clear pending value when the save completes (disabled transitions to false)
+    // Handles both success (value matches) and failure (reverts to original value)
+    useEffect(() => {
+        if (!disabled) {
+            pendingValueRef.current = null
+        }
+    }, [disabled])
+
+    // Focus and select text when entering edit mode
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus()
+            inputRef.current.select()
+        }
+    }, [isEditing])
+
+    const displayValue = pendingValueRef.current ?? value
+
+    const save = () => {
+        const trimmed = editValue.trim()
+
+        if (!trimmed || trimmed === displayValue) {
+            setEditValue(displayValue)
+            setIsEditing(false)
+            return
+        }
+
+        pendingValueRef.current = trimmed
+        onSave(trimmed)
+        setIsEditing(false)
+    }
+
+    const cancel = () => {
+        setEditValue(displayValue)
+        setIsEditing(false)
+    }
+
+    if (isEditing) {
+        return (
+            <input
+                ref={inputRef}
+                type="text"
+                aria-label={ariaLabel}
+                className={`${className} bg-transparent border-b-2 border-primary outline-none w-full`}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onKeyDown={e => {
+                    if (e.key === "Enter") {
+                        e.preventDefault()
+                        handledRef.current = true
+                        save()
+                    }
+                    if (e.key === "Escape") {
+                        handledRef.current = true
+                        cancel()
+                    }
+                }}
+                onBlur={() => {
+                    if (handledRef.current) {
+                        handledRef.current = false
+                        return
+                    }
+                    save()
+                }}
+                disabled={disabled}
+            />
+        )
+    }
+
+    return (
+        <button
+            type="button"
+            disabled={disabled}
+            className={`${className} inline-flex items-center gap-2 text-left border-b-2 border-transparent transition-opacity ${disabled ? "cursor-default opacity-50" : "group cursor-pointer"}`}
+            onClick={() => {
+                setEditValue(displayValue)
+                setIsEditing(true)
+            }}
+        >
+            {displayValue}
+            <Pencil className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+        </button>
+    )
+}
+
+export {EditableTitle}
