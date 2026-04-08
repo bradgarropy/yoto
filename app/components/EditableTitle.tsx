@@ -80,7 +80,7 @@ const EditableTitle = ({
         <button
             type="button"
             disabled={disabled}
-            className={`${className} inline-flex items-center gap-2 text-left border-b-2 border-transparent transition-opacity ${disabled ? "cursor-default opacity-70" : "group cursor-pointer hover:opacity-70"}`}
+            className={`${className} inline-flex items-center gap-2 text-left border-b-2 border-transparent transition-opacity ${disabled ? "cursor-default opacity-50" : "group cursor-pointer"}`}
             onClick={() => {
                 setEditValue(displayValue)
                 setIsEditing(true)

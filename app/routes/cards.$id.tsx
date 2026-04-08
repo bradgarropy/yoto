@@ -960,18 +960,19 @@ export default function CardDetail({
                     </Dialog>
 
                     <div className="flex-1">
-                        <EditableTitle
-                            value={card.title}
-                            onSave={title => {
-                                titleFetcher.submit(
-                                    {intent: "updateTitle", title},
-                                    {method: "post"},
-                                )
-                            }}
-                            disabled={titleFetcher.state !== "idle"}
-                            className="text-3xl font-bold"
-                            ariaLabel="Card title"
-                        />
+                        <h1 className="text-3xl font-bold">
+                            <EditableTitle
+                                value={card.title}
+                                onSave={title => {
+                                    titleFetcher.submit(
+                                        {intent: "updateTitle", title},
+                                        {method: "post"},
+                                    )
+                                }}
+                                disabled={titleFetcher.state !== "idle"}
+                                ariaLabel="Card title"
+                            />
+                        </h1>
                         <p className="text-muted-foreground">
                             {tracks.length} track
                             {tracks.length !== 1 ? "s" : ""}
