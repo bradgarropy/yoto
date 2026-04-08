@@ -46,10 +46,10 @@ import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/sync-utils"
 import type {CardData} from "~/lib/types"
 import {parseFormData} from "~/lib/validation.server"
-import {updateTitleSchema} from "~/schemas/card"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
+import {updateTitleSchema} from "~/schemas/card"
 
 import type {Route} from "./+types/cards.$id"
 
@@ -970,6 +970,7 @@ export default function CardDetail({
                             }}
                             disabled={titleFetcher.state !== "idle"}
                             className="text-3xl font-bold"
+                            ariaLabel="Card title"
                         />
                         <p className="text-muted-foreground">
                             {tracks.length} track

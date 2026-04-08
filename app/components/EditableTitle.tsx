@@ -6,11 +6,13 @@ const EditableTitle = ({
     onSave,
     disabled = false,
     className = "",
+    ariaLabel = "Edit title",
 }: {
     value: string
     onSave: (newValue: string) => void
     disabled?: boolean
     className?: string
+    ariaLabel?: string
 }) => {
     const [isEditing, setIsEditing] = useState(false)
     const [editValue, setEditValue] = useState(value)
@@ -54,6 +56,7 @@ const EditableTitle = ({
             <input
                 ref={inputRef}
                 type="text"
+                aria-label={ariaLabel}
                 className={`${className} bg-transparent border-b-2 border-primary outline-none w-full`}
                 value={editValue}
                 onChange={e => setEditValue(e.target.value)}
@@ -76,9 +79,9 @@ const EditableTitle = ({
     return (
         <button
             type="button"
-            className={`${className} group inline-flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity text-left border-b-2 border-transparent`}
+            disabled={disabled}
+            className={`${className} inline-flex items-center gap-2 text-left border-b-2 border-transparent transition-opacity ${disabled ? "cursor-default opacity-70" : "group cursor-pointer hover:opacity-70"}`}
             onClick={() => {
-                if (disabled) return
                 setEditValue(displayValue)
                 setIsEditing(true)
             }}
