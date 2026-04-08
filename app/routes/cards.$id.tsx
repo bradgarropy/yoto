@@ -45,6 +45,8 @@ import {getCardCoverUrl} from "~/lib/card-utils"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/sync-utils"
 import type {CardData} from "~/lib/types"
+import {parseFormData} from "~/lib/validation.server"
+import {updateTitleSchema} from "~/schemas/card"
 import {getNumberIcons} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
@@ -571,11 +573,14 @@ export async function action({params, request, context}: Route.ActionArgs) {
         }
 
         if (intent === "updateTitle") {
-            const title = (formData.get("title") as string)?.trim()
+            const result = parseFormData(formData, updateTitleSchema)
 
-            if (!title) {
-                return {error: "Card title cannot be empty"}
+            if (!result.success) {
+                const error = result.error.issues[0]?.message ?? "Invalid title"
+                return {error}
             }
+
+            const {title} = result.data
 
             const card = (await sdk.content.getCard(
                 cardId,
