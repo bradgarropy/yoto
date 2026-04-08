@@ -682,7 +682,8 @@ export default function CardDetail({
         isReordering ||
         isNumbering ||
         iconFetcher.state !== "idle" ||
-        coverFetcher.state !== "idle"
+        coverFetcher.state !== "idle" ||
+        titleFetcher.state !== "idle"
     const pendingIntent = navigation.formData?.get("intent")
     const isDeletingCard = pendingIntent === "deleteCard"
 
