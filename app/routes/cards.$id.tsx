@@ -15,6 +15,7 @@ import {toast} from "sonner"
 import {AddTracksDialog} from "~/components/AddTracksDialog"
 import {CARD_ASPECT_RATIO, CardCover} from "~/components/CardCover"
 import {CopyTrackDialog} from "~/components/CopyTrackDialog"
+import {EditableTitle} from "~/components/EditableTitle"
 import {IconPickerContent, type IconSelection} from "~/components/IconPicker"
 import {type Track, TrackItem} from "~/components/TrackItem"
 import {
@@ -569,6 +570,33 @@ export async function action({params, request, context}: Route.ActionArgs) {
             return {success: true, tracksNumbered: true}
         }
 
+        if (intent === "updateTitle") {
+            const title = (formData.get("title") as string)?.trim()
+
+            if (!title) {
+                return {error: "Card title cannot be empty"}
+            }
+
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
+
+            const updatedCard = {
+                cardId,
+                title,
+                content: card.content,
+                metadata: card.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, titleUpdated: true}
+        }
+
         return {error: "Invalid intent"}
     } catch (error) {
         console.error("Failed to perform action:", error)
@@ -589,6 +617,7 @@ export type ActionData = {
     tracksNumbered?: boolean
     copied?: boolean
     destinationCardTitle?: string
+    titleUpdated?: boolean
 }
 
 export default function CardDetail({
@@ -604,6 +633,7 @@ export default function CardDetail({
     const coverFetcher = useFetcher<ActionData>()
     const numberFetcher = useFetcher<ActionData>()
     const copyFetcher = useFetcher<ActionData>()
+    const titleFetcher = useFetcher<ActionData>()
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
@@ -778,6 +808,23 @@ export default function CardDetail({
         prevCopyState.current = copyFetcher.state
     }, [copyFetcher.state, copyFetcher.data])
 
+    // Show toast for title update results
+    const prevTitleState = useRef(titleFetcher.state)
+    useEffect(() => {
+        if (
+            prevTitleState.current !== "idle" &&
+            titleFetcher.state === "idle" &&
+            titleFetcher.data
+        ) {
+            if (titleFetcher.data.titleUpdated) {
+                toast.success("Card title updated")
+            } else if (titleFetcher.data.error) {
+                toast.error(titleFetcher.data.error)
+            }
+        }
+        prevTitleState.current = titleFetcher.state
+    }, [titleFetcher.state, titleFetcher.data])
+
     // Handle icon selection from picker
     const handleIconSelect = (icon: IconSelection) => {
         if (!selectedTrackKey) return
@@ -908,9 +955,17 @@ export default function CardDetail({
                     </Dialog>
 
                     <div className="flex-1">
-                        <h1 className="text-3xl font-bold mb-2">
-                            {card.title}
-                        </h1>
+                        <EditableTitle
+                            value={card.title}
+                            onSave={title => {
+                                titleFetcher.submit(
+                                    {intent: "updateTitle", title},
+                                    {method: "post"},
+                                )
+                            }}
+                            disabled={titleFetcher.state !== "idle"}
+                            className="text-3xl font-bold"
+                        />
                         <p className="text-muted-foreground">
                             {tracks.length} track
                             {tracks.length !== 1 ? "s" : ""}
