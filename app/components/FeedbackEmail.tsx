@@ -31,42 +31,42 @@ const FeedbackEmail = ({categoryLabel, email, message}: FeedbackEmailProps) => {
                         width: "100%",
                     }}
                 >
-                    <tbody>
+                    <thead>
                         <tr>
-                            <td
+                            <th
                                 style={{
                                     padding: "10px 14px",
                                     fontWeight: 600,
                                     color: "#555",
                                     background: "#f5f5f5",
                                     borderBottom: "1px solid #e0e0e0",
-                                    width: 100,
+                                    textAlign: "left",
+                                    width: "50%",
                                 }}
                             >
                                 Category
-                            </td>
+                            </th>
 
-                            <td
-                                style={{
-                                    padding: "10px 14px",
-                                    background: "#f5f5f5",
-                                    borderBottom: "1px solid #e0e0e0",
-                                }}
-                            >
-                                {categoryLabel}
-                            </td>
-                        </tr>
-
-                        <tr>
-                            <td
+                            <th
                                 style={{
                                     padding: "10px 14px",
                                     fontWeight: 600,
                                     color: "#555",
-                                    width: 100,
+                                    background: "#f5f5f5",
+                                    borderBottom: "1px solid #e0e0e0",
+                                    textAlign: "left",
+                                    width: "50%",
                                 }}
                             >
                                 Email
+                            </th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        <tr>
+                            <td style={{padding: "10px 14px"}}>
+                                {categoryLabel}
                             </td>
 
                             <td style={{padding: "10px 14px"}}>{email}</td>
@@ -78,7 +78,6 @@ const FeedbackEmail = ({categoryLabel, email, message}: FeedbackEmailProps) => {
             <div
                 style={{
                     padding: 16,
-                    background: "#f9f9f9",
                     border: "1px solid #e0e0e0",
                     borderRadius: 6,
                 }}
