@@ -64,9 +64,13 @@ const FeedbackDialog = () => {
         }
 
         const formData = new FormData()
+
         formData.set("category", category)
         formData.set("message", message)
-        formData.set("email", email)
+
+        if (email) {
+            formData.set("email", email)
+        }
 
         fetcher.submit(formData, {
             method: "post",
@@ -79,7 +83,7 @@ const FeedbackDialog = () => {
             <DialogTrigger asChild>
                 <button
                     type="button"
-                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 >
                     <MessageSquare className="h-4 w-4" />
                     Feedback

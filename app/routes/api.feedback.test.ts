@@ -182,6 +182,29 @@ describe("api/feedback action", () => {
         expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it("should trim whitespace from email", async () => {
+        mockSend.mockResolvedValue({id: "email-trim"})
+
+        const formData = createFormData({
+            category: "bug",
+            message: "Something broke",
+            email: " user@example.com ",
+        })
+
+        const response = await callAction(formData)
+
+        expect(response.status).toBe(200)
+
+        const data = (await response.json()) as {success?: boolean}
+        expect(data.success).toBe(true)
+
+        expect(mockSend).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                replyTo: "user@example.com",
+            }),
+        )
+    })
+
     it("should send email and return success", async () => {
         mockSend.mockResolvedValue({id: "email-123"})
 
@@ -201,6 +224,7 @@ describe("api/feedback action", () => {
         expect(mockSend).toHaveBeenCalledExactlyOnceWith({
             from: "Yoto Sync <feedback@yoto.bradgarropy.com>",
             to: "bradgarropy@gmail.com",
+            replyTo: "user@example.com",
             subject: "Bug Report",
             html: expect.stringContaining("Bug Report"),
         })
@@ -225,17 +249,16 @@ describe("api/feedback action", () => {
         const data = (await response.json()) as {success?: boolean}
         expect(data.success).toBe(true)
 
-        expect(mockSend).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({
-                subject: "Feature Request",
-                html: expect.stringContaining("Not provided"),
-            }),
-        )
+        expect(mockSend).toHaveBeenCalledExactlyOnceWith({
+            from: "Yoto Sync <feedback@yoto.bradgarropy.com>",
+            to: "bradgarropy@gmail.com",
+            replyTo: undefined,
+            subject: "Feature Request",
+            html: expect.stringContaining("Not provided"),
+        })
     })
 
-    it("should send email with empty email field", async () => {
-        mockSend.mockResolvedValue({id: "email-789"})
-
+    it("should return 400 when email is empty string", async () => {
         const formData = createFormData({
             category: "feedback",
             message: "Great app!",
@@ -244,17 +267,14 @@ describe("api/feedback action", () => {
 
         const response = await callAction(formData)
 
-        expect(response.status).toBe(200)
+        expect(response.status).toBe(400)
 
-        const data = (await response.json()) as {success?: boolean}
-        expect(data.success).toBe(true)
+        const data = (await response.json()) as {
+            errors?: Record<string, string[]>
+        }
 
-        expect(mockSend).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({
-                subject: "General Feedback",
-                html: expect.stringContaining("Not provided"),
-            }),
-        )
+        expect(data.errors?.email).toBeDefined()
+        expect(mockSend).not.toHaveBeenCalled()
     })
 
     it("should return 500 when Resend throws an error", async () => {

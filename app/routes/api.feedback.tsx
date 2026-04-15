@@ -38,7 +38,7 @@ export async function action({request, context}: Route.ActionArgs) {
 
     const {category, message, email} = result.data
     const categoryLabel = categoryLabels[category]
-    const emailValue = email || "Not provided"
+    const emailValue = email ?? "Not provided"
     const subject = categoryLabel
 
     try {
@@ -55,6 +55,7 @@ export async function action({request, context}: Route.ActionArgs) {
         await resend.emails.send({
             from: "Yoto Sync <feedback@yoto.bradgarropy.com>",
             to: "bradgarropy@gmail.com",
+            replyTo: email,
             subject,
             html,
         })
