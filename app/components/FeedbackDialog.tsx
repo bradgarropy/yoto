@@ -64,9 +64,13 @@ const FeedbackDialog = () => {
         }
 
         const formData = new FormData()
+
         formData.set("category", category)
         formData.set("message", message)
-        formData.set("email", email)
+
+        if (email) {
+            formData.set("email", email)
+        }
 
         fetcher.submit(formData, {
             method: "post",

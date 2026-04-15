@@ -7,7 +7,7 @@ const feedbackSchema = z.object({
         .trim()
         .min(1, "Message is required")
         .max(5000, "Message is too long"),
-    email: z.email("Invalid email address").optional().or(z.literal("")),
+    email: z.email("Invalid email address").optional(),
 })
 
 type FeedbackData = z.infer<typeof feedbackSchema>
