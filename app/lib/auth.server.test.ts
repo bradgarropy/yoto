@@ -78,7 +78,7 @@ describe("initiateLogin", () => {
 
         const result = await initiateLogin()
 
-        expect(mockAuth.initiate).toHaveBeenCalledOnce()
+        expect(mockAuth.initiate).toHaveBeenCalledWith("offline_access")
         expect(result).toEqual(deviceCodeResult)
     })
 
