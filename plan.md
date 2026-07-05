@@ -59,7 +59,7 @@ yoto/
 ### Authentication
 
 1. User clicks Login → Device code flow initiated
-2. User visits URL, enters code, approves in browser
+2. User opens Yoto website, confirms matching device code in browser
 3. Tokens encrypted and stored in HTTP-only cookie
 4. SDK created with JWT for API calls
 
@@ -75,7 +75,7 @@ yoto/
 ### Yoto API
 
 - `@yotoplay/yoto-sdk` - Content and media operations
-- `@yotoplay/oauth-device-code-flow` - Authentication
+- `@yotoplay/oauth-device-code-flow` - Authentication with `offline_access` scope
 
 ## Future Enhancements
 

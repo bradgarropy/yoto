@@ -18,6 +18,7 @@ const AUTH_CONFIG = {
     clientId: "PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77",
     audience: "https://api.yotoplay.com",
 }
+const AUTH_SCOPE = "offline_access"
 
 // Lazy-initialized singletons
 let _auth: DeviceCodeAuth | null = null
@@ -69,7 +70,7 @@ const isTokenExpired = (tokens: StoredTokens): boolean => {
 // Initiates device code flow - returns info for user to complete auth
 const initiateLogin = async (): Promise<DeviceCodeResult> => {
     const auth = getAuth()
-    return auth.initiate()
+    return auth.initiate(AUTH_SCOPE)
 }
 
 // Polls for token after user completes auth in browser

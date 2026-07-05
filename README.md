@@ -36,8 +36,9 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### First Time Setup
 
 1. Click "Login" to authenticate with your Yoto account
-2. Follow the device code flow instructions
-3. Once logged in, you'll see all your Yoto cards
+2. Confirm that the code shown in Yoto Sync matches the device confirmation screen on Yoto's website
+3. Click "Confirm" on Yoto's website
+4. Once logged in, you'll see all your Yoto cards
 
 ### Syncing YouTube Content
 
