@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest"
 
 // Mock SDK
 const mockGetDisplayIcons = vi.fn()
+const mockGetToken = vi.fn()
 
 vi.mock("./auth.server", () => ({
     getAuthenticatedSdk: vi.fn(() => ({
@@ -11,13 +12,16 @@ vi.mock("./auth.server", () => ({
             },
         },
     })),
+    getToken: (...args: unknown[]) => mockGetToken(...args),
 }))
 
 // Import after mocks are set up
 import {
     clearIconCache,
+    fetchUserYotoIcons,
     fetchYotoIcons,
     getNumberIcons,
+    getYotoIconUrlMap,
     searchYotoIcons,
 } from "./yoto-icons.server"
 
@@ -34,6 +38,8 @@ const mockEnv = {
 beforeEach(() => {
     vi.clearAllMocks()
     clearIconCache()
+    mockGetToken.mockResolvedValue(null)
+    vi.stubGlobal("fetch", vi.fn())
 })
 
 const createMockIcon = (
@@ -83,6 +89,67 @@ describe("fetchYotoIcons", () => {
         const result = await fetchYotoIcons(createMockRequest(), mockEnv)
 
         expect(result).toEqual([])
+    })
+})
+
+describe("fetchUserYotoIcons", () => {
+    it("should return an empty array when the user is not authenticated", async () => {
+        mockGetToken.mockResolvedValue(null)
+
+        const result = await fetchUserYotoIcons(createMockRequest(), mockEnv)
+
+        expect(result).toEqual([])
+        expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it("should fetch icons uploaded to the current user's account", async () => {
+        mockGetToken.mockResolvedValue({token: "test-token"})
+        vi.mocked(fetch).mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    displayIcons: [
+                        createMockIcon("user-icon", "User icon", ["custom"]),
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: {"Content-Type": "application/json"},
+                },
+            ),
+        )
+
+        const result = await fetchUserYotoIcons(createMockRequest(), mockEnv)
+
+        expect(fetch).toHaveBeenCalledWith(
+            "https://api.yotoplay.com/media/displayIcons/user/me",
+            {
+                headers: {
+                    Authorization: "Bearer test-token",
+                },
+            },
+        )
+        expect(result).toEqual([
+            {
+                id: "user-icon",
+                title: "User icon",
+                tags: ["custom"],
+                url: "https://media.yotoplay.com/icons/user-icon",
+            },
+        ])
+    })
+
+    it("should throw when user icons cannot be fetched", async () => {
+        mockGetToken.mockResolvedValue({token: "test-token"})
+        vi.mocked(fetch).mockResolvedValue(
+            new Response("Forbidden", {
+                status: 403,
+                statusText: "Forbidden",
+            }),
+        )
+
+        await expect(
+            fetchUserYotoIcons(createMockRequest(), mockEnv),
+        ).rejects.toThrow("Yoto user icons request failed: 403 Forbidden")
     })
 })
 
@@ -377,5 +444,38 @@ describe("getNumberIcons", () => {
         const result = await getNumberIcons(createMockRequest(), mockEnv)
 
         expect(result.size).toBe(0)
+    })
+})
+
+describe("getYotoIconUrlMap", () => {
+    it("should map media IDs to official and user-uploaded icon URLs", async () => {
+        mockGetDisplayIcons.mockResolvedValue([
+            createMockIcon("abc123", "Music notes", ["music", "note"]),
+            createMockIcon("def456", "Dog", ["animal", "pet"]),
+        ])
+        mockGetToken.mockResolvedValue({token: "test-token"})
+        vi.mocked(fetch).mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    displayIcons: [
+                        createMockIcon("user-icon", "User icon", ["custom"]),
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: {"Content-Type": "application/json"},
+                },
+            ),
+        )
+
+        const result = await getYotoIconUrlMap(createMockRequest(), mockEnv)
+
+        expect(result).toEqual(
+            new Map([
+                ["abc123", "https://media.yotoplay.com/icons/abc123"],
+                ["def456", "https://media.yotoplay.com/icons/def456"],
+                ["user-icon", "https://media.yotoplay.com/icons/user-icon"],
+            ]),
+        )
     })
 })

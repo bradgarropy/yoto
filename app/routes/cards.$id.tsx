@@ -1,6 +1,5 @@
 import {ListOrdered, Plus, Trash2} from "lucide-react"
 import {Reorder} from "motion/react"
-import pLimit from "p-limit"
 import {useEffect, useRef, useState} from "react"
 import {
     Form,
@@ -46,7 +45,7 @@ import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/sync-utils"
 import type {CardData} from "~/lib/types"
 import {parseFormData} from "~/lib/validation.server"
-import {getNumberIcons} from "~/lib/yoto-icons.server"
+import {getNumberIcons, getYotoIconUrlMap} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
 import {updateTitleSchema} from "~/schemas/card"
@@ -65,9 +64,10 @@ export function meta({
     ]
 }
 
-export async function loader({params, context}: Route.LoaderArgs) {
+export async function loader({params, request, context}: Route.LoaderArgs) {
     const cardId = params.id
     const {sdk} = context.get(authContext)
+    const {env} = context.get(cloudflareContext)
 
     try {
         // Fetch current card and all cards in parallel
@@ -95,6 +95,9 @@ export async function loader({params, context}: Route.LoaderArgs) {
         const chapters = cardData.content?.chapters ?? []
 
         const coverUrl = getCardCoverUrl(cardData)
+        const yotoIconUrls = await getYotoIconUrlMap(request, env).catch(
+            () => new Map<string, string>(),
+        )
 
         // Build tracks with icon media IDs
         const tracksWithIconIds = chapters.map(
@@ -119,31 +122,14 @@ export async function loader({params, context}: Route.LoaderArgs) {
             },
         )
 
-        // Resolve icon media IDs to signed URLs (limit concurrency to avoid rate limits)
-        const limit = pLimit(5)
-        const tracks = await Promise.all(
-            tracksWithIconIds.map(track =>
-                limit(async () => {
-                    let iconUrl: string | undefined
-                    if (track.iconMediaId) {
-                        try {
-                            iconUrl = await sdk.media.getMediaUrl(
-                                cardId,
-                                track.iconMediaId,
-                            )
-                        } catch {
-                            // Ignore errors fetching icon URLs
-                        }
-                    }
-                    return {
-                        key: track.key,
-                        title: track.title,
-                        duration: track.duration,
-                        iconUrl,
-                    }
-                }),
-            ),
-        )
+        const tracks = tracksWithIconIds.map(track => ({
+            key: track.key,
+            title: track.title,
+            duration: track.duration,
+            iconUrl: track.iconMediaId
+                ? yotoIconUrls.get(track.iconMediaId)
+                : undefined,
+        }))
 
         return {
             card: {
