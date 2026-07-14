@@ -2,7 +2,13 @@ import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
 import {getAuthenticatedSdk} from "./auth.server"
-import {downloadTrack, getPlaylistInfo} from "./sandbox.server"
+import {
+    getPlaylistInfo,
+    prepareTrack,
+    removeTrack,
+    type Track,
+    uploadTrack,
+} from "./sandbox.server"
 import {
     createChapter,
     getNextChapterKey,
@@ -31,14 +37,6 @@ type YotoCard = {
     metadata: YotoMetadata
 }
 
-// Calculate SHA256 hash of an ArrayBuffer using Web Crypto
-async function calculateSha256(buffer: ArrayBuffer): Promise<string> {
-    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer)
-    return Array.from(new Uint8Array(hashBuffer))
-        .map(b => b.toString(16).padStart(2, "0"))
-        .join("")
-}
-
 type TranscodeResult = {
     progress?: {phase: string}
     transcodedSha256?: string
@@ -59,14 +57,14 @@ function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
 }
 
-// Upload audio from ArrayBuffer, returns sha256 for transcode polling
+// Upload prepared audio from the Sandbox, returns sha256 for transcode polling
 async function uploadAudio(
     sdk: YotoSdk,
-    buffer: ArrayBuffer,
-    filename: string,
+    env: Env,
+    track: Track,
     context: AudioLogContext,
 ): Promise<UploadResult> {
-    const sha256 = await calculateSha256(buffer)
+    const {sha256} = track
 
     // Check if already transcoded
     try {
@@ -109,7 +107,7 @@ async function uploadAudio(
     // Get upload URL
     const uploadInfo = (await sdk.media.getUploadUrlForTranscode(
         sha256,
-        filename,
+        track.filename,
     )) as unknown as {uploadId: string; uploadUrl: string | null}
 
     if (uploadInfo.uploadUrl) {
@@ -117,27 +115,15 @@ async function uploadAudio(
             ...context,
             sha256,
             uploadId: uploadInfo.uploadId,
-            bytes: buffer.byteLength,
+            bytes: track.byteLength,
         })
 
-        const uploadResponse = await fetch(uploadInfo.uploadUrl, {
-            method: "PUT",
-            body: buffer,
-            headers: {
-                "Content-Type": "audio/mpeg",
-                "Content-Length": buffer.byteLength.toString(),
-            },
-        })
-
-        if (!uploadResponse.ok) {
-            throw new Error(`Upload failed: ${uploadResponse.statusText}`)
-        }
+        await uploadTrack(env, track, uploadInfo.uploadUrl)
 
         console.info("Yoto audio upload complete", {
             ...context,
             sha256,
             uploadId: uploadInfo.uploadId,
-            status: uploadResponse.status,
         })
     } else {
         console.info("Yoto audio upload skipped", {
@@ -263,10 +249,10 @@ export async function performSyncToCard(
         let downloadedCount = 0
         await onProgress?.({phase: "downloading", current: 1, total})
 
-        const downloadedBuffers = await Promise.all(
+        const downloadResults = await Promise.allSettled(
             tracksToAdd.map((track, index) =>
                 limit(async () => {
-                    const buffer = await downloadTrack(env, track)
+                    const preparedTrack = await prepareTrack(env, track)
                     downloadedCount++
                     // Report next track in progress (if there are more)
                     if (downloadedCount < total) {
@@ -276,41 +262,83 @@ export async function performSyncToCard(
                             total,
                         })
                     }
-                    return {index, buffer, track}
+                    return {index, preparedTrack, track}
                 }),
             ),
         )
+
+        const failedDownload = downloadResults.find(
+            (result): result is PromiseRejectedResult =>
+                result.status === "rejected",
+        )
+
+        if (failedDownload) {
+            await Promise.allSettled(
+                downloadResults
+                    .filter(
+                        (
+                            result,
+                        ): result is PromiseFulfilledResult<{
+                            index: number
+                            preparedTrack: Track
+                            track: (typeof tracksToAdd)[number]
+                        }> => result.status === "fulfilled",
+                    )
+                    .map(({value}) => removeTrack(env, value.preparedTrack)),
+            )
+            throw failedDownload.reason
+        }
+
+        const downloadedTracks = downloadResults.map(result => {
+            if (result.status !== "fulfilled") throw result.reason
+            return result.value
+        })
 
         // 4. Upload phase - upload all tracks in parallel (5 at a time)
         let uploadedCount = 0
         await onProgress?.({phase: "uploading", current: 1, total})
 
-        const uploadResults = await Promise.all(
-            downloadedBuffers.map(({index, buffer, track}) =>
+        const settledUploads = await Promise.allSettled(
+            downloadedTracks.map(({index, preparedTrack, track}) =>
                 limit(async () => {
-                    const result = await uploadAudio(
-                        sdk,
-                        buffer,
-                        `${track.id}.mp3`,
-                        {
-                            cardId,
-                            trackId: track.id,
-                            trackTitle: track.title,
-                        },
-                    )
-                    uploadedCount++
-                    // Report next track in progress (if there are more)
-                    if (uploadedCount < total) {
-                        await onProgress?.({
-                            phase: "uploading",
-                            current: uploadedCount + 1,
-                            total,
-                        })
+                    try {
+                        const result = await uploadAudio(
+                            sdk,
+                            env,
+                            preparedTrack,
+                            {
+                                cardId,
+                                trackId: track.id,
+                                trackTitle: track.title,
+                            },
+                        )
+                        uploadedCount++
+                        // Report next track in progress (if there are more)
+                        if (uploadedCount < total) {
+                            await onProgress?.({
+                                phase: "uploading",
+                                current: uploadedCount + 1,
+                                total,
+                            })
+                        }
+                        return {index, result, track}
+                    } finally {
+                        await removeTrack(env, preparedTrack)
                     }
-                    return {index, result, track}
                 }),
             ),
         )
+
+        const failedUpload = settledUploads.find(
+            (result): result is PromiseRejectedResult =>
+                result.status === "rejected",
+        )
+        if (failedUpload) throw failedUpload.reason
+
+        const uploadResults = settledUploads.map(result => {
+            if (result.status !== "fulfilled") throw result.reason
+            return result.value
+        })
 
         // 5. Transcode phase - wait for all transcodes in parallel (5 at a time)
         let transcodedCount = 0
