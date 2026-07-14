@@ -15,6 +15,7 @@ import {
     stripNullValues,
     type YotoChapter,
 } from "./sync-utils"
+import {getUploadSandboxId, type Upload} from "./upload"
 
 type YotoContent = {
     activity: string
@@ -220,11 +221,11 @@ const CONCURRENCY_LIMIT = 5
 export async function performSyncToCard(
     sdk: YotoSdk,
     env: Env,
-    sandboxId: string,
-    youtubeUrl: string,
-    cardId: string,
+    upload: Upload,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
+    const {cardId, youtubeUrl} = upload
+    const sandboxId = getUploadSandboxId(upload)
     const limit = pLimit(CONCURRENCY_LIMIT)
 
     try {

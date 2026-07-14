@@ -27,6 +27,11 @@ const sourceTrack = {
     title: "Test Track",
     url: "https://www.youtube.com/watch?v=video-1",
 }
+const upload = {
+    id: "test-job",
+    cardId: "card-1",
+    youtubeUrl: sourceTrack.url,
+}
 const preparedTrack = {
     path: "/tmp/video-1.mp3",
     filename: "video-1.mp3",
@@ -102,13 +107,7 @@ describe("performSyncToCard", () => {
             return 0 as unknown as ReturnType<typeof setTimeout>
         }) as unknown as typeof setTimeout)
 
-        const result = await performSyncToCard(
-            sdk,
-            mockEnv,
-            sandboxId,
-            sourceTrack.url,
-            "card-1",
-        )
+        const result = await performSyncToCard(sdk, mockEnv, upload)
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -138,13 +137,7 @@ describe("performSyncToCard", () => {
         })
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
-        const result = await performSyncToCard(
-            sdk,
-            mockEnv,
-            sandboxId,
-            sourceTrack.url,
-            "card-1",
-        )
+        const result = await performSyncToCard(sdk, mockEnv, upload)
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -170,13 +163,10 @@ describe("performSyncToCard", () => {
             .mockResolvedValueOnce(preparedTrack)
             .mockRejectedValueOnce(new Error("Download failed"))
 
-        const result = await performSyncToCard(
-            sdk,
-            mockEnv,
-            sandboxId,
-            "https://www.youtube.com/playlist?list=playlist-1",
-            "card-1",
-        )
+        const result = await performSyncToCard(sdk, mockEnv, {
+            ...upload,
+            youtubeUrl: "https://www.youtube.com/playlist?list=playlist-1",
+        })
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
             mockEnv,

@@ -3,6 +3,7 @@ import {cloudflareContext} from "~/lib/cloudflare-context"
 import {destroySandbox} from "~/lib/sandbox.server"
 import {performSyncToCard} from "~/lib/sync.server"
 import type {ImportProgress} from "~/lib/sync-utils"
+import {getUploadSandboxId, type Upload} from "~/lib/upload"
 
 import type {Route} from "./+types/api.import.$cardId"
 
@@ -27,8 +28,12 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Missing url parameter"}, {status: 400})
     }
 
-    const validatedUrl = youtubeUrl
-    const sandboxId = `upload-${crypto.randomUUID()}`
+    const upload: Upload = {
+        id: crypto.randomUUID(),
+        cardId,
+        youtubeUrl,
+    }
+    const sandboxId = getUploadSandboxId(upload)
 
     // Create a TransformStream to handle the SSE
     const {readable, writable} = new TransformStream()
@@ -44,9 +49,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             const result = await performSyncToCard(
                 sdk,
                 env,
-                sandboxId,
-                validatedUrl,
-                cardId,
+                upload,
                 async (progress: ImportProgress) => {
                     await sendEvent({type: "progress", ...progress})
                 },
