@@ -1,5 +1,6 @@
 import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {destroySandbox} from "~/lib/sandbox.server"
 import {performSyncToCard} from "~/lib/sync.server"
 import type {ImportProgress} from "~/lib/sync-utils"
 
@@ -71,6 +72,15 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
                         : "Import failed unexpectedly",
             })
         } finally {
+            try {
+                await destroySandbox(env, sandboxId)
+            } catch (error) {
+                console.warn("Failed to destroy import sandbox", {
+                    sandboxId,
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                })
+            }
             await writer.close()
         }
     }

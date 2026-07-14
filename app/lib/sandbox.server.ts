@@ -278,5 +278,10 @@ async function removeTrack(
     }
 }
 
-export {getPlaylistInfo, prepareTrack, removeTrack, uploadTrack}
+async function destroySandbox(env: Env, sandboxId: string): Promise<void> {
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
+    await sandbox.destroy()
+}
+
+export {destroySandbox, getPlaylistInfo, prepareTrack, removeTrack, uploadTrack}
 export type {Track}

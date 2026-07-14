@@ -1,15 +1,23 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 const mockExec = vi.fn()
+const mockDestroy = vi.fn()
 const mockGetSandbox = vi.fn<
-    (binding: unknown, id: string) => {exec: typeof mockExec}
->(() => ({exec: mockExec}))
+    (
+        binding: unknown,
+        id: string,
+    ) => {
+        destroy: typeof mockDestroy
+        exec: typeof mockExec
+    }
+>(() => ({destroy: mockDestroy, exec: mockExec}))
 
 vi.mock("@cloudflare/sandbox", () => ({
     getSandbox: (...args: [unknown, string]) => mockGetSandbox(...args),
 }))
 
 import {
+    destroySandbox,
     getPlaylistInfo,
     prepareTrack,
     removeTrack,
@@ -255,5 +263,16 @@ describe("removeTrack", () => {
         await removeTrack(mockEnv, sandboxId, track)
 
         expect(mockExec).toHaveBeenCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+})
+
+describe("destroySandbox", () => {
+    it("destroys the import sandbox", async () => {
+        mockDestroy.mockResolvedValueOnce(undefined)
+
+        await destroySandbox(mockEnv, sandboxId)
+
+        expect(mockGetSandbox).toHaveBeenCalledWith(mockEnv.SANDBOX, sandboxId)
+        expect(mockDestroy).toHaveBeenCalledOnce()
     })
 })
