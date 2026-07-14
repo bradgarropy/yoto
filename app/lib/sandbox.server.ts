@@ -1,10 +1,20 @@
 // Sandbox client for calling yt-dlp operations via Durable Object
 // Uses the sandbox endpoints defined in workers/app.ts
 
-import {collectFile, getSandbox} from "@cloudflare/sandbox"
+import {getSandbox} from "@cloudflare/sandbox"
 import shellEscape from "shell-escape"
 
-import type {YouTubePlaylistInfo, YouTubeTrack} from "./youtube.server"
+import type {
+    YouTubePlaylistInfo,
+    YouTubeTrack as SourceTrack,
+} from "./youtube.server"
+
+type Track = {
+    path: string
+    filename: string
+    sha256: string
+    byteLength: number
+}
 
 // Validate that a URL is a legitimate YouTube URL
 function isYoutubeUrl(url: string): boolean {
@@ -54,7 +64,7 @@ async function getPlaylistInfo(
         // Parse first line to get playlist info
         const [playlistId, playlistTitle] = lines[0].split("\t")
 
-        const tracks: YouTubeTrack[] = lines.map(line => {
+        const videos: SourceTrack[] = lines.map(line => {
             const [, , videoId, title] = line.split("\t")
             return {
                 id: videoId,
@@ -63,7 +73,7 @@ async function getPlaylistInfo(
             }
         })
 
-        return {id: playlistId, title: playlistTitle, tracks}
+        return {id: playlistId, title: playlistTitle, videos}
     } else {
         const result = await sandbox.exec(
             `yt-dlp --no-check-certificates --print "%(id)s\t%(title)s" --no-playlist ${escapedUrl}`,
@@ -83,7 +93,7 @@ async function getPlaylistInfo(
         return {
             id: videoId,
             title,
-            tracks: [
+            videos: [
                 {
                     id: videoId,
                     title,
@@ -94,45 +104,106 @@ async function getPlaylistInfo(
     }
 }
 
-// Download a track and return as ArrayBuffer
-async function downloadTrack(
-    env: Env,
-    track: YouTubeTrack,
-): Promise<ArrayBuffer> {
+// Download a track, hash it, and leave it in the sandbox for direct upload
+async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
     const sandbox = getSandbox(env.SANDBOX, "sync-worker")
-    const outputPath = `/tmp/${track.id}.mp3`
-    const escapedOutputPath = escapeShellArg(outputPath)
+    const filename = `${track.id}.mp3`
+    const path = `/tmp/${filename}`
+    const escapedPath = escapeShellArg(path)
     const escapedUrl = escapeShellArg(track.url)
 
-    // Download and convert to MP3
-    // Note: --no-check-certificates handles SSL issues in container environments
-    const downloadResult = await sandbox.exec(
-        `yt-dlp --no-check-certificates ` +
-            `--extract-audio --audio-format mp3 --audio-quality 0 ` +
-            `-o ${escapedOutputPath} --no-playlist ${escapedUrl}`,
-    )
+    // Remove files left behind by an interrupted attempt for the same track.
+    await sandbox.exec(`rm -f ${escapedPath}`)
 
-    if (!downloadResult.success) {
-        throw new Error(
-            `Failed to download ${track.title}: ${downloadResult.stderr}`,
-        )
-    }
-
-    // Stream file from sandbox to avoid 32MiB RPC serialization limit
     try {
-        const stream = await sandbox.readFileStream(outputPath)
-        const {content} = await collectFile(stream)
+        const downloadResult = await sandbox.exec(
+            `yt-dlp --no-check-certificates ` +
+                `--extract-audio --audio-format mp3 --audio-quality 0 ` +
+                `-o ${escapedPath} --no-playlist ${escapedUrl}`,
+        )
 
-        if (content instanceof Uint8Array) {
-            return content.buffer as ArrayBuffer
+        if (!downloadResult.success) {
+            throw new Error(
+                `Failed to download ${track.title}: ${downloadResult.stderr}`,
+            )
         }
 
-        // Fallback: content is a string (text encoding), convert to ArrayBuffer
-        const encoder = new TextEncoder()
-        return encoder.encode(content).buffer as ArrayBuffer
-    } finally {
-        await sandbox.exec(`rm -f ${escapedOutputPath}`)
+        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
+        if (!hashResult.success) {
+            throw new Error(
+                `Failed to hash ${track.title}: ${hashResult.stderr}`,
+            )
+        }
+
+        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
+        if (!/^[a-f0-9]{64}$/.test(sha256)) {
+            throw new Error(`Failed to hash ${track.title}: invalid SHA-256`)
+        }
+
+        const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
+        if (!sizeResult.success) {
+            throw new Error(
+                `Failed to measure ${track.title}: ${sizeResult.stderr}`,
+            )
+        }
+
+        const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
+        if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+            throw new Error(`Failed to measure ${track.title}: invalid size`)
+        }
+
+        return {path, filename, sha256, byteLength}
+    } catch (error) {
+        await sandbox.exec(`rm -f ${escapedPath}`)
+        throw error
     }
 }
 
-export {downloadTrack, getPlaylistInfo}
+// Upload a prepared track without moving its bytes through the Worker
+async function uploadTrack(
+    env: Env,
+    track: Track,
+    uploadUrl: string,
+): Promise<void> {
+    let parsedUploadUrl: URL
+    try {
+        parsedUploadUrl = new URL(uploadUrl)
+    } catch {
+        throw new Error("Invalid Yoto upload URL")
+    }
+
+    if (parsedUploadUrl.protocol !== "https:") {
+        throw new Error("Invalid Yoto upload URL")
+    }
+
+    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+    const escapedPath = escapeShellArg(track.path)
+    const uploadResult = await sandbox.exec(
+        `curl --fail --silent --show-error ` +
+            `--header 'Content-Type: audio/mpeg' ` +
+            `--upload-file ${escapedPath} "$YOTO_UPLOAD_URL"`,
+        {env: {YOTO_UPLOAD_URL: uploadUrl}},
+    )
+
+    if (!uploadResult.success) {
+        throw new Error(
+            `Failed to upload ${track.filename}: ${uploadResult.stderr}`,
+        )
+    }
+}
+
+// Remove a prepared track after it is uploaded or no longer needed
+async function removeTrack(env: Env, track: Track): Promise<void> {
+    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+    const escapedPath = escapeShellArg(track.path)
+    const removeResult = await sandbox.exec(`rm -f ${escapedPath}`)
+
+    if (!removeResult.success) {
+        throw new Error(
+            `Failed to remove ${track.filename}: ${removeResult.stderr}`,
+        )
+    }
+}
+
+export {getPlaylistInfo, prepareTrack, removeTrack, uploadTrack}
+export type {Track}
