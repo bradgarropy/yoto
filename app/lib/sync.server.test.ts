@@ -1,15 +1,10 @@
+import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-const mockGetAuthenticatedSdk = vi.fn()
 const mockGetPlaylistInfo = vi.fn()
 const mockPrepareTrack = vi.fn()
 const mockUploadTrack = vi.fn()
 const mockRemoveTrack = vi.fn()
-
-vi.mock("./auth.server", () => ({
-    getAuthenticatedSdk: (...args: unknown[]) =>
-        mockGetAuthenticatedSdk(...args),
-}))
 
 vi.mock("./sandbox.server", () => ({
     getPlaylistInfo: (...args: unknown[]) => mockGetPlaylistInfo(...args),
@@ -25,12 +20,17 @@ const mockEnv = {
     RESEND_API_KEY: "test-resend-api-key",
     SANDBOX: {} as Env["SANDBOX"],
 }
+const sandboxId = "upload-test-job"
 
-const request = new Request("https://example.com/cards/card-1")
 const sourceTrack = {
     id: "video-1",
     title: "Test Track",
     url: "https://www.youtube.com/watch?v=video-1",
+}
+const upload = {
+    id: "test-job",
+    cardId: "card-1",
+    youtubeUrl: sourceTrack.url,
 }
 const preparedTrack = {
     path: "/tmp/video-1.mp3",
@@ -52,7 +52,7 @@ const sdk = {
         getTranscodedUpload: mockGetTranscodedUpload,
         getUploadUrlForTranscode: mockGetUploadUrlForTranscode,
     },
-}
+} as unknown as YotoSdk
 
 beforeEach(() => {
     vi.clearAllMocks()
@@ -60,7 +60,6 @@ beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
 
-    mockGetAuthenticatedSdk.mockResolvedValue({sdk})
     mockGetPlaylistInfo.mockResolvedValue({
         id: "video-1",
         title: "Test Track",
@@ -108,19 +107,19 @@ describe("performSyncToCard", () => {
             return 0 as unknown as ReturnType<typeof setTimeout>
         }) as unknown as typeof setTimeout)
 
-        const result = await performSyncToCard(
-            request,
-            mockEnv,
-            sourceTrack.url,
-            "card-1",
-        )
+        const result = await performSyncToCard(sdk, mockEnv, upload)
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
+            sandboxId,
             preparedTrack,
             "https://uploads.example.com/audio",
         )
-        expect(mockRemoveTrack).toHaveBeenCalledWith(mockEnv, preparedTrack)
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
         expect(mockUpdateCard).toHaveBeenCalledOnce()
         expect(result).toEqual({
             success: true,
@@ -138,14 +137,13 @@ describe("performSyncToCard", () => {
         })
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
-        const result = await performSyncToCard(
-            request,
-            mockEnv,
-            sourceTrack.url,
-            "card-1",
-        )
+        const result = await performSyncToCard(sdk, mockEnv, upload)
 
-        expect(mockRemoveTrack).toHaveBeenCalledWith(mockEnv, preparedTrack)
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
         expect(mockUpdateCard).not.toHaveBeenCalled()
         expect(result).toEqual({error: "Upload failed"})
     })
@@ -165,14 +163,16 @@ describe("performSyncToCard", () => {
             .mockResolvedValueOnce(preparedTrack)
             .mockRejectedValueOnce(new Error("Download failed"))
 
-        const result = await performSyncToCard(
-            request,
-            mockEnv,
-            "https://www.youtube.com/playlist?list=playlist-1",
-            "card-1",
-        )
+        const result = await performSyncToCard(sdk, mockEnv, {
+            ...upload,
+            youtubeUrl: "https://www.youtube.com/playlist?list=playlist-1",
+        })
 
-        expect(mockRemoveTrack).toHaveBeenCalledWith(mockEnv, preparedTrack)
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
         expect(mockUploadTrack).not.toHaveBeenCalled()
         expect(result).toEqual({error: "Download failed"})
     })

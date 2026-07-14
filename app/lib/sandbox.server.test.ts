@@ -1,15 +1,23 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 const mockExec = vi.fn()
+const mockDestroy = vi.fn()
 const mockGetSandbox = vi.fn<
-    (binding: unknown, id: string) => {exec: typeof mockExec}
->(() => ({exec: mockExec}))
+    (
+        binding: unknown,
+        id: string,
+    ) => {
+        destroy: typeof mockDestroy
+        exec: typeof mockExec
+    }
+>(() => ({destroy: mockDestroy, exec: mockExec}))
 
 vi.mock("@cloudflare/sandbox", () => ({
     getSandbox: (...args: [unknown, string]) => mockGetSandbox(...args),
 }))
 
 import {
+    destroySandbox,
     getPlaylistInfo,
     prepareTrack,
     removeTrack,
@@ -22,6 +30,7 @@ const mockEnv = {
     RESEND_API_KEY: "test-resend-api-key",
     SANDBOX: {} as Env["SANDBOX"],
 }
+const sandboxId = "upload-test-job"
 
 const sourceTrack = {
     id: "video-1",
@@ -49,7 +58,10 @@ beforeEach(() => {
 describe("prepareTrack", () => {
     it("rejects known long tracks before downloading", async () => {
         await expect(
-            prepareTrack(mockEnv, {...sourceTrack, duration: 3600.1}),
+            prepareTrack(mockEnv, sandboxId, {
+                ...sourceTrack,
+                duration: 3600.1,
+            }),
         ).rejects.toThrow(
             "Test Track is too long for Yoto. Tracks must be 60 minutes or shorter.",
         )
@@ -68,13 +80,10 @@ describe("prepareTrack", () => {
                 successfulCommand(`${"a".repeat(64)}  /tmp/video-1.mp3\n`),
             )
 
-        const result = await prepareTrack(mockEnv, sourceTrack)
+        const result = await prepareTrack(mockEnv, sandboxId, sourceTrack)
 
         expect(result).toEqual(track)
-        expect(mockGetSandbox).toHaveBeenCalledWith(
-            mockEnv.SANDBOX,
-            "sync-worker",
-        )
+        expect(mockGetSandbox).toHaveBeenCalledWith(mockEnv.SANDBOX, sandboxId)
         expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.mp3'")
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
@@ -104,9 +113,9 @@ describe("prepareTrack", () => {
             })
             .mockResolvedValueOnce(successfulCommand())
 
-        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
-            "Failed to download Test Track: download failed",
-        )
+        await expect(
+            prepareTrack(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow("Failed to download Test Track: download failed")
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
     })
 
@@ -119,9 +128,9 @@ describe("prepareTrack", () => {
             .mockResolvedValueOnce(successfulCommand("not-a-hash\n"))
             .mockResolvedValueOnce(successfulCommand())
 
-        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
-            "Failed to hash Test Track: invalid SHA-256",
-        )
+        await expect(
+            prepareTrack(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow("Failed to hash Test Track: invalid SHA-256")
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
     })
 
@@ -133,7 +142,9 @@ describe("prepareTrack", () => {
             .mockResolvedValueOnce(successfulCommand("3600.1\n"))
             .mockResolvedValueOnce(successfulCommand())
 
-        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
+        await expect(
+            prepareTrack(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow(
             "Test Track is too long for Yoto. Tracks must be 60 minutes or shorter.",
         )
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
@@ -147,7 +158,9 @@ describe("prepareTrack", () => {
             .mockResolvedValueOnce(successfulCommand("3600\n"))
             .mockResolvedValueOnce(successfulCommand())
 
-        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
+        await expect(
+            prepareTrack(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow(
             "Test Track is too large for Yoto. Tracks must be 100 MB or smaller.",
         )
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
@@ -161,7 +174,9 @@ describe("prepareTrack", () => {
             .mockResolvedValueOnce(successfulCommand("3600.1\n"))
             .mockResolvedValueOnce(successfulCommand())
 
-        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
+        await expect(
+            prepareTrack(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow(
             "Test Track is too long and too large for Yoto. Tracks must be 60 minutes or shorter and 100 MB or smaller.",
         )
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
@@ -174,7 +189,11 @@ describe("getPlaylistInfo", () => {
             successfulCommand("video-1\tTest Track\t180.5\n"),
         )
 
-        const result = await getPlaylistInfo(mockEnv, sourceTrack.url)
+        const result = await getPlaylistInfo(
+            mockEnv,
+            sandboxId,
+            sourceTrack.url,
+        )
 
         expect(result.videos).toEqual([
             {
@@ -194,7 +213,7 @@ describe("uploadTrack", () => {
             "https://uploads.example.com/audio?signature=super-secret"
         mockExec.mockResolvedValueOnce(successfulCommand())
 
-        await uploadTrack(mockEnv, track, uploadUrl)
+        await uploadTrack(mockEnv, sandboxId, track, uploadUrl)
 
         expect(mockExec).toHaveBeenCalledOnce()
         const [command, options] = mockExec.mock.calls[0]
@@ -207,7 +226,12 @@ describe("uploadTrack", () => {
 
     it("rejects non-HTTPS upload URLs before calling the sandbox", async () => {
         await expect(
-            uploadTrack(mockEnv, track, "http://uploads.example.com/audio"),
+            uploadTrack(
+                mockEnv,
+                sandboxId,
+                track,
+                "http://uploads.example.com/audio",
+            ),
         ).rejects.toThrow("Invalid Yoto upload URL")
 
         expect(mockGetSandbox).not.toHaveBeenCalled()
@@ -222,7 +246,12 @@ describe("uploadTrack", () => {
         })
 
         await expect(
-            uploadTrack(mockEnv, track, "https://uploads.example.com/audio"),
+            uploadTrack(
+                mockEnv,
+                sandboxId,
+                track,
+                "https://uploads.example.com/audio",
+            ),
         ).rejects.toThrow("Failed to upload video-1.mp3: HTTP 403")
     })
 })
@@ -231,8 +260,19 @@ describe("removeTrack", () => {
     it("removes the prepared file from the sandbox", async () => {
         mockExec.mockResolvedValueOnce(successfulCommand())
 
-        await removeTrack(mockEnv, track)
+        await removeTrack(mockEnv, sandboxId, track)
 
         expect(mockExec).toHaveBeenCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+})
+
+describe("destroySandbox", () => {
+    it("destroys the import sandbox", async () => {
+        mockDestroy.mockResolvedValueOnce(undefined)
+
+        await destroySandbox(mockEnv, sandboxId)
+
+        expect(mockGetSandbox).toHaveBeenCalledWith(mockEnv.SANDBOX, sandboxId)
+        expect(mockDestroy).toHaveBeenCalledOnce()
     })
 })

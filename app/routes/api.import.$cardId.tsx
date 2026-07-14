@@ -1,7 +1,9 @@
-import {isAuthenticated} from "~/lib/auth.server"
+import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {destroySandbox} from "~/lib/sandbox.server"
 import {performSyncToCard} from "~/lib/sync.server"
 import type {ImportProgress} from "~/lib/sync-utils"
+import {getUploadSandboxId, type Upload} from "~/lib/upload"
 
 import type {Route} from "./+types/api.import.$cardId"
 
@@ -16,6 +18,8 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
 
+    const {sdk} = await getAuthenticatedSdk(request, env)
+
     const url = new URL(request.url)
     const youtubeUrl = url.searchParams.get("url")
     const cardId = params.cardId
@@ -24,7 +28,19 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Missing url parameter"}, {status: 400})
     }
 
-    const validatedUrl = youtubeUrl
+    const upload: Upload = {
+        id: crypto.randomUUID(),
+        cardId,
+        youtubeUrl,
+    }
+    const sandboxId = getUploadSandboxId(upload)
+    const sandboxLogContext = {
+        uploadId: upload.id,
+        sandboxId,
+        cardId,
+    }
+
+    console.info("Upload sandbox starting", sandboxLogContext)
 
     // Create a TransformStream to handle the SSE
     const {readable, writable} = new TransformStream()
@@ -38,10 +54,9 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     async function runSync() {
         try {
             const result = await performSyncToCard(
-                request,
+                sdk,
                 env,
-                validatedUrl,
-                cardId,
+                upload,
                 async (progress: ImportProgress) => {
                     await sendEvent({type: "progress", ...progress})
                 },
@@ -67,6 +82,16 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
                         : "Import failed unexpectedly",
             })
         } finally {
+            try {
+                await destroySandbox(env, sandboxId)
+                console.info("Upload sandbox destroyed", sandboxLogContext)
+            } catch (error) {
+                console.warn("Failed to destroy import sandbox", {
+                    ...sandboxLogContext,
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                })
+            }
             await writer.close()
         }
     }
