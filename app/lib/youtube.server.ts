@@ -2,16 +2,16 @@
 // Note: Actual yt-dlp operations moved to sandbox (workers/app.ts)
 
 // Types
-type YouTubeTrack = {
+type YouTubeVideo = {
     id: string
     title: string
     url: string
 }
 
-type YouTubePlaylistInfo = {
+type YouTubePlaylist = {
     id: string
     title: string
-    tracks: YouTubeTrack[]
+    videos: YouTubeVideo[]
 }
 
 // Check if URL is a playlist
@@ -60,4 +60,7 @@ const extractVideoId = (url: string): string => {
 }
 
 export {extractPlaylistId, extractVideoId, isPlaylistUrl}
-export type {YouTubePlaylistInfo, YouTubeTrack}
+export type {
+    YouTubePlaylist as YouTubePlaylistInfo,
+    YouTubeVideo as YouTubeTrack,
+}

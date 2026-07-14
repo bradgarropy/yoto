@@ -256,7 +256,7 @@ export async function performSyncToCard(
         }
 
         const existingChapters = cardResponse.content?.chapters ?? []
-        const tracksToAdd = youtubeInfo.tracks
+        const tracksToAdd = youtubeInfo.videos
         const total = tracksToAdd.length
 
         // 3. Download phase - download all tracks in parallel (5 at a time)
