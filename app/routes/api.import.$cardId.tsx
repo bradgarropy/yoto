@@ -1,4 +1,4 @@
-import {isAuthenticated} from "~/lib/auth.server"
+import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {performSyncToCard} from "~/lib/sync.server"
 import type {ImportProgress} from "~/lib/sync-utils"
@@ -15,6 +15,8 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     if (!authenticated) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
+
+    const {sdk} = await getAuthenticatedSdk(request, env)
 
     const url = new URL(request.url)
     const youtubeUrl = url.searchParams.get("url")
@@ -38,7 +40,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     async function runSync() {
         try {
             const result = await performSyncToCard(
-                request,
+                sdk,
                 env,
                 validatedUrl,
                 cardId,

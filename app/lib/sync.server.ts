@@ -1,7 +1,6 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
-import {getAuthenticatedSdk} from "./auth.server"
 import {
     getPlaylistInfo,
     prepareTrack,
@@ -218,13 +217,12 @@ const CONCURRENCY_LIMIT = 5
  * Processes tracks in parallel phases: download → upload → transcode
  */
 export async function performSyncToCard(
-    request: Request,
+    sdk: YotoSdk,
     env: Env,
     youtubeUrl: string,
     cardId: string,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<SyncToCardResult> {
-    const {sdk} = await getAuthenticatedSdk(request, env)
     const limit = pLimit(CONCURRENCY_LIMIT)
 
     try {
