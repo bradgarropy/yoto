@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
+import {createMockEnv} from "~/tests/mocks"
+
 // Mock the auth-cookie module
 const mockGetTokensFromCookie = vi.fn()
 const mockSerializeAuthCookie = vi.fn()
@@ -48,11 +50,7 @@ import {
 const createMockRequest = () => new Request("http://localhost/")
 
 // Mock env object
-const mockEnv = {
-    YOTO_AUTH_SECRET: "test-secret-key-for-testing",
-    RESEND_API_KEY: "test-resend-api-key",
-    SANDBOX: {} as Env["SANDBOX"],
-}
+const mockEnv = createMockEnv()
 
 beforeEach(() => {
     vi.clearAllMocks()

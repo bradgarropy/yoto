@@ -1,6 +1,8 @@
 import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
 import {beforeEach, describe, expect, it} from "vitest"
 
+import {createMockEnv} from "~/tests/mocks"
+
 // Import module
 import {
     _resetAuthCookie,
@@ -10,11 +12,7 @@ import {
 } from "./auth-cookie.server"
 
 // Mock env object
-const mockEnv = {
-    YOTO_AUTH_SECRET: "test-secret-key-for-testing",
-    RESEND_API_KEY: "test-resend-api-key",
-    SANDBOX: {} as Env["SANDBOX"],
-}
+const mockEnv = createMockEnv()
 
 const mockTokens: StoredTokens = {
     accessToken: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test-access-token",
@@ -215,11 +213,9 @@ describe("auth-cookie", () => {
             const cookieValue = cookieString.split(";")[0]
 
             // Create a different env with wrong secret
-            const wrongEnv = {
+            const wrongEnv = createMockEnv({
                 YOTO_AUTH_SECRET: "different-secret-key",
-                RESEND_API_KEY: "test-resend-api-key",
-                SANDBOX: {} as Env["SANDBOX"],
-            }
+            })
 
             const request = new Request("http://localhost/", {
                 headers: {
