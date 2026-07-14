@@ -6,6 +6,13 @@ import shellEscape from "shell-escape"
 
 import type {YouTubePlaylistInfo, YouTubeTrack} from "./youtube.server"
 
+type PreparedTrack = {
+    path: string
+    filename: string
+    sha256: string
+    byteLength: number
+}
+
 // Validate that a URL is a legitimate YouTube URL
 function isYoutubeUrl(url: string): boolean {
     const youtubePatterns = [
@@ -94,6 +101,64 @@ async function getPlaylistInfo(
     }
 }
 
+// Download a track, hash it, and leave it in the sandbox for direct upload
+async function prepareTrack(
+    env: Env,
+    track: YouTubeTrack,
+): Promise<PreparedTrack> {
+    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+    const filename = `${track.id}.mp3`
+    const path = `/tmp/${filename}`
+    const escapedPath = escapeShellArg(path)
+    const escapedUrl = escapeShellArg(track.url)
+
+    // Remove files left behind by an interrupted attempt for the same track.
+    await sandbox.exec(`rm -f ${escapedPath}`)
+
+    try {
+        const downloadResult = await sandbox.exec(
+            `yt-dlp --no-check-certificates ` +
+                `--extract-audio --audio-format mp3 --audio-quality 0 ` +
+                `-o ${escapedPath} --no-playlist ${escapedUrl}`,
+        )
+
+        if (!downloadResult.success) {
+            throw new Error(
+                `Failed to download ${track.title}: ${downloadResult.stderr}`,
+            )
+        }
+
+        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
+        if (!hashResult.success) {
+            throw new Error(
+                `Failed to hash ${track.title}: ${hashResult.stderr}`,
+            )
+        }
+
+        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
+        if (!/^[a-f0-9]{64}$/.test(sha256)) {
+            throw new Error(`Failed to hash ${track.title}: invalid SHA-256`)
+        }
+
+        const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
+        if (!sizeResult.success) {
+            throw new Error(
+                `Failed to measure ${track.title}: ${sizeResult.stderr}`,
+            )
+        }
+
+        const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
+        if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+            throw new Error(`Failed to measure ${track.title}: invalid size`)
+        }
+
+        return {path, filename, sha256, byteLength}
+    } catch (error) {
+        await sandbox.exec(`rm -f ${escapedPath}`)
+        throw error
+    }
+}
+
 // Download a track and return as ArrayBuffer
 async function downloadTrack(
     env: Env,
@@ -135,4 +200,5 @@ async function downloadTrack(
     }
 }
 
-export {downloadTrack, getPlaylistInfo}
+export {downloadTrack, getPlaylistInfo, prepareTrack}
+export type {PreparedTrack}
