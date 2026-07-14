@@ -34,6 +34,13 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         youtubeUrl,
     }
     const sandboxId = getUploadSandboxId(upload)
+    const sandboxLogContext = {
+        uploadId: upload.id,
+        sandboxId,
+        cardId,
+    }
+
+    console.info("Upload sandbox starting", sandboxLogContext)
 
     // Create a TransformStream to handle the SSE
     const {readable, writable} = new TransformStream()
@@ -77,9 +84,10 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         } finally {
             try {
                 await destroySandbox(env, sandboxId)
+                console.info("Upload sandbox destroyed", sandboxLogContext)
             } catch (error) {
                 console.warn("Failed to destroy import sandbox", {
-                    sandboxId,
+                    ...sandboxLogContext,
                     error:
                         error instanceof Error ? error.message : String(error),
                 })
