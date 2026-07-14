@@ -49,11 +49,22 @@ type UploadResult =
     | {alreadyTranscoded: true; key: string; duration: number; fileSize: number}
     | {alreadyTranscoded: false; sha256: string}
 
+type AudioLogContext = {
+    cardId: string
+    trackId: string
+    trackTitle: string
+}
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
+}
+
 // Upload audio from ArrayBuffer, returns sha256 for transcode polling
 async function uploadAudio(
     sdk: YotoSdk,
     buffer: ArrayBuffer,
     filename: string,
+    context: AudioLogContext,
 ): Promise<UploadResult> {
     const sha256 = await calculateSha256(buffer)
 
@@ -64,10 +75,21 @@ async function uploadAudio(
             false,
         )) as unknown as TranscodeResult
 
+        console.info("Yoto audio transcode cache lookup", {
+            ...context,
+            sha256,
+            phase: existingStatus?.progress?.phase,
+        })
+
         if (
             existingStatus?.progress?.phase === "complete" &&
             existingStatus.transcodedSha256
         ) {
+            console.info("Yoto audio already transcoded", {
+                ...context,
+                sha256,
+                transcodedSha256: existingStatus.transcodedSha256,
+            })
             return {
                 alreadyTranscoded: true,
                 key: existingStatus.transcodedSha256,
@@ -75,8 +97,13 @@ async function uploadAudio(
                 fileSize: existingStatus.transcodedInfo?.fileSize ?? 0,
             }
         }
-    } catch {
+    } catch (error) {
         // File doesn't exist yet, continue with upload
+        console.info("Yoto audio transcode cache miss", {
+            ...context,
+            sha256,
+            error: getErrorMessage(error),
+        })
     }
 
     // Get upload URL
@@ -86,6 +113,13 @@ async function uploadAudio(
     )) as unknown as {uploadId: string; uploadUrl: string | null}
 
     if (uploadInfo.uploadUrl) {
+        console.info("Yoto audio upload starting", {
+            ...context,
+            sha256,
+            uploadId: uploadInfo.uploadId,
+            bytes: buffer.byteLength,
+        })
+
         const uploadResponse = await fetch(uploadInfo.uploadUrl, {
             method: "PUT",
             body: buffer,
@@ -98,6 +132,19 @@ async function uploadAudio(
         if (!uploadResponse.ok) {
             throw new Error(`Upload failed: ${uploadResponse.statusText}`)
         }
+
+        console.info("Yoto audio upload complete", {
+            ...context,
+            sha256,
+            uploadId: uploadInfo.uploadId,
+            status: uploadResponse.status,
+        })
+    } else {
+        console.info("Yoto audio upload skipped", {
+            ...context,
+            sha256,
+            uploadId: uploadInfo.uploadId,
+        })
     }
 
     return {alreadyTranscoded: false, sha256}
@@ -107,6 +154,7 @@ async function uploadAudio(
 async function waitForTranscode(
     sdk: YotoSdk,
     sha256: string,
+    context: AudioLogContext,
     onProgress?: () => void | Promise<void>,
 ): Promise<{key: string; duration: number; fileSize: number}> {
     const maxAttempts = 60
@@ -122,21 +170,48 @@ async function waitForTranscode(
                 false,
             )) as unknown as TranscodeResult
 
+            console.info("Yoto audio transcode poll", {
+                ...context,
+                sha256,
+                attempt: attempt + 1,
+                maxAttempts,
+                phase: transcodeStatus?.progress?.phase,
+            })
+
             if (
                 transcodeStatus?.progress?.phase === "complete" &&
                 transcodeStatus.transcodedSha256
             ) {
+                console.info("Yoto audio transcode complete", {
+                    ...context,
+                    sha256,
+                    transcodedSha256: transcodeStatus.transcodedSha256,
+                    duration: transcodeStatus.transcodedInfo?.duration,
+                    fileSize: transcodeStatus.transcodedInfo?.fileSize,
+                })
                 return {
                     key: transcodeStatus.transcodedSha256,
                     duration: transcodeStatus.transcodedInfo?.duration ?? 0,
                     fileSize: transcodeStatus.transcodedInfo?.fileSize ?? 0,
                 }
             }
-        } catch {
+        } catch (error) {
             // Continue polling
+            console.warn("Yoto audio transcode poll failed", {
+                ...context,
+                sha256,
+                attempt: attempt + 1,
+                maxAttempts,
+                error: getErrorMessage(error),
+            })
         }
     }
 
+    console.error("Yoto audio transcode timed out", {
+        ...context,
+        sha256,
+        attempts: maxAttempts,
+    })
     throw new Error("Audio transcode timed out")
 }
 
@@ -217,6 +292,11 @@ export async function performSyncToCard(
                         sdk,
                         buffer,
                         `${track.id}.mp3`,
+                        {
+                            cardId,
+                            trackId: track.id,
+                            trackTitle: track.title,
+                        },
                     )
                     uploadedCount++
                     // Report next track in progress (if there are more)
@@ -254,7 +334,15 @@ export async function performSyncToCard(
                         }
                     } else {
                         // Wait for transcode to complete
-                        transcoded = await waitForTranscode(sdk, result.sha256)
+                        transcoded = await waitForTranscode(
+                            sdk,
+                            result.sha256,
+                            {
+                                cardId,
+                                trackId: track.id,
+                                trackTitle: track.title,
+                            },
+                        )
                     }
 
                     transcodedCount++
