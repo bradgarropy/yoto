@@ -16,6 +16,9 @@ type Track = {
     byteLength: number
 }
 
+const MAX_TRACK_BYTES = 100_000_000
+const MAX_TRACK_DURATION_SECONDS = 60 * 60
+
 // Validate that a URL is a legitimate YouTube URL
 function isYoutubeUrl(url: string): boolean {
     const youtubePatterns = [
@@ -29,6 +32,13 @@ function isYoutubeUrl(url: string): boolean {
 // Escape a single argument for safe shell interpolation
 function escapeShellArg(arg: string): string {
     return shellEscape([arg])
+}
+
+function parseDuration(value: string | undefined): number | undefined {
+    if (!value) return undefined
+
+    const duration = Number.parseFloat(value)
+    return Number.isFinite(duration) && duration >= 0 ? duration : undefined
 }
 
 // Get playlist/video info from YouTube via sandbox
@@ -49,7 +59,7 @@ async function getPlaylistInfo(
 
     if (isPlaylist) {
         const result = await sandbox.exec(
-            `yt-dlp --no-check-certificates --flat-playlist --print "%(playlist_id)s\t%(playlist_title)s\t%(id)s\t%(title)s" ${escapedUrl}`,
+            `yt-dlp --no-check-certificates --flat-playlist --print "%(playlist_id)s\t%(playlist_title)s\t%(id)s\t%(title)s\t%(duration)s" ${escapedUrl}`,
         )
 
         if (!result.success) {
@@ -65,18 +75,19 @@ async function getPlaylistInfo(
         const [playlistId, playlistTitle] = lines[0].split("\t")
 
         const videos: SourceTrack[] = lines.map(line => {
-            const [, , videoId, title] = line.split("\t")
+            const [, , videoId, title, duration] = line.split("\t")
             return {
                 id: videoId,
                 title,
                 url: `https://www.youtube.com/watch?v=${videoId}`,
+                duration: parseDuration(duration),
             }
         })
 
         return {id: playlistId, title: playlistTitle, videos}
     } else {
         const result = await sandbox.exec(
-            `yt-dlp --no-check-certificates --print "%(id)s\t%(title)s" --no-playlist ${escapedUrl}`,
+            `yt-dlp --no-check-certificates --print "%(id)s\t%(title)s\t%(duration)s" --no-playlist ${escapedUrl}`,
         )
 
         if (!result.success) {
@@ -88,7 +99,7 @@ async function getPlaylistInfo(
             throw new Error("No video info found")
         }
 
-        const [videoId, title] = line.split("\t")
+        const [videoId, title, duration] = line.split("\t")
 
         return {
             id: videoId,
@@ -98,6 +109,7 @@ async function getPlaylistInfo(
                     id: videoId,
                     title,
                     url: `https://www.youtube.com/watch?v=${videoId}`,
+                    duration: parseDuration(duration),
                 },
             ],
         }
@@ -106,6 +118,16 @@ async function getPlaylistInfo(
 
 // Download a track, hash it, and leave it in the sandbox for direct upload
 async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
+    if (
+        track.duration !== undefined &&
+        track.duration > MAX_TRACK_DURATION_SECONDS
+    ) {
+        throw new Error(
+            `${track.title} is too long for Yoto. ` +
+                `Tracks must be 60 minutes or shorter.`,
+        )
+    }
+
     const sandbox = getSandbox(env.SANDBOX, "sync-worker")
     const filename = `${track.id}.mp3`
     const path = `/tmp/${filename}`
@@ -128,18 +150,6 @@ async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
             )
         }
 
-        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
-        if (!hashResult.success) {
-            throw new Error(
-                `Failed to hash ${track.title}: ${hashResult.stderr}`,
-            )
-        }
-
-        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
-        if (!/^[a-f0-9]{64}$/.test(sha256)) {
-            throw new Error(`Failed to hash ${track.title}: invalid SHA-256`)
-        }
-
         const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
         if (!sizeResult.success) {
             throw new Error(
@@ -150,6 +160,59 @@ async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
         const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
         if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
             throw new Error(`Failed to measure ${track.title}: invalid size`)
+        }
+
+        const durationResult = await sandbox.exec(
+            `ffprobe -v error -show_entries format=duration ` +
+                `-of default=noprint_wrappers=1:nokey=1 ${escapedPath}`,
+        )
+        if (!durationResult.success) {
+            throw new Error(
+                `Failed to measure ${track.title}: ${durationResult.stderr}`,
+            )
+        }
+
+        const durationSeconds = Number.parseFloat(durationResult.stdout.trim())
+        if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
+            throw new Error(
+                `Failed to measure ${track.title}: invalid duration`,
+            )
+        }
+
+        const isTooLarge = byteLength > MAX_TRACK_BYTES
+        const isTooLong = durationSeconds > MAX_TRACK_DURATION_SECONDS
+
+        if (isTooLarge && isTooLong) {
+            throw new Error(
+                `${track.title} is too long and too large for Yoto. ` +
+                    `Tracks must be 60 minutes or shorter and 100 MB or smaller.`,
+            )
+        }
+
+        if (isTooLong) {
+            throw new Error(
+                `${track.title} is too long for Yoto. ` +
+                    `Tracks must be 60 minutes or shorter.`,
+            )
+        }
+
+        if (isTooLarge) {
+            throw new Error(
+                `${track.title} is too large for Yoto. ` +
+                    `Tracks must be 100 MB or smaller.`,
+            )
+        }
+
+        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
+        if (!hashResult.success) {
+            throw new Error(
+                `Failed to hash ${track.title}: ${hashResult.stderr}`,
+            )
+        }
+
+        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
+        if (!/^[a-f0-9]{64}$/.test(sha256)) {
+            throw new Error(`Failed to hash ${track.title}: invalid SHA-256`)
         }
 
         return {path, filename, sha256, byteLength}

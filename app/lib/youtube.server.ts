@@ -6,6 +6,7 @@ type YouTubeVideo = {
     id: string
     title: string
     url: string
+    duration?: number
 }
 
 type YouTubePlaylist = {
