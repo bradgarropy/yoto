@@ -13,14 +13,12 @@ vi.mock("~/lib/cloudflare-context", () => ({
 }))
 
 // Import after mocks are set up
+import {createMockEnv} from "~/tests/mocks"
+
 import {action, loader} from "./logout"
 
 // Mock env object
-const mockEnv = {
-    YOTO_AUTH_SECRET: "test-secret-key-for-testing",
-    RESEND_API_KEY: "test-resend-api-key",
-    SANDBOX: {} as Env["SANDBOX"],
-}
+const mockEnv = createMockEnv()
 
 beforeEach(() => {
     vi.clearAllMocks()

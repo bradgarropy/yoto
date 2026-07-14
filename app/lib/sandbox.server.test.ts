@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
+import {createMockEnv} from "~/tests/mocks"
+
 const mockExec = vi.fn()
 const mockDestroy = vi.fn()
 const mockGetSandbox = vi.fn<
@@ -25,11 +27,7 @@ import {
     uploadTrack,
 } from "./sandbox.server"
 
-const mockEnv = {
-    YOTO_AUTH_SECRET: "test-secret-key-for-testing",
-    RESEND_API_KEY: "test-resend-api-key",
-    SANDBOX: {} as Env["SANDBOX"],
-}
+const mockEnv = createMockEnv()
 const sandboxId = "upload-test-job"
 
 const sourceTrack = {

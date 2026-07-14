@@ -10,6 +10,13 @@
     "observability": {
         "enabled": true,
     },
+    "workflows": [
+        {
+            "name": "yoto-upload",
+            "binding": "UPLOAD_WORKFLOW",
+            "class_name": "UploadWorkflow",
+        },
+    ],
     "routes": [
         {
             "pattern": "yoto.bradgarropy.com",

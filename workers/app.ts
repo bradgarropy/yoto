@@ -3,6 +3,7 @@ import {createRequestHandler, RouterContextProvider} from "react-router"
 import {cloudflareContext} from "../app/lib/cloudflare-context"
 
 // Re-export Sandbox class (required by Cloudflare)
+export {UploadWorkflow} from "./upload-workflow"
 export {Sandbox} from "@cloudflare/sandbox"
 
 const requestHandler = createRequestHandler(
