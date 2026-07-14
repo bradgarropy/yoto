@@ -1,7 +1,7 @@
 // Sandbox client for calling yt-dlp operations via Durable Object
 // Uses the sandbox endpoints defined in workers/app.ts
 
-import {collectFile, getSandbox} from "@cloudflare/sandbox"
+import {getSandbox} from "@cloudflare/sandbox"
 import shellEscape from "shell-escape"
 
 import type {
@@ -205,46 +205,5 @@ async function removeTrack(env: Env, track: Track): Promise<void> {
     }
 }
 
-// Download a track and return as ArrayBuffer
-async function downloadTrack(
-    env: Env,
-    track: SourceTrack,
-): Promise<ArrayBuffer> {
-    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
-    const outputPath = `/tmp/${track.id}.mp3`
-    const escapedOutputPath = escapeShellArg(outputPath)
-    const escapedUrl = escapeShellArg(track.url)
-
-    // Download and convert to MP3
-    // Note: --no-check-certificates handles SSL issues in container environments
-    const downloadResult = await sandbox.exec(
-        `yt-dlp --no-check-certificates ` +
-            `--extract-audio --audio-format mp3 --audio-quality 0 ` +
-            `-o ${escapedOutputPath} --no-playlist ${escapedUrl}`,
-    )
-
-    if (!downloadResult.success) {
-        throw new Error(
-            `Failed to download ${track.title}: ${downloadResult.stderr}`,
-        )
-    }
-
-    // Stream file from sandbox to avoid 32MiB RPC serialization limit
-    try {
-        const stream = await sandbox.readFileStream(outputPath)
-        const {content} = await collectFile(stream)
-
-        if (content instanceof Uint8Array) {
-            return content.buffer as ArrayBuffer
-        }
-
-        // Fallback: content is a string (text encoding), convert to ArrayBuffer
-        const encoder = new TextEncoder()
-        return encoder.encode(content).buffer as ArrayBuffer
-    } finally {
-        await sandbox.exec(`rm -f ${escapedOutputPath}`)
-    }
-}
-
-export {downloadTrack, getPlaylistInfo, prepareTrack, removeTrack, uploadTrack}
+export {getPlaylistInfo, prepareTrack, removeTrack, uploadTrack}
 export type {Track}
