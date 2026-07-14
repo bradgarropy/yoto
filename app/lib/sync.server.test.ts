@@ -101,12 +101,12 @@ describe("performSyncToCard", () => {
             uploadId: preparedTrack.sha256,
             uploadUrl: "https://uploads.example.com/audio",
         })
-        vi.spyOn(globalThis, "setTimeout").mockImplementation(
-            ((callback: TimerHandler) => {
-                if (typeof callback === "function") callback()
-                return 0 as unknown as ReturnType<typeof setTimeout>
-            }) as typeof setTimeout,
-        )
+        vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+            callback: TimerHandler,
+        ) => {
+            if (typeof callback === "function") callback()
+            return 0 as unknown as ReturnType<typeof setTimeout>
+        }) as unknown as typeof setTimeout)
 
         const result = await performSyncToCard(
             request,

@@ -1,10 +1,12 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 const mockExec = vi.fn()
-const mockGetSandbox = vi.fn(() => ({exec: mockExec}))
+const mockGetSandbox = vi.fn<
+    (binding: unknown, id: string) => {exec: typeof mockExec}
+>(() => ({exec: mockExec}))
 
 vi.mock("@cloudflare/sandbox", () => ({
-    getSandbox: (...args: unknown[]) => mockGetSandbox(...args),
+    getSandbox: (...args: [unknown, string]) => mockGetSandbox(...args),
 }))
 
 import {
@@ -60,10 +62,7 @@ describe("prepareTrack", () => {
             mockEnv.SANDBOX,
             "sync-worker",
         )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            1,
-            "rm -f '/tmp/video-1.mp3'",
-        )
+        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.mp3'")
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
             expect.stringContaining("yt-dlp --no-check-certificates"),
@@ -91,9 +90,7 @@ describe("prepareTrack", () => {
         await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
             "Failed to download Test Track: download failed",
         )
-        expect(mockExec).toHaveBeenLastCalledWith(
-            "rm -f '/tmp/video-1.mp3'",
-        )
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
     })
 
     it("rejects invalid file metadata and removes the file", async () => {
@@ -106,9 +103,7 @@ describe("prepareTrack", () => {
         await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
             "Failed to hash Test Track: invalid SHA-256",
         )
-        expect(mockExec).toHaveBeenLastCalledWith(
-            "rm -f '/tmp/video-1.mp3'",
-        )
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
     })
 })
 
@@ -146,11 +141,7 @@ describe("uploadTrack", () => {
         })
 
         await expect(
-            uploadTrack(
-                mockEnv,
-                track,
-                "https://uploads.example.com/audio",
-            ),
+            uploadTrack(mockEnv, track, "https://uploads.example.com/audio"),
         ).rejects.toThrow("Failed to upload video-1.mp3: HTTP 403")
     })
 })
