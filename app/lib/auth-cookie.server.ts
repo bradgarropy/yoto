@@ -57,20 +57,21 @@ function getSecret(env: Env): string {
 // Cache cookies by secret to avoid recreating them
 const cookieCache = new Map<string, ReturnType<typeof createCookie>>()
 
-function getAuthCookie(env: Env) {
+function getAuthCookie(env: Env, secure: boolean) {
     const secret = getSecret(env)
+    const cacheKey = `${secret}:${secure}`
 
-    let cookie = cookieCache.get(secret)
+    let cookie = cookieCache.get(cacheKey)
     if (!cookie) {
         cookie = createCookie("yoto-auth", {
             httpOnly: true,
-            secure: true, // Always secure in Workers
+            secure,
             sameSite: "lax",
             path: "/",
             maxAge: 60 * 60 * 24 * 30, // 30 days
             secrets: [secret],
         })
-        cookieCache.set(secret, cookie)
+        cookieCache.set(cacheKey, cookie)
     }
     return cookie
 }
@@ -87,7 +88,7 @@ export async function getTokensFromCookie(
     env: Env,
 ): Promise<StoredTokens | null> {
     const cookieHeader = request.headers.get("Cookie")
-    const encrypted = await getAuthCookie(env).parse(cookieHeader)
+    const encrypted = await getAuthCookie(env, true).parse(cookieHeader)
     if (!encrypted) return null
 
     try {
@@ -101,12 +102,16 @@ export async function getTokensFromCookie(
 export async function serializeAuthCookie(
     tokens: StoredTokens,
     env: Env,
+    secure = true,
 ): Promise<string> {
     const json = JSON.stringify(tokens)
     const encrypted = await encrypt(json, getSecret(env))
-    return getAuthCookie(env).serialize(encrypted)
+    return getAuthCookie(env, secure).serialize(encrypted)
 }
 
-export async function clearAuthCookie(env: Env): Promise<string> {
-    return getAuthCookie(env).serialize("", {maxAge: 0})
+export async function clearAuthCookie(
+    env: Env,
+    secure = true,
+): Promise<string> {
+    return getAuthCookie(env, secure).serialize("", {maxAge: 0})
 }
