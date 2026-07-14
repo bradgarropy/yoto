@@ -20,6 +20,7 @@ const mockEnv = {
     RESEND_API_KEY: "test-resend-api-key",
     SANDBOX: {} as Env["SANDBOX"],
 }
+const sandboxId = "upload-test-job"
 
 const sourceTrack = {
     id: "video-1",
@@ -104,16 +105,22 @@ describe("performSyncToCard", () => {
         const result = await performSyncToCard(
             sdk,
             mockEnv,
+            sandboxId,
             sourceTrack.url,
             "card-1",
         )
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
+            sandboxId,
             preparedTrack,
             "https://uploads.example.com/audio",
         )
-        expect(mockRemoveTrack).toHaveBeenCalledWith(mockEnv, preparedTrack)
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
         expect(mockUpdateCard).toHaveBeenCalledOnce()
         expect(result).toEqual({
             success: true,
@@ -134,11 +141,16 @@ describe("performSyncToCard", () => {
         const result = await performSyncToCard(
             sdk,
             mockEnv,
+            sandboxId,
             sourceTrack.url,
             "card-1",
         )
 
-        expect(mockRemoveTrack).toHaveBeenCalledWith(mockEnv, preparedTrack)
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
         expect(mockUpdateCard).not.toHaveBeenCalled()
         expect(result).toEqual({error: "Upload failed"})
     })
@@ -161,11 +173,16 @@ describe("performSyncToCard", () => {
         const result = await performSyncToCard(
             sdk,
             mockEnv,
+            sandboxId,
             "https://www.youtube.com/playlist?list=playlist-1",
             "card-1",
         )
 
-        expect(mockRemoveTrack).toHaveBeenCalledWith(mockEnv, preparedTrack)
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
         expect(mockUploadTrack).not.toHaveBeenCalled()
         expect(result).toEqual({error: "Download failed"})
     })

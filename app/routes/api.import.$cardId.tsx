@@ -27,6 +27,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     }
 
     const validatedUrl = youtubeUrl
+    const sandboxId = `upload-${crypto.randomUUID()}`
 
     // Create a TransformStream to handle the SSE
     const {readable, writable} = new TransformStream()
@@ -42,6 +43,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             const result = await performSyncToCard(
                 sdk,
                 env,
+                sandboxId,
                 validatedUrl,
                 cardId,
                 async (progress: ImportProgress) => {

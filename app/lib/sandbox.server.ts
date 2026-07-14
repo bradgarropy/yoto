@@ -44,6 +44,7 @@ function parseDuration(value: string | undefined): number | undefined {
 // Get playlist/video info from YouTube via sandbox
 async function getPlaylistInfo(
     env: Env,
+    sandboxId: string,
     url: string,
 ): Promise<YouTubePlaylistInfo> {
     // Validate URL before processing
@@ -51,7 +52,7 @@ async function getPlaylistInfo(
         throw new Error("Invalid YouTube URL")
     }
 
-    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const escapedUrl = escapeShellArg(url)
 
     // Detect if URL is a playlist
@@ -117,7 +118,11 @@ async function getPlaylistInfo(
 }
 
 // Download a track, hash it, and leave it in the sandbox for direct upload
-async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
+async function prepareTrack(
+    env: Env,
+    sandboxId: string,
+    track: SourceTrack,
+): Promise<Track> {
     if (
         track.duration !== undefined &&
         track.duration > MAX_TRACK_DURATION_SECONDS
@@ -128,7 +133,7 @@ async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
         )
     }
 
-    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const filename = `${track.id}.mp3`
     const path = `/tmp/${filename}`
     const escapedPath = escapeShellArg(path)
@@ -225,6 +230,7 @@ async function prepareTrack(env: Env, track: SourceTrack): Promise<Track> {
 // Upload a prepared track without moving its bytes through the Worker
 async function uploadTrack(
     env: Env,
+    sandboxId: string,
     track: Track,
     uploadUrl: string,
 ): Promise<void> {
@@ -239,7 +245,7 @@ async function uploadTrack(
         throw new Error("Invalid Yoto upload URL")
     }
 
-    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const escapedPath = escapeShellArg(track.path)
     const uploadResult = await sandbox.exec(
         `curl --fail --silent --show-error ` +
@@ -256,8 +262,12 @@ async function uploadTrack(
 }
 
 // Remove a prepared track after it is uploaded or no longer needed
-async function removeTrack(env: Env, track: Track): Promise<void> {
-    const sandbox = getSandbox(env.SANDBOX, "sync-worker")
+async function removeTrack(
+    env: Env,
+    sandboxId: string,
+    track: Track,
+): Promise<void> {
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const escapedPath = escapeShellArg(track.path)
     const removeResult = await sandbox.exec(`rm -f ${escapedPath}`)
 

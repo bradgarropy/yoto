@@ -60,6 +60,7 @@ function getErrorMessage(error: unknown): string {
 async function uploadAudio(
     sdk: YotoSdk,
     env: Env,
+    sandboxId: string,
     track: Track,
     context: AudioLogContext,
 ): Promise<UploadResult> {
@@ -117,7 +118,7 @@ async function uploadAudio(
             bytes: track.byteLength,
         })
 
-        await uploadTrack(env, track, uploadInfo.uploadUrl)
+        await uploadTrack(env, sandboxId, track, uploadInfo.uploadUrl)
 
         console.info("Yoto audio upload complete", {
             ...context,
@@ -219,6 +220,7 @@ const CONCURRENCY_LIMIT = 5
 export async function performSyncToCard(
     sdk: YotoSdk,
     env: Env,
+    sandboxId: string,
     youtubeUrl: string,
     cardId: string,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
@@ -228,7 +230,7 @@ export async function performSyncToCard(
     try {
         // 1. Fetch YouTube playlist/video info via sandbox
         await onProgress?.({phase: "preparing"})
-        const youtubeInfo = await getPlaylistInfo(env, youtubeUrl)
+        const youtubeInfo = await getPlaylistInfo(env, sandboxId, youtubeUrl)
 
         // 2. Get existing card
         const cardResponse = (await sdk.content.getCard(
@@ -250,7 +252,11 @@ export async function performSyncToCard(
         const downloadResults = await Promise.allSettled(
             tracksToAdd.map((track, index) =>
                 limit(async () => {
-                    const preparedTrack = await prepareTrack(env, track)
+                    const preparedTrack = await prepareTrack(
+                        env,
+                        sandboxId,
+                        track,
+                    )
                     downloadedCount++
                     // Report next track in progress (if there are more)
                     if (downloadedCount < total) {
@@ -282,7 +288,9 @@ export async function performSyncToCard(
                             track: (typeof tracksToAdd)[number]
                         }> => result.status === "fulfilled",
                     )
-                    .map(({value}) => removeTrack(env, value.preparedTrack)),
+                    .map(({value}) =>
+                        removeTrack(env, sandboxId, value.preparedTrack),
+                    ),
             )
             throw failedDownload.reason
         }
@@ -303,6 +311,7 @@ export async function performSyncToCard(
                         const result = await uploadAudio(
                             sdk,
                             env,
+                            sandboxId,
                             preparedTrack,
                             {
                                 cardId,
@@ -321,7 +330,7 @@ export async function performSyncToCard(
                         }
                         return {index, result, track}
                     } finally {
-                        await removeTrack(env, preparedTrack)
+                        await removeTrack(env, sandboxId, preparedTrack)
                     }
                 }),
             ),
