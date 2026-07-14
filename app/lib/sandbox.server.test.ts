@@ -10,6 +10,7 @@ vi.mock("@cloudflare/sandbox", () => ({
 }))
 
 import {
+    getPlaylistInfo,
     prepareTrack,
     removeTrack,
     type Track,
@@ -46,14 +47,26 @@ beforeEach(() => {
 })
 
 describe("prepareTrack", () => {
+    it("rejects known long tracks before downloading", async () => {
+        await expect(
+            prepareTrack(mockEnv, {...sourceTrack, duration: 3600.1}),
+        ).rejects.toThrow(
+            "Test Track is too long for Yoto. Tracks must be 60 minutes or shorter.",
+        )
+
+        expect(mockGetSandbox).not.toHaveBeenCalled()
+        expect(mockExec).not.toHaveBeenCalled()
+    })
+
     it("downloads a track and returns its sandbox metadata", async () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand("123456\n"))
+            .mockResolvedValueOnce(successfulCommand("180.5\n"))
             .mockResolvedValueOnce(
                 successfulCommand(`${"a".repeat(64)}  /tmp/video-1.mp3\n`),
             )
-            .mockResolvedValueOnce(successfulCommand("123456\n"))
 
         const result = await prepareTrack(mockEnv, sourceTrack)
 
@@ -69,11 +82,15 @@ describe("prepareTrack", () => {
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             3,
-            "sha256sum '/tmp/video-1.mp3'",
+            "stat -c %s '/tmp/video-1.mp3'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             4,
-            "stat -c %s '/tmp/video-1.mp3'",
+            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.mp3'",
+        )
+        expect(mockExec).toHaveBeenNthCalledWith(
+            5,
+            "sha256sum '/tmp/video-1.mp3'",
         )
     })
 
@@ -97,6 +114,8 @@ describe("prepareTrack", () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand("123456\n"))
+            .mockResolvedValueOnce(successfulCommand("180.5\n"))
             .mockResolvedValueOnce(successfulCommand("not-a-hash\n"))
             .mockResolvedValueOnce(successfulCommand())
 
@@ -104,6 +123,68 @@ describe("prepareTrack", () => {
             "Failed to hash Test Track: invalid SHA-256",
         )
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+
+    it("rejects tracks longer than Yoto's limit", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand("99999999\n"))
+            .mockResolvedValueOnce(successfulCommand("3600.1\n"))
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
+            "Test Track is too long for Yoto. Tracks must be 60 minutes or shorter.",
+        )
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+
+    it("rejects tracks larger than Yoto's limit", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand("100000001\n"))
+            .mockResolvedValueOnce(successfulCommand("3600\n"))
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
+            "Test Track is too large for Yoto. Tracks must be 100 MB or smaller.",
+        )
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+
+    it("reports both limits when a track exceeds both", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand("100000001\n"))
+            .mockResolvedValueOnce(successfulCommand("3600.1\n"))
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(prepareTrack(mockEnv, sourceTrack)).rejects.toThrow(
+            "Test Track is too long and too large for Yoto. Tracks must be 60 minutes or shorter and 100 MB or smaller.",
+        )
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+})
+
+describe("getPlaylistInfo", () => {
+    it("includes video duration in the existing metadata lookup", async () => {
+        mockExec.mockResolvedValueOnce(
+            successfulCommand("video-1\tTest Track\t180.5\n"),
+        )
+
+        const result = await getPlaylistInfo(mockEnv, sourceTrack.url)
+
+        expect(result.videos).toEqual([
+            {
+                ...sourceTrack,
+                duration: 180.5,
+            },
+        ])
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringContaining("%(duration)s"),
+        )
     })
 })
 
