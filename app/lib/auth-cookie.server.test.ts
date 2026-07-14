@@ -56,6 +56,16 @@ describe("auth-cookie", () => {
             // 30 days in seconds = 60 * 60 * 24 * 30 = 2592000
             expect(cookieString).toContain("Max-Age=2592000")
         })
+
+        it("should omit Secure for local HTTP development", async () => {
+            const cookieString = await serializeAuthCookie(
+                mockTokens,
+                mockEnv,
+                false,
+            )
+
+            expect(cookieString).not.toContain("Secure")
+        })
     })
 
     describe("getTokensFromCookie", () => {
