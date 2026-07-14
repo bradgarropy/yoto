@@ -105,14 +105,23 @@ describe("completeLogin", () => {
         }
         mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
 
-        const result = await completeLogin(mockEnv, "device-code", 5)
+        const result = await completeLogin(
+            createMockRequest(),
+            mockEnv,
+            "device-code",
+            5,
+        )
 
         expect(mockAuth.pollForToken).toHaveBeenCalledWith(
             "device-code",
             5,
             300000,
         )
-        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(tokens, mockEnv)
+        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(
+            tokens,
+            mockEnv,
+            false,
+        )
         expect(result).toEqual({
             success: true,
             expiresIn: "1 hour",
@@ -126,7 +135,12 @@ describe("completeLogin", () => {
             error: "Authorization expired",
         })
 
-        const result = await completeLogin(mockEnv, "device-code", 5)
+        const result = await completeLogin(
+            createMockRequest(),
+            mockEnv,
+            "device-code",
+            5,
+        )
 
         expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
         expect(result).toEqual({success: false, error: "Authorization expired"})
@@ -140,7 +154,13 @@ describe("completeLogin", () => {
         }
         mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
 
-        await completeLogin(mockEnv, "device-code", 5, 600000)
+        await completeLogin(
+            createMockRequest(),
+            mockEnv,
+            "device-code",
+            5,
+            600000,
+        )
 
         expect(mockAuth.pollForToken).toHaveBeenCalledWith(
             "device-code",
@@ -152,9 +172,9 @@ describe("completeLogin", () => {
 
 describe("logout", () => {
     it("should return clear cookie header", async () => {
-        const result = await logout(mockEnv)
+        const result = await logout(createMockRequest(), mockEnv)
 
-        expect(mockClearAuthCookie).toHaveBeenCalledWith(mockEnv)
+        expect(mockClearAuthCookie).toHaveBeenCalledWith(mockEnv, false)
         expect(result).toBe("yoto-auth=; Max-Age=0; Path=/; HttpOnly")
     })
 })
@@ -220,7 +240,11 @@ describe("status", () => {
         const result = await status(createMockRequest(), mockEnv)
 
         expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
-        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(newTokens, mockEnv)
+        expect(mockSerializeAuthCookie).toHaveBeenCalledWith(
+            newTokens,
+            mockEnv,
+            false,
+        )
         expect(result).toEqual({
             valid: true,
             expiresIn: "1 hour",

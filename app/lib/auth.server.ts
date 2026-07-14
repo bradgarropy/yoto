@@ -67,6 +67,10 @@ const isTokenExpired = (tokens: StoredTokens): boolean => {
     return getTimeUntilExpiry(tokens) <= 0
 }
 
+const isSecureRequest = (request: Request): boolean => {
+    return new URL(request.url).protocol === "https:"
+}
+
 // Initiates device code flow - returns info for user to complete auth
 const initiateLogin = async (): Promise<DeviceCodeResult> => {
     const auth = getAuth()
@@ -76,6 +80,7 @@ const initiateLogin = async (): Promise<DeviceCodeResult> => {
 // Polls for token after user completes auth in browser
 // Returns the Set-Cookie header value on success
 const completeLogin = async (
+    request: Request,
     env: Env,
     deviceCode: string,
     interval: number,
@@ -92,7 +97,11 @@ const completeLogin = async (
         return {success: false, error: result.error ?? "Authentication failed"}
     }
 
-    const setCookie = await serializeAuthCookie(result.tokens, env)
+    const setCookie = await serializeAuthCookie(
+        result.tokens,
+        env,
+        isSecureRequest(request),
+    )
     const timeRemaining = getTimeUntilExpiry(result.tokens)
     const expiresIn = formatTimeRemaining(timeRemaining)
 
@@ -100,8 +109,8 @@ const completeLogin = async (
 }
 
 // Returns Set-Cookie header to clear auth
-const logout = async (env: Env): Promise<string> => {
-    return clearAuthCookie(env)
+const logout = async (request: Request, env: Env): Promise<string> => {
+    return clearAuthCookie(env, isSecureRequest(request))
 }
 
 // Returns token status (requires request to read cookie)
@@ -118,6 +127,7 @@ const status = async (request: Request, env: Env): Promise<TokenStatus> => {
             const refreshResult = await tryRefreshToken(
                 env,
                 tokens.refreshToken,
+                isSecureRequest(request),
             )
             if (refreshResult) {
                 const timeRemaining = getTimeUntilExpiry(refreshResult.tokens)
@@ -144,13 +154,18 @@ const status = async (request: Request, env: Env): Promise<TokenStatus> => {
 const tryRefreshToken = async (
     env: Env,
     refreshToken: string,
+    secure: boolean,
 ): Promise<{tokens: StoredTokens; setCookie: string} | null> => {
     const auth = getAuth()
 
     try {
         const result = await auth.refreshToken(refreshToken)
         if (result.success && result.tokens) {
-            const setCookie = await serializeAuthCookie(result.tokens, env)
+            const setCookie = await serializeAuthCookie(
+                result.tokens,
+                env,
+                secure,
+            )
             return {tokens: result.tokens, setCookie}
         }
     } catch {
@@ -175,7 +190,11 @@ const getToken = async (
     // If token is expired or about to expire (within 5 minutes), try to refresh
     const timeRemaining = getTimeUntilExpiry(tokens)
     if (timeRemaining < 300 && tokens.refreshToken) {
-        const refreshResult = await tryRefreshToken(env, tokens.refreshToken)
+        const refreshResult = await tryRefreshToken(
+            env,
+            tokens.refreshToken,
+            isSecureRequest(request),
+        )
         if (refreshResult) {
             return {
                 token: refreshResult.tokens.accessToken,

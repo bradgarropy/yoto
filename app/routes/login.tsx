@@ -83,7 +83,7 @@ export async function action({
         const deviceCode = formData.get("deviceCode") as string
         const interval = parseInt(formData.get("interval") as string, 10)
 
-        const result = await completeLogin(env, deviceCode, interval)
+        const result = await completeLogin(request, env, deviceCode, interval)
 
         if (result.success) {
             return redirect("/cards", {

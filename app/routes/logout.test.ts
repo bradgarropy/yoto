@@ -36,13 +36,16 @@ describe("logout action", () => {
         }
 
         // Cast to unknown first to avoid complex React Router type requirements
+        const request = new Request("http://localhost/logout", {
+            method: "POST",
+        })
         const response = await action({
-            request: new Request("http://localhost/logout", {method: "POST"}),
+            request,
             params: {},
             context: mockContext,
         } as unknown as Parameters<typeof action>[0])
 
-        expect(mockLogout).toHaveBeenCalledWith(mockEnv)
+        expect(mockLogout).toHaveBeenCalledWith(request, mockEnv)
         expect(response).toBeInstanceOf(Response)
         expect(response.status).toBe(302)
         expect(response.headers.get("Location")).toBe("/")

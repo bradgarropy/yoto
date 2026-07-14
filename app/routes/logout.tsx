@@ -5,9 +5,9 @@ import {cloudflareContext} from "~/lib/cloudflare-context"
 
 import type {Route} from "./+types/logout"
 
-export async function action({context}: Route.ActionArgs) {
+export async function action({request, context}: Route.ActionArgs) {
     const {env} = context.get(cloudflareContext)
-    const setCookie = await logout(env)
+    const setCookie = await logout(request, env)
 
     return redirect("/", {
         headers: {"Set-Cookie": setCookie},
