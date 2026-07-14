@@ -15,9 +15,14 @@ class UploadWorkflow extends WorkflowEntrypoint<Env, Upload> {
         event: WorkflowEvent<Upload>,
         step: WorkflowStep,
     ): Promise<UploadWorkflowResult> {
-        return step.do("initialize upload", async () => ({
-            uploadId: event.payload.id,
-        }))
+        return step.do("initialize upload", async () => {
+            console.info("Upload workflow initialized", {
+                uploadId: event.payload.id,
+                cardId: event.payload.cardId,
+            })
+
+            return {uploadId: event.payload.id}
+        })
     }
 }
 

@@ -40,6 +40,19 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         cardId,
     }
 
+    try {
+        await env.UPLOAD_WORKFLOW.create({
+            id: upload.id,
+            params: upload,
+        })
+        console.info("Upload workflow started", sandboxLogContext)
+    } catch (error) {
+        console.warn("Failed to start upload workflow", {
+            ...sandboxLogContext,
+            error: error instanceof Error ? error.message : String(error),
+        })
+    }
+
     console.info("Upload sandbox starting", sandboxLogContext)
 
     // Create a TransformStream to handle the SSE
