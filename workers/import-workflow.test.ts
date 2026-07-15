@@ -5,8 +5,10 @@ import {createMockEnv} from "~/tests/mocks"
 
 const mockDestroySandbox = vi.fn()
 const mockGetYotoSdk = vi.fn()
+const mockGetProgress = vi.fn()
 const mockPerformImportToCard = vi.fn()
 const mockReadImportCredential = vi.fn()
+const mockReportProgress = vi.fn()
 
 vi.mock("cloudflare:workers", () => ({
     WorkflowEntrypoint: class {},
@@ -43,7 +45,13 @@ const createEvent = () =>
     ({payload: cardImport}) as Parameters<ImportWorkflow["run"]>[0]
 
 const createWorkflow = () =>
-    ({env: createMockEnv()}) as unknown as ImportWorkflow
+    ({
+        env: createMockEnv({
+            IMPORT_PROGRESS: {
+                getByName: mockGetProgress,
+            } as unknown as Env["IMPORT_PROGRESS"],
+        }),
+    }) as unknown as ImportWorkflow
 
 const createStep = () =>
     ({
@@ -55,6 +63,7 @@ describe("ImportWorkflow", () => {
         vi.clearAllMocks()
         mockReadImportCredential.mockResolvedValue("access-token")
         mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
+        mockGetProgress.mockReturnValue({reportProgress: mockReportProgress})
         mockPerformImportToCard.mockResolvedValue({
             success: true,
             message: "Added 1 track",
@@ -86,6 +95,7 @@ describe("ImportWorkflow", () => {
             expect.any(Object),
         )
         expect(mockGetYotoSdk).toHaveBeenCalledWith("access-token")
+        expect(mockGetProgress).toHaveBeenCalledWith(cardImport.id)
         expect(mockPerformImportToCard).toHaveBeenCalledWith(
             expect.any(Object),
             expect.any(Object),
@@ -94,7 +104,13 @@ describe("ImportWorkflow", () => {
                 cardId: cardImport.cardId,
                 youtubeUrl: cardImport.youtubeUrl,
             },
+            expect.any(Function),
         )
+
+        const reportProgress = mockPerformImportToCard.mock.calls[0][3]
+        const update = {phase: "uploading", current: 1, total: 2}
+        await reportProgress(update)
+        expect(mockReportProgress).toHaveBeenCalledWith(update)
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,

@@ -21,6 +21,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     ): Promise<ImportWorkflowResult> {
         const {credential, ...cardImport} = event.payload
         const sandboxId = getImportSandboxId(cardImport)
+        const progress = this.env.IMPORT_PROGRESS.getByName(cardImport.id)
 
         const result = await step.do(
             "import tracks",
@@ -43,6 +44,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                         sdk,
                         this.env,
                         cardImport,
+                        update => progress.reportProgress(update),
                     )
 
                     if ("error" in importResult) {
