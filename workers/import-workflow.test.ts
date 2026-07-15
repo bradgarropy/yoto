@@ -1,9 +1,22 @@
 import {describe, expect, it, vi} from "vitest"
 
 import type {ImportResult, ImportWorkflowParams} from "~/lib/import"
+import {createMockEnv} from "~/tests/mocks"
+
+const mockGetYotoSdk = vi.fn()
+const mockReadImportCredential = vi.fn()
 
 vi.mock("cloudflare:workers", () => ({
     WorkflowEntrypoint: class {},
+}))
+
+vi.mock("~/lib/auth.server", () => ({
+    getYotoSdk: (...args: unknown[]) => mockGetYotoSdk(...args),
+}))
+
+vi.mock("~/lib/import-credential.server", () => ({
+    readImportCredential: (...args: unknown[]) =>
+        mockReadImportCredential(...args),
 }))
 
 import {ImportWorkflow} from "./import-workflow"
@@ -18,6 +31,9 @@ const cardImport: ImportWorkflowParams = {
 const createEvent = () =>
     ({payload: cardImport}) as Parameters<ImportWorkflow["run"]>[0]
 
+const createWorkflow = () =>
+    ({env: createMockEnv()}) as unknown as ImportWorkflow
+
 const createStep = (result: ImportResult) =>
     ({
         do: vi.fn((_name, callback) => callback()),
@@ -29,6 +45,7 @@ const createStep = (result: ImportResult) =>
 
 describe("ImportWorkflow", () => {
     it("waits for and returns a completed import", async () => {
+        mockReadImportCredential.mockResolvedValue("access-token")
         const step = createStep({
             status: "success",
             message: "Added 1 track",
@@ -37,11 +54,16 @@ describe("ImportWorkflow", () => {
         })
 
         const result = await ImportWorkflow.prototype.run.call(
-            {} as ImportWorkflow,
+            createWorkflow(),
             createEvent(),
             step,
         )
 
+        expect(mockReadImportCredential).toHaveBeenCalledWith(
+            cardImport.credential,
+            expect.any(Object),
+        )
+        expect(mockGetYotoSdk).toHaveBeenCalledWith("access-token")
         expect(step.waitForEvent).toHaveBeenCalledWith(
             "wait for import result",
             {type: "complete", timeout: "1 hour"},
@@ -56,11 +78,12 @@ describe("ImportWorkflow", () => {
     })
 
     it("fails when the import reports an error", async () => {
+        mockReadImportCredential.mockResolvedValue("access-token")
         const step = createStep({status: "error", error: "Card not found"})
 
         await expect(
             ImportWorkflow.prototype.run.call(
-                {} as ImportWorkflow,
+                createWorkflow(),
                 createEvent(),
                 step,
             ),

@@ -4,11 +4,13 @@ import {
     type WorkflowStep,
 } from "cloudflare:workers"
 
+import {getYotoSdk} from "~/lib/auth.server"
 import {
     IMPORT_EVENT,
     type ImportResult,
     type ImportWorkflowParams,
 } from "~/lib/import"
+import {readImportCredential} from "~/lib/import-credential.server"
 
 type ImportWorkflowResult = {
     importId: string
@@ -20,6 +22,12 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         step: WorkflowStep,
     ): Promise<ImportWorkflowResult> {
         await step.do("initialize import", async () => {
+            const token = await readImportCredential(
+                event.payload.credential,
+                this.env,
+            )
+            getYotoSdk(token)
+
             console.info("Import workflow initialized", {
                 importId: event.payload.id,
                 cardId: event.payload.cardId,
