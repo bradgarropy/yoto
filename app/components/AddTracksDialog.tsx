@@ -12,15 +12,7 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
-import {
-    getTerminalImportResult,
-    type ImportResult,
-    type ImportStatusResponse,
-} from "~/lib/import"
 import {getProgressPercent, type ImportProgress} from "~/lib/import-utils"
-
-const IMPORT_POLL_INTERVAL_MS = 2_000
-const IMPORT_POLL_MAX_FAILURES = 3
 
 type ImportState =
     | {status: "idle"}
@@ -68,34 +60,11 @@ const AddTracksDialog = ({
         status: "idle",
     })
     const [youtubeUrl, setYoutubeUrl] = useState("")
-    const [pollingImportId, setPollingImportId] = useState<string | null>(null)
     const eventSourceRef = useRef<EventSource | null>(null)
     const importIdRef = useRef<string | null>(null)
     const revalidator = useRevalidator()
 
     const isImporting = importState.status === "importing"
-
-    const completeImport = useCallback(
-        (result: Extract<ImportResult, {status: "success"}>) => {
-            importIdRef.current = null
-            setPollingImportId(null)
-            setImportState({
-                status: "complete",
-                added: result.added,
-                skipped: result.skipped,
-                message: result.message,
-            })
-            setYoutubeUrl("")
-            revalidator.revalidate()
-        },
-        [revalidator],
-    )
-
-    const failImport = useCallback((error: string) => {
-        importIdRef.current = null
-        setPollingImportId(null)
-        setImportState({status: "error", error})
-    }, [])
 
     const startImport = useCallback(() => {
         if (!youtubeUrl.trim()) return
@@ -129,94 +98,44 @@ const AddTracksDialog = ({
                         },
                     })
                 } else if (data.type === "complete") {
-                    completeImport({
-                        status: "success",
+                    setImportState({
+                        status: "complete",
                         added: data.added,
                         skipped: data.skipped,
                         message: data.message,
                     })
                     eventSource.close()
+                    setYoutubeUrl("")
+                    revalidator.revalidate()
                 } else if (data.type === "error") {
-                    failImport(data.error)
+                    setImportState({status: "error", error: data.error})
                     eventSource.close()
                 } else {
                     // Unexpected payload shape or type
-                    failImport(
-                        "Unexpected response from server. Please try again.",
-                    )
+                    setImportState({
+                        status: "error",
+                        error: "Unexpected response from server. Please try again.",
+                    })
                     eventSource.close()
                 }
             } catch {
                 // Treat JSON parse failures as an error so the user can retry
-                failImport("Unexpected response from server. Please try again.")
+                setImportState({
+                    status: "error",
+                    error: "Unexpected response from server. Please try again.",
+                })
                 eventSource.close()
             }
         }
 
         eventSource.onerror = () => {
+            setImportState({
+                status: "error",
+                error: "Connection lost. Please try again.",
+            })
             eventSource.close()
-
-            if (importIdRef.current) {
-                setPollingImportId(importIdRef.current)
-            } else {
-                failImport("Connection lost. Please try again.")
-            }
         }
-    }, [cardId, completeImport, failImport, youtubeUrl])
-
-    useEffect(() => {
-        if (!pollingImportId) return
-
-        let cancelled = false
-        let failures = 0
-        let timeout: ReturnType<typeof setTimeout> | undefined
-
-        const pollImport = async () => {
-            try {
-                const response = await fetch(`/api/imports/${pollingImportId}`)
-
-                if (!response.ok) {
-                    throw new Error("Unable to get import status")
-                }
-
-                const importStatus =
-                    (await response.json()) as ImportStatusResponse
-
-                if (cancelled) return
-                failures = 0
-
-                const result = getTerminalImportResult(importStatus)
-
-                if (result?.status === "success") {
-                    completeImport(result)
-                    return
-                }
-
-                if (result?.status === "error") {
-                    failImport(result.error)
-                    return
-                }
-            } catch {
-                if (cancelled) return
-
-                failures++
-
-                if (failures >= IMPORT_POLL_MAX_FAILURES) {
-                    failImport("Connection lost. Please try again.")
-                    return
-                }
-            }
-
-            timeout = setTimeout(pollImport, IMPORT_POLL_INTERVAL_MS)
-        }
-
-        void pollImport()
-
-        return () => {
-            cancelled = true
-            if (timeout) clearTimeout(timeout)
-        }
-    }, [completeImport, failImport, pollingImportId])
+    }, [cardId, youtubeUrl, revalidator])
 
     // Clean up on unmount
     useEffect(() => {

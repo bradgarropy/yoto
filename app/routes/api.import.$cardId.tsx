@@ -66,19 +66,9 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     const {readable, writable} = new TransformStream()
     const writer = writable.getWriter()
     const encoder = new TextEncoder()
-    let streamOpen = true
 
     const sendEvent = async (data: object) => {
-        if (!streamOpen) return
-
-        try {
-            await writer.write(
-                encoder.encode(`data: ${JSON.stringify(data)}\n\n`),
-            )
-        } catch {
-            streamOpen = false
-            console.info("Import SSE disconnected", importLogContext)
-        }
+        await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
     }
 
     const finishWorkflow = async (result: ImportResult) => {
@@ -150,7 +140,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
                         error instanceof Error ? error.message : String(error),
                 })
             }
-            if (streamOpen) await writer.close()
+            await writer.close()
         }
     }
 
