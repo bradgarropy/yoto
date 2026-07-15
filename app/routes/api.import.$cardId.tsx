@@ -66,6 +66,8 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
 
     async function runSync() {
         try {
+            await sendEvent({type: "started", uploadId: upload.id})
+
             const result = await performSyncToCard(
                 sdk,
                 env,

@@ -61,6 +61,7 @@ const AddTracksDialog = ({
     })
     const [youtubeUrl, setYoutubeUrl] = useState("")
     const eventSourceRef = useRef<EventSource | null>(null)
+    const uploadIdRef = useRef<string | null>(null)
     const revalidator = useRevalidator()
 
     const isImporting = importState.status === "importing"
@@ -73,6 +74,7 @@ const AddTracksDialog = ({
             eventSourceRef.current.close()
         }
 
+        uploadIdRef.current = null
         setImportState({status: "importing", progress: null})
 
         const url = `/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`
@@ -83,7 +85,9 @@ const AddTracksDialog = ({
             try {
                 const data = JSON.parse(event.data)
 
-                if (data.type === "progress") {
+                if (data.type === "started") {
+                    uploadIdRef.current = data.uploadId
+                } else if (data.type === "progress") {
                     setImportState({
                         status: "importing",
                         progress: {

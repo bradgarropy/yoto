@@ -32,6 +32,12 @@ const youtubeUrl = "https://www.youtube.com/watch?v=video-1"
 const cardId = "card-1"
 const sdk = {content: {}, media: {}}
 
+const parseEvents = (body: string) =>
+    body
+        .trim()
+        .split("\n\n")
+        .map(event => JSON.parse(event.replace(/^data: /, "")))
+
 const createLoaderArgs = () => {
     const env = createMockEnv({
         UPLOAD_WORKFLOW: {
@@ -74,7 +80,7 @@ describe("api/import/:cardId loader", () => {
         const {args} = createLoaderArgs()
 
         const response = await loader(args)
-        await response.text()
+        const events = parseEvents(await response.text())
 
         expect(mockCreateWorkflow).toHaveBeenCalledOnce()
 
@@ -86,6 +92,10 @@ describe("api/import/:cardId loader", () => {
                 cardId,
                 youtubeUrl,
             },
+        })
+        expect(events[0]).toEqual({
+            type: "started",
+            uploadId: options.params.id,
         })
         expect(mockPerformSyncToCard).toHaveBeenCalledOnce()
     })
