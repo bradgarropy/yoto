@@ -3,6 +3,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest"
 import {createMockEnv} from "~/tests/mocks"
 
 const mockCreateWorkflow = vi.fn()
+const mockCreateImportCredential = vi.fn()
 const mockDestroySandbox = vi.fn()
 const mockGetAuthenticatedSdk = vi.fn()
 const mockIsAuthenticated = vi.fn()
@@ -19,6 +20,11 @@ vi.mock("~/lib/cloudflare-context", () => ({
     cloudflareContext: Symbol("cloudflareContext"),
 }))
 
+vi.mock("~/lib/import-credential.server", () => ({
+    createImportCredential: (...args: unknown[]) =>
+        mockCreateImportCredential(...args),
+}))
+
 vi.mock("~/lib/sandbox.server", () => ({
     destroySandbox: (...args: unknown[]) => mockDestroySandbox(...args),
 }))
@@ -33,6 +39,7 @@ import {loader} from "./api.import.$cardId"
 const youtubeUrl = "https://www.youtube.com/watch?v=video-1"
 const cardId = "card-1"
 const sdk = {content: {}, media: {}}
+const token = "access-token"
 
 const parseEvents = (body: string) =>
     body
@@ -67,7 +74,8 @@ beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     mockCreateWorkflow.mockResolvedValue({sendEvent: mockSendWorkflowEvent})
     mockDestroySandbox.mockResolvedValue(undefined)
-    mockGetAuthenticatedSdk.mockResolvedValue({sdk})
+    mockCreateImportCredential.mockResolvedValue("encrypted-token")
+    mockGetAuthenticatedSdk.mockResolvedValue({sdk, token})
     mockIsAuthenticated.mockResolvedValue(true)
     mockPerformImportToCard.mockResolvedValue({
         success: true,
@@ -94,8 +102,13 @@ describe("api/import/:cardId loader", () => {
                 id: options.params.id,
                 cardId,
                 youtubeUrl,
+                credential: "encrypted-token",
             },
         })
+        expect(mockCreateImportCredential).toHaveBeenCalledWith(
+            token,
+            expect.any(Object),
+        )
         expect(events[0]).toEqual({
             type: "started",
             importId: options.params.id,

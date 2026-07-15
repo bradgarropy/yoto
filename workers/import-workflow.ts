@@ -4,15 +4,19 @@ import {
     type WorkflowStep,
 } from "cloudflare:workers"
 
-import {type Import, IMPORT_EVENT, type ImportResult} from "~/lib/import"
+import {
+    IMPORT_EVENT,
+    type ImportResult,
+    type ImportWorkflowParams,
+} from "~/lib/import"
 
 type ImportWorkflowResult = {
     importId: string
 } & Extract<ImportResult, {status: "success"}>
 
-class ImportWorkflow extends WorkflowEntrypoint<Env, Import> {
+class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     override async run(
-        event: WorkflowEvent<Import>,
+        event: WorkflowEvent<ImportWorkflowParams>,
         step: WorkflowStep,
     ): Promise<ImportWorkflowResult> {
         await step.do("initialize import", async () => {

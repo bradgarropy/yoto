@@ -266,7 +266,7 @@ const requireAuth = async (
 const getAuthenticatedSdk = async (
     request: Request,
     env: Env,
-): Promise<{sdk: YotoSdk; setCookie?: string}> => {
+): Promise<{sdk: YotoSdk; token: string; setCookie?: string}> => {
     const {setCookie} = await requireAuth(request, env)
     const tokenResult = await getToken(request, env)
 
@@ -275,7 +275,11 @@ const getAuthenticatedSdk = async (
     }
 
     const sdk = getYotoSdk(tokenResult.token)
-    return {sdk, setCookie: setCookie ?? tokenResult.setCookie}
+    return {
+        sdk,
+        token: tokenResult.token,
+        setCookie: setCookie ?? tokenResult.setCookie,
+    }
 }
 
 // Check if user is authenticated (without redirect)

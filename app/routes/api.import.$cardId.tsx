@@ -1,5 +1,6 @@
 import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {createImportCredential} from "~/lib/import-credential.server"
 import {
     getImportSandboxId,
     type Import,
@@ -23,7 +24,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
 
-    const {sdk} = await getAuthenticatedSdk(request, env)
+    const {sdk, token} = await getAuthenticatedSdk(request, env)
 
     const url = new URL(request.url)
     const youtubeUrl = url.searchParams.get("url")
@@ -48,9 +49,10 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     let workflowInstance: WorkflowInstance | null = null
 
     try {
+        const credential = await createImportCredential(token, env)
         workflowInstance = await env.IMPORT_WORKFLOW.create({
             id: cardImport.id,
-            params: cardImport,
+            params: {...cardImport, credential},
         })
         console.info("Import workflow started", importLogContext)
     } catch (error) {

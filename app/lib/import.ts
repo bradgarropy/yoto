@@ -4,6 +4,10 @@ type Import = {
     youtubeUrl: string
 }
 
+type ImportWorkflowParams = Import & {
+    credential: string
+}
+
 type ImportResult =
     | {
           status: "success"
@@ -25,4 +29,4 @@ function getImportSandboxId(cardImport: Import): string {
 }
 
 export {getImportSandboxId, IMPORT_EVENT}
-export type {Import, ImportResult}
+export type {Import, ImportResult, ImportWorkflowParams}

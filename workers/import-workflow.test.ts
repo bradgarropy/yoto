@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest"
 
-import type {Import, ImportResult} from "~/lib/import"
+import type {ImportResult, ImportWorkflowParams} from "~/lib/import"
 
 vi.mock("cloudflare:workers", () => ({
     WorkflowEntrypoint: class {},
@@ -8,10 +8,11 @@ vi.mock("cloudflare:workers", () => ({
 
 import {ImportWorkflow} from "./import-workflow"
 
-const cardImport: Import = {
+const cardImport: ImportWorkflowParams = {
     id: "import-1",
     cardId: "card-1",
     youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+    credential: "encrypted-token",
 }
 
 const createEvent = () =>
