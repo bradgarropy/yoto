@@ -4,9 +4,25 @@ type Import = {
     youtubeUrl: string
 }
 
+type ImportResult =
+    | {
+          status: "success"
+          message: string
+          added: number
+          skipped: number
+      }
+    | {
+          status: "error"
+          error: string
+      }
+
+const IMPORT_EVENT = {
+    COMPLETE: "complete",
+} as const
+
 function getImportSandboxId(cardImport: Import): string {
     return `import-${cardImport.id}`
 }
 
-export {getImportSandboxId}
-export type {Import}
+export {getImportSandboxId, IMPORT_EVENT}
+export type {Import, ImportResult}

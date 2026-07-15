@@ -1,6 +1,11 @@
 import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
-import {getImportSandboxId, type Import} from "~/lib/import"
+import {
+    getImportSandboxId,
+    type Import,
+    IMPORT_EVENT,
+    type ImportResult,
+} from "~/lib/import"
 import {performImportToCard} from "~/lib/import.server"
 import type {ImportProgress} from "~/lib/import-utils"
 import {destroySandbox} from "~/lib/sandbox.server"
@@ -40,8 +45,10 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         cardId,
     }
 
+    let workflowInstance: WorkflowInstance | null = null
+
     try {
-        await env.IMPORT_WORKFLOW.create({
+        workflowInstance = await env.IMPORT_WORKFLOW.create({
             id: cardImport.id,
             params: cardImport,
         })
@@ -64,6 +71,22 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
     }
 
+    const finishWorkflow = async (result: ImportResult) => {
+        if (!workflowInstance) return
+
+        try {
+            await workflowInstance.sendEvent({
+                type: IMPORT_EVENT.COMPLETE,
+                payload: result,
+            })
+        } catch (error) {
+            console.warn("Failed to finish import workflow", {
+                ...importLogContext,
+                error: error instanceof Error ? error.message : String(error),
+            })
+        }
+    }
+
     async function runImport() {
         try {
             await sendEvent({type: "started", importId: cardImport.id})
@@ -78,8 +101,15 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             )
 
             if ("error" in result) {
+                await finishWorkflow({status: "error", error: result.error})
                 await sendEvent({type: "error", error: result.error})
             } else {
+                await finishWorkflow({
+                    status: "success",
+                    message: result.message,
+                    added: result.added,
+                    skipped: result.skipped,
+                })
                 await sendEvent({
                     type: "complete",
                     success: true,
@@ -89,12 +119,15 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
                 })
             }
         } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : "Import failed unexpectedly"
+
+            await finishWorkflow({status: "error", error: message})
             await sendEvent({
                 type: "error",
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : "Import failed unexpectedly",
+                error: message,
             })
         } finally {
             try {
