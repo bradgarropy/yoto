@@ -6,49 +6,81 @@ import {
 
 import {getYotoSdk} from "~/lib/auth.server"
 import {
-    IMPORT_EVENT,
-    type ImportResult,
+    getImportSandboxId,
     type ImportWorkflowParams,
+    type ImportWorkflowResult,
 } from "~/lib/import"
+import {performImportToCard} from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
-
-type ImportWorkflowResult = {
-    importId: string
-} & Extract<ImportResult, {status: "success"}>
+import {destroySandbox} from "~/lib/sandbox.server"
 
 class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     override async run(
         event: WorkflowEvent<ImportWorkflowParams>,
         step: WorkflowStep,
     ): Promise<ImportWorkflowResult> {
-        await step.do("initialize import", async () => {
-            const token = await readImportCredential(
-                event.payload.credential,
-                this.env,
-            )
-            getYotoSdk(token)
+        const {credential, ...cardImport} = event.payload
+        const sandboxId = getImportSandboxId(cardImport)
 
-            console.info("Import workflow initialized", {
-                importId: event.payload.id,
-                cardId: event.payload.cardId,
-            })
-        })
-
-        const finishedEvent = await step.waitForEvent<ImportResult>(
-            "wait for import result",
+        const result = await step.do(
+            "import tracks",
             {
-                type: IMPORT_EVENT.COMPLETE,
-                timeout: "1 hour",
+                retries: {limit: 0, delay: 0},
+                timeout: "30 minutes",
+            },
+            async () => {
+                const token = await readImportCredential(credential, this.env)
+                const sdk = getYotoSdk(token)
+
+                console.info("Import workflow started", {
+                    importId: cardImport.id,
+                    sandboxId,
+                    cardId: cardImport.cardId,
+                })
+
+                try {
+                    const importResult = await performImportToCard(
+                        sdk,
+                        this.env,
+                        cardImport,
+                    )
+
+                    if ("error" in importResult) {
+                        throw new Error(importResult.error)
+                    }
+
+                    return {
+                        status: "success" as const,
+                        message: importResult.message,
+                        added: importResult.added,
+                        skipped: importResult.skipped,
+                    }
+                } finally {
+                    try {
+                        await destroySandbox(this.env, sandboxId)
+                        console.info("Import sandbox destroyed", {
+                            importId: cardImport.id,
+                            sandboxId,
+                            cardId: cardImport.cardId,
+                        })
+                    } catch (error) {
+                        console.warn("Failed to destroy import sandbox", {
+                            importId: cardImport.id,
+                            sandboxId,
+                            cardId: cardImport.cardId,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                        })
+                    }
+                }
             },
         )
 
-        if (finishedEvent.payload.status === "error") {
-            throw new Error(finishedEvent.payload.error)
-        }
-
         return {
-            importId: event.payload.id,
-            ...finishedEvent.payload,
+            importId: cardImport.id,
+            ...result,
         }
     }
 }

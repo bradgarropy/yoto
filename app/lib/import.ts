@@ -20,13 +20,13 @@ type ImportResult =
           error: string
       }
 
-const IMPORT_EVENT = {
-    COMPLETE: "complete",
-} as const
+type ImportWorkflowResult = {
+    importId: string
+} & Extract<ImportResult, {status: "success"}>
 
 function getImportSandboxId(cardImport: Import): string {
     return `import-${cardImport.id}`
 }
 
-export {getImportSandboxId, IMPORT_EVENT}
-export type {Import, ImportResult, ImportWorkflowParams}
+export {getImportSandboxId}
+export type {Import, ImportResult, ImportWorkflowParams, ImportWorkflowResult}
