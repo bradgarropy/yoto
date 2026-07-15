@@ -12,9 +12,9 @@
     },
     "workflows": [
         {
-            "name": "yoto-upload",
-            "binding": "UPLOAD_WORKFLOW",
-            "class_name": "UploadWorkflow",
+            "name": "yoto-import",
+            "binding": "IMPORT_WORKFLOW",
+            "class_name": "ImportWorkflow",
         },
     ],
     "routes": [

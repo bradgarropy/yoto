@@ -12,7 +12,7 @@ import {
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
 import {Progress} from "~/components/ui/progress"
-import {getProgressPercent, type ImportProgress} from "~/lib/sync-utils"
+import {getProgressPercent, type ImportProgress} from "~/lib/import-utils"
 
 type ImportState =
     | {status: "idle"}
@@ -61,7 +61,7 @@ const AddTracksDialog = ({
     })
     const [youtubeUrl, setYoutubeUrl] = useState("")
     const eventSourceRef = useRef<EventSource | null>(null)
-    const uploadIdRef = useRef<string | null>(null)
+    const importIdRef = useRef<string | null>(null)
     const revalidator = useRevalidator()
 
     const isImporting = importState.status === "importing"
@@ -74,7 +74,7 @@ const AddTracksDialog = ({
             eventSourceRef.current.close()
         }
 
-        uploadIdRef.current = null
+        importIdRef.current = null
         setImportState({status: "importing", progress: null})
 
         const url = `/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`
@@ -86,7 +86,7 @@ const AddTracksDialog = ({
                 const data = JSON.parse(event.data)
 
                 if (data.type === "started") {
-                    uploadIdRef.current = data.uploadId
+                    importIdRef.current = data.importId
                 } else if (data.type === "progress") {
                     setImportState({
                         status: "importing",

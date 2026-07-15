@@ -6,7 +6,7 @@ const mockCreateWorkflow = vi.fn()
 const mockDestroySandbox = vi.fn()
 const mockGetAuthenticatedSdk = vi.fn()
 const mockIsAuthenticated = vi.fn()
-const mockPerformSyncToCard = vi.fn()
+const mockPerformImportToCard = vi.fn()
 
 vi.mock("~/lib/auth.server", () => ({
     getAuthenticatedSdk: (...args: unknown[]) =>
@@ -22,8 +22,9 @@ vi.mock("~/lib/sandbox.server", () => ({
     destroySandbox: (...args: unknown[]) => mockDestroySandbox(...args),
 }))
 
-vi.mock("~/lib/sync.server", () => ({
-    performSyncToCard: (...args: unknown[]) => mockPerformSyncToCard(...args),
+vi.mock("~/lib/import.server", () => ({
+    performImportToCard: (...args: unknown[]) =>
+        mockPerformImportToCard(...args),
 }))
 
 import {loader} from "./api.import.$cardId"
@@ -40,9 +41,9 @@ const parseEvents = (body: string) =>
 
 const createLoaderArgs = () => {
     const env = createMockEnv({
-        UPLOAD_WORKFLOW: {
+        IMPORT_WORKFLOW: {
             create: mockCreateWorkflow,
-        } as unknown as Env["UPLOAD_WORKFLOW"],
+        } as unknown as Env["IMPORT_WORKFLOW"],
     })
 
     return {
@@ -67,7 +68,7 @@ beforeEach(() => {
     mockDestroySandbox.mockResolvedValue(undefined)
     mockGetAuthenticatedSdk.mockResolvedValue({sdk})
     mockIsAuthenticated.mockResolvedValue(true)
-    mockPerformSyncToCard.mockResolvedValue({
+    mockPerformImportToCard.mockResolvedValue({
         success: true,
         message: "Added 1 track",
         added: 1,
@@ -76,7 +77,7 @@ beforeEach(() => {
 })
 
 describe("api/import/:cardId loader", () => {
-    it("starts a workflow correlated with the upload", async () => {
+    it("starts a workflow correlated with the import", async () => {
         const {args} = createLoaderArgs()
 
         const response = await loader(args)
@@ -95,9 +96,9 @@ describe("api/import/:cardId loader", () => {
         })
         expect(events[0]).toEqual({
             type: "started",
-            uploadId: options.params.id,
+            importId: options.params.id,
         })
-        expect(mockPerformSyncToCard).toHaveBeenCalledOnce()
+        expect(mockPerformImportToCard).toHaveBeenCalledOnce()
     })
 
     it("continues the existing sync when workflow creation fails", async () => {
@@ -107,7 +108,7 @@ describe("api/import/:cardId loader", () => {
         const response = await loader(args)
         const body = await response.text()
 
-        expect(mockPerformSyncToCard).toHaveBeenCalledOnce()
+        expect(mockPerformImportToCard).toHaveBeenCalledOnce()
         expect(body).toContain('"type":"complete"')
     })
 })

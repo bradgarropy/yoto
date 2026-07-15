@@ -1,9 +1,9 @@
 import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {getImportSandboxId, type Import} from "~/lib/import"
+import {performImportToCard} from "~/lib/import.server"
+import type {ImportProgress} from "~/lib/import-utils"
 import {destroySandbox} from "~/lib/sandbox.server"
-import {performSyncToCard} from "~/lib/sync.server"
-import type {ImportProgress} from "~/lib/sync-utils"
-import {getUploadSandboxId, type Upload} from "~/lib/upload"
 
 import type {Route} from "./+types/api.import.$cardId"
 
@@ -28,32 +28,32 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Missing url parameter"}, {status: 400})
     }
 
-    const upload: Upload = {
+    const cardImport: Import = {
         id: crypto.randomUUID(),
         cardId,
         youtubeUrl,
     }
-    const sandboxId = getUploadSandboxId(upload)
-    const sandboxLogContext = {
-        uploadId: upload.id,
+    const sandboxId = getImportSandboxId(cardImport)
+    const importLogContext = {
+        importId: cardImport.id,
         sandboxId,
         cardId,
     }
 
     try {
-        await env.UPLOAD_WORKFLOW.create({
-            id: upload.id,
-            params: upload,
+        await env.IMPORT_WORKFLOW.create({
+            id: cardImport.id,
+            params: cardImport,
         })
-        console.info("Upload workflow started", sandboxLogContext)
+        console.info("Import workflow started", importLogContext)
     } catch (error) {
-        console.warn("Failed to start upload workflow", {
-            ...sandboxLogContext,
+        console.warn("Failed to start import workflow", {
+            ...importLogContext,
             error: error instanceof Error ? error.message : String(error),
         })
     }
 
-    console.info("Upload sandbox starting", sandboxLogContext)
+    console.info("Import sandbox starting", importLogContext)
 
     // Create a TransformStream to handle the SSE
     const {readable, writable} = new TransformStream()
@@ -64,14 +64,14 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
     }
 
-    async function runSync() {
+    async function runImport() {
         try {
-            await sendEvent({type: "started", uploadId: upload.id})
+            await sendEvent({type: "started", importId: cardImport.id})
 
-            const result = await performSyncToCard(
+            const result = await performImportToCard(
                 sdk,
                 env,
-                upload,
+                cardImport,
                 async (progress: ImportProgress) => {
                     await sendEvent({type: "progress", ...progress})
                 },
@@ -99,10 +99,10 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         } finally {
             try {
                 await destroySandbox(env, sandboxId)
-                console.info("Upload sandbox destroyed", sandboxLogContext)
+                console.info("Import sandbox destroyed", importLogContext)
             } catch (error) {
                 console.warn("Failed to destroy import sandbox", {
-                    ...sandboxLogContext,
+                    ...importLogContext,
                     error:
                         error instanceof Error ? error.message : String(error),
                 })
@@ -111,7 +111,7 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         }
     }
 
-    runSync()
+    runImport()
 
     return new Response(readable, {
         headers: {

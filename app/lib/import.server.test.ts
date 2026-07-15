@@ -15,17 +15,17 @@ vi.mock("./sandbox.server", () => ({
     removeTrack: (...args: unknown[]) => mockRemoveTrack(...args),
 }))
 
-import {performSyncToCard} from "./sync.server"
+import {performImportToCard} from "./import.server"
 
 const mockEnv = createMockEnv()
-const sandboxId = "upload-test-job"
+const sandboxId = "import-test-job"
 
 const sourceTrack = {
     id: "video-1",
     title: "Test Track",
     url: "https://www.youtube.com/watch?v=video-1",
 }
-const upload = {
+const cardImport = {
     id: "test-job",
     cardId: "card-1",
     youtubeUrl: sourceTrack.url,
@@ -85,7 +85,7 @@ afterEach(() => {
     vi.restoreAllMocks()
 })
 
-describe("performSyncToCard", () => {
+describe("performImportToCard", () => {
     it("uploads prepared audio directly from the sandbox and removes it", async () => {
         mockGetTranscodedUpload
             .mockRejectedValueOnce(new Error("Not found"))
@@ -105,7 +105,7 @@ describe("performSyncToCard", () => {
             return 0 as unknown as ReturnType<typeof setTimeout>
         }) as unknown as typeof setTimeout)
 
-        const result = await performSyncToCard(sdk, mockEnv, upload)
+        const result = await performImportToCard(sdk, mockEnv, cardImport)
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -135,7 +135,7 @@ describe("performSyncToCard", () => {
         })
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
-        const result = await performSyncToCard(sdk, mockEnv, upload)
+        const result = await performImportToCard(sdk, mockEnv, cardImport)
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -161,8 +161,8 @@ describe("performSyncToCard", () => {
             .mockResolvedValueOnce(preparedTrack)
             .mockRejectedValueOnce(new Error("Download failed"))
 
-        const result = await performSyncToCard(sdk, mockEnv, {
-            ...upload,
+        const result = await performImportToCard(sdk, mockEnv, {
+            ...cardImport,
             youtubeUrl: "https://www.youtube.com/playlist?list=playlist-1",
         })
 
