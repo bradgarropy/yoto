@@ -1,6 +1,14 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
+import {getImportSandboxId, type Import} from "./import"
+import {
+    createChapter,
+    getNextChapterKey,
+    type ImportProgress,
+    stripNullValues,
+    type YotoChapter,
+} from "./import-utils"
 import {
     getPlaylistInfo,
     prepareTrack,
@@ -8,14 +16,6 @@ import {
     type Track,
     uploadTrack,
 } from "./sandbox.server"
-import {
-    createChapter,
-    getNextChapterKey,
-    type ImportProgress,
-    stripNullValues,
-    type YotoChapter,
-} from "./sync-utils"
-import {getUploadSandboxId, type Upload} from "./upload"
 
 type YotoContent = {
     activity: string
@@ -43,7 +43,7 @@ type TranscodeResult = {
     transcodedInfo?: {duration: number; fileSize: number}
 }
 
-type UploadResult =
+type AudioUploadResult =
     | {alreadyTranscoded: true; key: string; duration: number; fileSize: number}
     | {alreadyTranscoded: false; sha256: string}
 
@@ -64,7 +64,7 @@ async function uploadAudio(
     sandboxId: string,
     track: Track,
     context: AudioLogContext,
-): Promise<UploadResult> {
+): Promise<AudioUploadResult> {
     const {sha256} = track
 
     // Check if already transcoded
@@ -202,7 +202,7 @@ async function waitForTranscode(
     throw new Error("Audio transcode timed out")
 }
 
-type SyncToCardResult =
+type ImportToCardResult =
     | {
           success: true
           message: string
@@ -215,17 +215,17 @@ type SyncToCardResult =
 const CONCURRENCY_LIMIT = 5
 
 /**
- * Sync YouTube content directly to an existing card.
+ * Import YouTube content directly to an existing card.
  * Processes tracks in parallel phases: download → upload → transcode
  */
-export async function performSyncToCard(
+export async function performImportToCard(
     sdk: YotoSdk,
     env: Env,
-    upload: Upload,
+    cardImport: Import,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<SyncToCardResult> {
-    const {cardId, youtubeUrl} = upload
-    const sandboxId = getUploadSandboxId(upload)
+): Promise<ImportToCardResult> {
+    const {cardId, youtubeUrl} = cardImport
+    const sandboxId = getImportSandboxId(cardImport)
     const limit = pLimit(CONCURRENCY_LIMIT)
 
     try {
@@ -445,12 +445,12 @@ export async function performSyncToCard(
             skipped: 0,
         }
     } catch (error) {
-        console.error("Sync to card failed:", error)
+        console.error("Import to card failed:", error)
         return {
             error:
                 error instanceof Error
                     ? error.message
-                    : "Sync failed. Please try again.",
+                    : "Import failed. Please try again.",
         }
     }
 }

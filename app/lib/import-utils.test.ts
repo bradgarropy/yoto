@@ -5,7 +5,7 @@ import {
     getNextChapterKey,
     getProgressPercent,
     stripNullValues,
-} from "./sync-utils"
+} from "./import-utils"
 
 describe("getProgressPercent", () => {
     it("should return 0 when progress is null", () => {

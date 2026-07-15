@@ -28,7 +28,7 @@ import {
 } from "./sandbox.server"
 
 const mockEnv = createMockEnv()
-const sandboxId = "upload-test-job"
+const sandboxId = "import-test-job"
 
 const sourceTrack = {
     id: "video-1",

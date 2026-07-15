@@ -14,6 +14,7 @@ export default [
 
     // API routes (keep existing auth pattern for now)
     route("api/import/:cardId", "routes/api.import.$cardId.tsx"),
+    route("api/imports/:importId", "routes/api.imports.$importId.ts"),
     route("api/icons", "routes/api.icons.ts"),
     route("api/feedback", "routes/api.feedback.tsx"),
 ] satisfies RouteConfig
