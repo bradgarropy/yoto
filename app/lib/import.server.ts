@@ -1,22 +1,22 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
-import {getImportSandboxId, type Import, type ImportSuccess} from "./import"
+import {getImportSandboxId, type Import, type ImportSuccess} from "~/lib/import"
 import {
     createChapter,
     getNextChapterKey,
     type ImportProgress,
     stripNullValues,
     type YotoChapter,
-} from "./import-utils"
+} from "~/lib/import-utils"
 import {
     getPlaylistInfo,
     prepareTrack,
     removeTrack,
     type Track,
     uploadTrack,
-} from "./sandbox.server"
-import type {YouTubePlaylistInfo, YouTubeTrack} from "./youtube.server"
+} from "~/lib/sandbox.server"
+import type {YouTubePlaylistInfo, YouTubeTrack} from "~/lib/youtube.server"
 
 type YotoContent = {
     activity: string
