@@ -1,7 +1,13 @@
+import type {ImportProgress} from "~/lib/import-utils"
+
 type Import = {
     id: string
     cardId: string
     youtubeUrl: string
+}
+
+type ImportWorkflowParams = Import & {
+    credential: string
 }
 
 type ImportResult =
@@ -16,13 +22,27 @@ type ImportResult =
           error: string
       }
 
-const IMPORT_EVENT = {
-    COMPLETE: "complete",
-} as const
+type ImportWorkflowResult = {
+    importId: string
+} & Extract<ImportResult, {status: "success"}>
+
+type ImportSuccess = Extract<ImportResult, {status: "success"}>
+
+type ImportStreamEvent =
+    | ({type: "progress"} & ImportProgress)
+    | ({type: "complete"; success: true} & Omit<ImportSuccess, "status">)
+    | {type: "error"; error: string}
 
 function getImportSandboxId(cardImport: Import): string {
     return `import-${cardImport.id}`
 }
 
-export {getImportSandboxId, IMPORT_EVENT}
-export type {Import, ImportResult}
+export {getImportSandboxId}
+export type {
+    Import,
+    ImportResult,
+    ImportStreamEvent,
+    ImportSuccess,
+    ImportWorkflowParams,
+    ImportWorkflowResult,
+}

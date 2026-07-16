@@ -37,12 +37,20 @@
                 "class_name": "Sandbox",
                 "name": "SANDBOX",
             },
+            {
+                "class_name": "ImportProgress",
+                "name": "IMPORT_PROGRESS",
+            },
         ],
     },
     "migrations": [
         {
             "new_sqlite_classes": ["Sandbox"],
             "tag": "v1",
+        },
+        {
+            "new_sqlite_classes": ["ImportProgress"],
+            "tag": "v2",
         },
     ],
 }

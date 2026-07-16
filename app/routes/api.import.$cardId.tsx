@@ -1,14 +1,7 @@
-import {getAuthenticatedSdk, isAuthenticated} from "~/lib/auth.server"
+import {isAuthenticated, requireAuthCore} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
-import {
-    getImportSandboxId,
-    type Import,
-    IMPORT_EVENT,
-    type ImportResult,
-} from "~/lib/import"
-import {performImportToCard} from "~/lib/import.server"
-import type {ImportProgress} from "~/lib/import-utils"
-import {destroySandbox} from "~/lib/sandbox.server"
+import type {Import} from "~/lib/import"
+import {createImportCredential} from "~/lib/import-credential.server"
 
 import type {Route} from "./+types/api.import.$cardId"
 
@@ -23,8 +16,6 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Unauthorized"}, {status: 401})
     }
 
-    const {sdk} = await getAuthenticatedSdk(request, env)
-
     const url = new URL(request.url)
     const youtubeUrl = url.searchParams.get("url")
     const cardId = params.cardId
@@ -33,124 +24,42 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
         return Response.json({error: "Missing url parameter"}, {status: 400})
     }
 
-    const cardImport: Import = {
-        id: crypto.randomUUID(),
-        cardId,
-        youtubeUrl,
+    const existingImportId = request.headers.get("Last-Event-ID")
+    if (existingImportId) {
+        const progressInstance = env.IMPORT_PROGRESS.getByName(existingImportId)
+        return progressInstance.fetch(
+            createProgressRequest(request, existingImportId),
+        )
     }
-    const sandboxId = getImportSandboxId(cardImport)
+
+    const {token} = await requireAuthCore(request, env)
+    const cardImport: Import = {id: crypto.randomUUID(), cardId, youtubeUrl}
     const importLogContext = {
         importId: cardImport.id,
-        sandboxId,
         cardId,
     }
-
-    let workflowInstance: WorkflowInstance | null = null
+    const progressInstance = env.IMPORT_PROGRESS.getByName(cardImport.id)
 
     try {
-        workflowInstance = await env.IMPORT_WORKFLOW.create({
+        const credential = await createImportCredential(token, env)
+        await env.IMPORT_WORKFLOW.create({
             id: cardImport.id,
-            params: cardImport,
+            params: {...cardImport, credential},
         })
-        console.info("Import workflow started", importLogContext)
+        console.info("Import workflow created", importLogContext)
     } catch (error) {
-        console.warn("Failed to start import workflow", {
+        console.error("Failed to start import workflow", {
             ...importLogContext,
             error: error instanceof Error ? error.message : String(error),
         })
+        return Response.json({error: "Unable to start import"}, {status: 500})
     }
 
-    console.info("Import sandbox starting", importLogContext)
+    return progressInstance.fetch(createProgressRequest(request, cardImport.id))
+}
 
-    // Create a TransformStream to handle the SSE
-    const {readable, writable} = new TransformStream()
-    const writer = writable.getWriter()
-    const encoder = new TextEncoder()
-
-    const sendEvent = async (data: object) => {
-        await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
-    }
-
-    const finishWorkflow = async (result: ImportResult) => {
-        if (!workflowInstance) return
-
-        try {
-            await workflowInstance.sendEvent({
-                type: IMPORT_EVENT.COMPLETE,
-                payload: result,
-            })
-        } catch (error) {
-            console.warn("Failed to finish import workflow", {
-                ...importLogContext,
-                error: error instanceof Error ? error.message : String(error),
-            })
-        }
-    }
-
-    async function runImport() {
-        try {
-            await sendEvent({type: "started", importId: cardImport.id})
-
-            const result = await performImportToCard(
-                sdk,
-                env,
-                cardImport,
-                async (progress: ImportProgress) => {
-                    await sendEvent({type: "progress", ...progress})
-                },
-            )
-
-            if ("error" in result) {
-                await finishWorkflow({status: "error", error: result.error})
-                await sendEvent({type: "error", error: result.error})
-            } else {
-                await finishWorkflow({
-                    status: "success",
-                    message: result.message,
-                    added: result.added,
-                    skipped: result.skipped,
-                })
-                await sendEvent({
-                    type: "complete",
-                    success: true,
-                    message: result.message,
-                    added: result.added,
-                    skipped: result.skipped,
-                })
-            }
-        } catch (error) {
-            const message =
-                error instanceof Error
-                    ? error.message
-                    : "Import failed unexpectedly"
-
-            await finishWorkflow({status: "error", error: message})
-            await sendEvent({
-                type: "error",
-                error: message,
-            })
-        } finally {
-            try {
-                await destroySandbox(env, sandboxId)
-                console.info("Import sandbox destroyed", importLogContext)
-            } catch (error) {
-                console.warn("Failed to destroy import sandbox", {
-                    ...importLogContext,
-                    error:
-                        error instanceof Error ? error.message : String(error),
-                })
-            }
-            await writer.close()
-        }
-    }
-
-    runImport()
-
-    return new Response(readable, {
-        headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    })
+function createProgressRequest(request: Request, importId: string): Request {
+    const headers = new Headers(request.headers)
+    headers.set("X-Import-Id", importId)
+    return new Request(request, {headers})
 }
