@@ -10,7 +10,12 @@ import {
     type ImportWorkflowParams,
     type ImportWorkflowResult,
 } from "~/lib/import"
-import {performImportToCard} from "~/lib/import.server"
+import {
+    importVideo,
+    inspectVideo,
+    transcodeAudio,
+    updateCard,
+} from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
 import {destroySandbox} from "~/lib/sandbox.server"
 
@@ -23,76 +28,137 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         const sandboxId = getImportSandboxId(cardImport)
         const progress = this.env.IMPORT_PROGRESS.getByName(cardImport.id)
 
-        const result = await step.do(
-            "import tracks",
-            {
-                retries: {limit: 0, delay: 0},
-                timeout: "30 minutes",
-            },
-            async () => {
-                const token = await readImportCredential(credential, this.env)
-                const sdk = getYotoSdk(token)
+        console.info("Import workflow started", {
+            importId: cardImport.id,
+            sandboxId,
+            cardId: cardImport.cardId,
+        })
 
-                console.info("Import workflow started", {
-                    importId: cardImport.id,
-                    sandboxId,
-                    cardId: cardImport.cardId,
-                })
+        const getSdk = async () => {
+            const token = await readImportCredential(credential, this.env)
+            return getYotoSdk(token)
+        }
+        const reportProgress = (
+            update: Parameters<typeof progress.reportProgress>[0],
+        ) => progress.reportProgress(update)
 
-                try {
-                    const importResult = await performImportToCard(
+        try {
+            const video = await step.do(
+                "inspect video",
+                {
+                    retries: {
+                        limit: 3,
+                        delay: "5 seconds",
+                        backoff: "exponential",
+                    },
+                    timeout: "5 minutes",
+                },
+                () => inspectVideo(this.env, cardImport, reportProgress),
+            )
+
+            const importedTracks = await step.do(
+                "import video",
+                {
+                    retries: {
+                        limit: 3,
+                        delay: "10 seconds",
+                        backoff: "exponential",
+                    },
+                    timeout: "30 minutes",
+                },
+                async () => {
+                    const sdk = await getSdk()
+                    return importVideo(
                         sdk,
                         this.env,
                         cardImport,
-                        update => progress.reportProgress(update),
+                        video,
+                        reportProgress,
                     )
+                },
+            )
 
-                    if ("error" in importResult) {
-                        throw new Error(importResult.error)
-                    }
+            const transcodedTracks = await step.do(
+                "transcode audio",
+                {
+                    retries: {
+                        limit: 3,
+                        delay: "10 seconds",
+                        backoff: "exponential",
+                    },
+                    timeout: "30 minutes",
+                },
+                async () => {
+                    const sdk = await getSdk()
+                    return transcodeAudio(
+                        sdk,
+                        cardImport.cardId,
+                        importedTracks,
+                        reportProgress,
+                    )
+                },
+            )
 
-                    const result = {
-                        status: "success" as const,
-                        message: importResult.message,
-                        added: importResult.added,
-                        skipped: importResult.skipped,
-                    }
+            const result = await step.do(
+                "update card",
+                {
+                    retries: {limit: 0, delay: 0},
+                    timeout: "5 minutes",
+                },
+                async () => {
+                    const sdk = await getSdk()
+                    return updateCard(
+                        sdk,
+                        cardImport.cardId,
+                        transcodedTracks,
+                        reportProgress,
+                    )
+                },
+            )
 
-                    await progress.reportComplete(result)
-                    return result
-                } catch (error) {
-                    const message =
-                        error instanceof Error
-                            ? error.message
-                            : "Import failed unexpectedly"
-                    await progress.reportError(message)
-                    throw error
-                } finally {
-                    try {
+            await progress.reportComplete(result)
+
+            return {
+                importId: cardImport.id,
+                ...result,
+            }
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : "Import failed unexpectedly"
+            await progress.reportError(message)
+            throw error
+        } finally {
+            try {
+                await step.do(
+                    "cleanup sandbox",
+                    {
+                        retries: {
+                            limit: 3,
+                            delay: "5 seconds",
+                            backoff: "exponential",
+                        },
+                        timeout: "5 minutes",
+                    },
+                    async () => {
                         await destroySandbox(this.env, sandboxId)
                         console.info("Import sandbox destroyed", {
                             importId: cardImport.id,
                             sandboxId,
                             cardId: cardImport.cardId,
                         })
-                    } catch (error) {
-                        console.warn("Failed to destroy import sandbox", {
-                            importId: cardImport.id,
-                            sandboxId,
-                            cardId: cardImport.cardId,
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                        })
-                    }
-                }
-            },
-        )
-
-        return {
-            importId: cardImport.id,
-            ...result,
+                    },
+                )
+            } catch (error) {
+                console.warn("Failed to destroy import sandbox", {
+                    importId: cardImport.id,
+                    sandboxId,
+                    cardId: cardImport.cardId,
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                })
+            }
         }
     }
 }

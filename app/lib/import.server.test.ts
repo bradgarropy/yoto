@@ -5,25 +5,36 @@ import {createMockEnv} from "~/tests/mocks"
 
 const mockGetPlaylistInfo = vi.fn()
 const mockPrepareTrack = vi.fn()
-const mockUploadTrack = vi.fn()
 const mockRemoveTrack = vi.fn()
+const mockUploadTrack = vi.fn()
 
 vi.mock("./sandbox.server", () => ({
     getPlaylistInfo: (...args: unknown[]) => mockGetPlaylistInfo(...args),
     prepareTrack: (...args: unknown[]) => mockPrepareTrack(...args),
-    uploadTrack: (...args: unknown[]) => mockUploadTrack(...args),
     removeTrack: (...args: unknown[]) => mockRemoveTrack(...args),
+    uploadTrack: (...args: unknown[]) => mockUploadTrack(...args),
 }))
 
-import {performImportToCard} from "./import.server"
+import {
+    type ImportedTrack,
+    importVideo,
+    inspectVideo,
+    transcodeAudio,
+    updateCard,
+} from "./import.server"
 
 const mockEnv = createMockEnv()
 const sandboxId = "import-test-job"
-
 const sourceTrack = {
     id: "video-1",
     title: "Test Track",
     url: "https://www.youtube.com/watch?v=video-1",
+    duration: 180,
+}
+const video = {
+    id: "video-1",
+    title: "Test Track",
+    videos: [sourceTrack],
 }
 const cardImport = {
     id: "test-job",
@@ -38,9 +49,9 @@ const preparedTrack = {
 }
 
 const mockGetCard = vi.fn()
-const mockUpdateCard = vi.fn()
 const mockGetTranscodedUpload = vi.fn()
 const mockGetUploadUrlForTranscode = vi.fn()
+const mockUpdateCard = vi.fn()
 const sdk = {
     content: {
         getCard: mockGetCard,
@@ -58,11 +69,7 @@ beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
 
-    mockGetPlaylistInfo.mockResolvedValue({
-        id: "video-1",
-        title: "Test Track",
-        videos: [sourceTrack],
-    })
+    mockGetPlaylistInfo.mockResolvedValue(video)
     mockGetCard.mockResolvedValue({
         cardId: "card-1",
         title: "Test Card",
@@ -76,36 +83,41 @@ beforeEach(() => {
         metadata: {},
     })
     mockPrepareTrack.mockResolvedValue(preparedTrack)
-    mockUploadTrack.mockResolvedValue(undefined)
     mockRemoveTrack.mockResolvedValue(undefined)
     mockUpdateCard.mockResolvedValue(undefined)
+    mockUploadTrack.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
     vi.restoreAllMocks()
 })
 
-describe("performImportToCard", () => {
-    it("uploads prepared audio directly from the sandbox and removes it", async () => {
-        mockGetTranscodedUpload
-            .mockRejectedValueOnce(new Error("Not found"))
-            .mockResolvedValueOnce({
-                progress: {phase: "complete"},
-                transcodedSha256: "transcoded-sha",
-                transcodedInfo: {duration: 180, fileSize: 100000},
-            })
+describe("inspectVideo", () => {
+    it("inspects the source without downloading audio", async () => {
+        const onProgress = vi.fn()
+
+        const result = await inspectVideo(mockEnv, cardImport, onProgress)
+
+        expect(onProgress).toHaveBeenCalledWith({phase: "preparing"})
+        expect(mockGetPlaylistInfo).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            cardImport.youtubeUrl,
+        )
+        expect(mockPrepareTrack).not.toHaveBeenCalled()
+        expect(result).toEqual(video)
+    })
+})
+
+describe("importVideo", () => {
+    it("downloads, uploads, and removes prepared audio", async () => {
+        mockGetTranscodedUpload.mockRejectedValueOnce(new Error("Not found"))
         mockGetUploadUrlForTranscode.mockResolvedValue({
             uploadId: preparedTrack.sha256,
             uploadUrl: "https://uploads.example.com/audio",
         })
-        vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-            callback: TimerHandler,
-        ) => {
-            if (typeof callback === "function") callback()
-            return 0 as unknown as ReturnType<typeof setTimeout>
-        }) as unknown as typeof setTimeout)
 
-        const result = await performImportToCard(sdk, mockEnv, cardImport)
+        const result = await importVideo(sdk, mockEnv, cardImport, video)
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -118,16 +130,39 @@ describe("performImportToCard", () => {
             sandboxId,
             preparedTrack,
         )
-        expect(mockUpdateCard).toHaveBeenCalledOnce()
-        expect(result).toEqual({
-            success: true,
-            message: "Added 1 track",
-            added: 1,
-            skipped: 0,
+        expect(result).toEqual([
+            {
+                index: 0,
+                track: sourceTrack,
+                audio: {
+                    alreadyTranscoded: false,
+                    sha256: preparedTrack.sha256,
+                },
+            },
+        ])
+    })
+
+    it("uses cached Yoto audio without uploading it again", async () => {
+        mockGetTranscodedUpload.mockResolvedValue({
+            progress: {phase: "complete"},
+            transcodedSha256: "transcoded-sha",
+            transcodedInfo: {duration: 180, fileSize: 100000},
+        })
+
+        const result = await importVideo(sdk, mockEnv, cardImport, video)
+
+        expect(mockGetUploadUrlForTranscode).not.toHaveBeenCalled()
+        expect(mockUploadTrack).not.toHaveBeenCalled()
+        expect(mockRemoveTrack).toHaveBeenCalledOnce()
+        expect(result[0].audio).toEqual({
+            alreadyTranscoded: true,
+            key: "transcoded-sha",
+            duration: 180,
+            fileSize: 100000,
         })
     })
 
-    it("removes prepared audio when the direct upload fails", async () => {
+    it("removes prepared audio when upload fails", async () => {
         mockGetTranscodedUpload.mockRejectedValueOnce(new Error("Not found"))
         mockGetUploadUrlForTranscode.mockResolvedValue({
             uploadId: preparedTrack.sha256,
@@ -135,15 +170,15 @@ describe("performImportToCard", () => {
         })
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
-        const result = await performImportToCard(sdk, mockEnv, cardImport)
+        await expect(
+            importVideo(sdk, mockEnv, cardImport, video),
+        ).rejects.toThrow("Upload failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
             mockEnv,
             sandboxId,
             preparedTrack,
         )
-        expect(mockUpdateCard).not.toHaveBeenCalled()
-        expect(result).toEqual({error: "Upload failed"})
     })
 
     it("removes successful downloads when another download fails", async () => {
@@ -152,19 +187,16 @@ describe("performImportToCard", () => {
             title: "Failed Track",
             url: "https://www.youtube.com/watch?v=video-2",
         }
-        mockGetPlaylistInfo.mockResolvedValue({
-            id: "playlist-1",
-            title: "Test Playlist",
-            videos: [sourceTrack, secondTrack],
-        })
         mockPrepareTrack
             .mockResolvedValueOnce(preparedTrack)
             .mockRejectedValueOnce(new Error("Download failed"))
 
-        const result = await performImportToCard(sdk, mockEnv, {
-            ...cardImport,
-            youtubeUrl: "https://www.youtube.com/playlist?list=playlist-1",
-        })
+        await expect(
+            importVideo(sdk, mockEnv, cardImport, {
+                ...video,
+                videos: [sourceTrack, secondTrack],
+            }),
+        ).rejects.toThrow("Download failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -172,6 +204,100 @@ describe("performImportToCard", () => {
             preparedTrack,
         )
         expect(mockUploadTrack).not.toHaveBeenCalled()
-        expect(result).toEqual({error: "Download failed"})
+    })
+})
+
+describe("transcodeAudio", () => {
+    it("waits for uploaded audio to finish transcoding", async () => {
+        const importedTracks: ImportedTrack[] = [
+            {
+                index: 0,
+                track: sourceTrack,
+                audio: {
+                    alreadyTranscoded: false,
+                    sha256: preparedTrack.sha256,
+                },
+            },
+        ]
+        mockGetTranscodedUpload.mockResolvedValue({
+            progress: {phase: "complete"},
+            transcodedSha256: "transcoded-sha",
+            transcodedInfo: {duration: 180, fileSize: 100000},
+        })
+        vi.spyOn(globalThis, "setTimeout").mockImplementation(
+            (callback: TimerHandler) => {
+                if (typeof callback === "function") callback()
+                return 0 as unknown as ReturnType<typeof setTimeout>
+            },
+        )
+
+        const result = await transcodeAudio(
+            sdk,
+            cardImport.cardId,
+            importedTracks,
+        )
+
+        expect(result).toEqual([
+            {
+                index: 0,
+                track: sourceTrack,
+                audio: {
+                    key: "transcoded-sha",
+                    duration: 180,
+                    fileSize: 100000,
+                },
+            },
+        ])
+    })
+})
+
+describe("updateCard", () => {
+    it("adds transcoded tracks to the latest card", async () => {
+        const result = await updateCard(sdk, cardImport.cardId, [
+            {
+                index: 0,
+                track: sourceTrack,
+                audio: {
+                    key: "transcoded-sha",
+                    duration: 180,
+                    fileSize: 100000,
+                },
+            },
+        ])
+
+        expect(mockGetCard).toHaveBeenCalledWith(cardImport.cardId)
+        expect(mockUpdateCard).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: cardImport.cardId,
+                content: expect.objectContaining({
+                    chapters: [
+                        expect.objectContaining({
+                            title: sourceTrack.title,
+                            tracks: [
+                                expect.objectContaining({
+                                    trackUrl: "yoto:#transcoded-sha",
+                                }),
+                            ],
+                        }),
+                    ],
+                }),
+            }),
+        )
+        expect(result).toEqual({
+            status: "success",
+            message: "Added 1 track",
+            added: 1,
+            skipped: 0,
+        })
+    })
+
+    it("fails before updating when the card no longer exists", async () => {
+        mockGetCard.mockResolvedValue(null)
+
+        await expect(updateCard(sdk, cardImport.cardId, [])).rejects.toThrow(
+            "Card not found",
+        )
+
+        expect(mockUpdateCard).not.toHaveBeenCalled()
     })
 })

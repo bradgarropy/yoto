@@ -4,13 +4,16 @@ import type {ImportWorkflowParams} from "~/lib/import"
 import {createMockEnv} from "~/tests/mocks"
 
 const mockDestroySandbox = vi.fn()
-const mockGetYotoSdk = vi.fn()
 const mockGetProgress = vi.fn()
-const mockPerformImportToCard = vi.fn()
+const mockGetYotoSdk = vi.fn()
+const mockImportVideo = vi.fn()
+const mockInspectVideo = vi.fn()
 const mockReadImportCredential = vi.fn()
 const mockReportComplete = vi.fn()
 const mockReportError = vi.fn()
 const mockReportProgress = vi.fn()
+const mockTranscodeAudio = vi.fn()
+const mockUpdateCard = vi.fn()
 
 vi.mock("cloudflare:workers", () => ({
     WorkflowEntrypoint: class {},
@@ -26,8 +29,10 @@ vi.mock("~/lib/import-credential.server", () => ({
 }))
 
 vi.mock("~/lib/import.server", () => ({
-    performImportToCard: (...args: unknown[]) =>
-        mockPerformImportToCard(...args),
+    importVideo: (...args: unknown[]) => mockImportVideo(...args),
+    inspectVideo: (...args: unknown[]) => mockInspectVideo(...args),
+    transcodeAudio: (...args: unknown[]) => mockTranscodeAudio(...args),
+    updateCard: (...args: unknown[]) => mockUpdateCard(...args),
 }))
 
 vi.mock("~/lib/sandbox.server", () => ({
@@ -41,6 +46,38 @@ const cardImport: ImportWorkflowParams = {
     cardId: "card-1",
     youtubeUrl: "https://www.youtube.com/watch?v=video-1",
     credential: "encrypted-token",
+}
+const inspectedVideo = {
+    id: "video-1",
+    title: "Test Video",
+    videos: [
+        {
+            id: "video-1",
+            title: "Test Video",
+            url: cardImport.youtubeUrl,
+            duration: 180,
+        },
+    ],
+}
+const importedTracks = [
+    {
+        index: 0,
+        track: inspectedVideo.videos[0],
+        audio: {alreadyTranscoded: false as const, sha256: "audio-sha"},
+    },
+]
+const transcodedTracks = [
+    {
+        index: 0,
+        track: inspectedVideo.videos[0],
+        audio: {key: "transcoded-sha", duration: 180, fileSize: 100000},
+    },
+]
+const importResult = {
+    status: "success" as const,
+    message: "Added 1 track",
+    added: 1,
+    skipped: 0,
 }
 
 const createEvent = () =>
@@ -63,23 +100,24 @@ const createStep = () =>
 describe("ImportWorkflow", () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        mockReadImportCredential.mockResolvedValue("access-token")
-        mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
+        vi.spyOn(console, "info").mockImplementation(() => {})
+        vi.spyOn(console, "warn").mockImplementation(() => {})
+
+        mockDestroySandbox.mockResolvedValue(undefined)
         mockGetProgress.mockReturnValue({
             reportComplete: mockReportComplete,
             reportError: mockReportError,
             reportProgress: mockReportProgress,
         })
-        mockPerformImportToCard.mockResolvedValue({
-            success: true,
-            message: "Added 1 track",
-            added: 1,
-            skipped: 0,
-        })
-        mockDestroySandbox.mockResolvedValue(undefined)
+        mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
+        mockImportVideo.mockResolvedValue(importedTracks)
+        mockInspectVideo.mockResolvedValue(inspectedVideo)
+        mockReadImportCredential.mockResolvedValue("access-token")
+        mockTranscodeAudio.mockResolvedValue(transcodedTracks)
+        mockUpdateCard.mockResolvedValue(importResult)
     })
 
-    it("performs and returns a completed import", async () => {
+    it("runs and checkpoints each import phase", async () => {
         const step = createStep()
 
         const result = await ImportWorkflow.prototype.run.call(
@@ -88,22 +126,68 @@ describe("ImportWorkflow", () => {
             step,
         )
 
-        expect(step.do).toHaveBeenCalledWith(
-            "import tracks",
+        expect(step.do).toHaveBeenNthCalledWith(
+            1,
+            "inspect video",
             {
-                retries: {limit: 0, delay: 0},
+                retries: {
+                    limit: 3,
+                    delay: "5 seconds",
+                    backoff: "exponential",
+                },
+                timeout: "5 minutes",
+            },
+            expect.any(Function),
+        )
+        expect(step.do).toHaveBeenNthCalledWith(
+            2,
+            "import video",
+            {
+                retries: {
+                    limit: 3,
+                    delay: "10 seconds",
+                    backoff: "exponential",
+                },
                 timeout: "30 minutes",
             },
             expect.any(Function),
         )
-        expect(mockReadImportCredential).toHaveBeenCalledWith(
-            cardImport.credential,
-            expect.any(Object),
+        expect(step.do).toHaveBeenNthCalledWith(
+            3,
+            "transcode audio",
+            {
+                retries: {
+                    limit: 3,
+                    delay: "10 seconds",
+                    backoff: "exponential",
+                },
+                timeout: "30 minutes",
+            },
+            expect.any(Function),
         )
-        expect(mockGetYotoSdk).toHaveBeenCalledWith("access-token")
-        expect(mockGetProgress).toHaveBeenCalledWith(cardImport.id)
-        expect(mockPerformImportToCard).toHaveBeenCalledWith(
-            expect.any(Object),
+        expect(step.do).toHaveBeenNthCalledWith(
+            4,
+            "update card",
+            {
+                retries: {limit: 0, delay: 0},
+                timeout: "5 minutes",
+            },
+            expect.any(Function),
+        )
+        expect(step.do).toHaveBeenNthCalledWith(
+            5,
+            "cleanup sandbox",
+            {
+                retries: {
+                    limit: 3,
+                    delay: "5 seconds",
+                    backoff: "exponential",
+                },
+                timeout: "5 minutes",
+            },
+            expect.any(Function),
+        )
+        expect(mockInspectVideo).toHaveBeenCalledWith(
             expect.any(Object),
             {
                 id: cardImport.id,
@@ -112,32 +196,37 @@ describe("ImportWorkflow", () => {
             },
             expect.any(Function),
         )
-
-        const reportProgress = mockPerformImportToCard.mock.calls[0][3]
-        const update = {phase: "uploading", current: 1, total: 2}
-        await reportProgress(update)
-        expect(mockReportProgress).toHaveBeenCalledWith(update)
-        expect(mockReportComplete).toHaveBeenCalledWith({
-            status: "success",
-            message: "Added 1 track",
-            added: 1,
-            skipped: 0,
-        })
+        expect(mockImportVideo).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.any(Object),
+            expect.objectContaining({id: cardImport.id}),
+            inspectedVideo,
+            expect.any(Function),
+        )
+        expect(mockTranscodeAudio).toHaveBeenCalledWith(
+            expect.any(Object),
+            cardImport.cardId,
+            importedTracks,
+            expect.any(Function),
+        )
+        expect(mockUpdateCard).toHaveBeenCalledWith(
+            expect.any(Object),
+            cardImport.cardId,
+            transcodedTracks,
+            expect.any(Function),
+        )
+        expect(mockReadImportCredential).toHaveBeenCalledTimes(3)
+        expect(mockReportComplete).toHaveBeenCalledWith(importResult)
+        expect(mockReportError).not.toHaveBeenCalled()
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,
         )
-        expect(result).toEqual({
-            importId: cardImport.id,
-            status: "success",
-            message: "Added 1 track",
-            added: 1,
-            skipped: 0,
-        })
+        expect(result).toEqual({importId: cardImport.id, ...importResult})
     })
 
-    it("fails and destroys the sandbox when the import reports an error", async () => {
-        mockPerformImportToCard.mockResolvedValue({error: "Card not found"})
+    it("reports a terminal error after a phase exhausts its retries", async () => {
+        mockInspectVideo.mockRejectedValue(new Error("Containers unavailable"))
         const step = createStep()
 
         await expect(
@@ -146,12 +235,29 @@ describe("ImportWorkflow", () => {
                 createEvent(),
                 step,
             ),
-        ).rejects.toThrow("Card not found")
+        ).rejects.toThrow("Containers unavailable")
 
-        expect(mockReportError).toHaveBeenCalledWith("Card not found")
+        expect(mockImportVideo).not.toHaveBeenCalled()
+        expect(mockReportError).toHaveBeenCalledWith("Containers unavailable")
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,
+        )
+    })
+
+    it("does not turn successful imports into failures when cleanup fails", async () => {
+        mockDestroySandbox.mockRejectedValue(new Error("Cleanup failed"))
+
+        const result = await ImportWorkflow.prototype.run.call(
+            createWorkflow(),
+            createEvent(),
+            createStep(),
+        )
+
+        expect(result).toEqual({importId: cardImport.id, ...importResult})
+        expect(console.warn).toHaveBeenCalledWith(
+            "Failed to destroy import sandbox",
+            expect.objectContaining({error: "Cleanup failed"}),
         )
     })
 })
