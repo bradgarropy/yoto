@@ -1,7 +1,7 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
-import {getImportSandboxId, type Import} from "./import"
+import {getImportSandboxId, type Import, type ImportSuccess} from "./import"
 import {
     createChapter,
     getNextChapterKey,
@@ -16,6 +16,7 @@ import {
     type Track,
     uploadTrack,
 } from "./sandbox.server"
+import type {YouTubePlaylistInfo, YouTubeTrack} from "./youtube.server"
 
 type YotoContent = {
     activity: string
@@ -46,6 +47,18 @@ type TranscodeResult = {
 type AudioUploadResult =
     | {alreadyTranscoded: true; key: string; duration: number; fileSize: number}
     | {alreadyTranscoded: false; sha256: string}
+
+type ImportedTrack = {
+    index: number
+    track: YouTubeTrack
+    audio: AudioUploadResult
+}
+
+type TranscodedTrack = {
+    index: number
+    track: YouTubeTrack
+    audio: {key: string; duration: number; fileSize: number}
+}
 
 type AudioLogContext = {
     cardId: string
@@ -202,255 +215,223 @@ async function waitForTranscode(
     throw new Error("Audio transcode timed out")
 }
 
-type ImportToCardResult =
-    | {
-          success: true
-          message: string
-          added: number
-          skipped: number
-      }
-    | {error: string}
-
 // Concurrency limit for parallel operations
 const CONCURRENCY_LIMIT = 5
 
-/**
- * Import YouTube content directly to an existing card.
- * Processes tracks in parallel phases: download → upload → transcode
- */
-export async function performImportToCard(
-    sdk: YotoSdk,
+async function inspectVideo(
     env: Env,
     cardImport: Import,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<ImportToCardResult> {
-    const {cardId, youtubeUrl} = cardImport
+): Promise<YouTubePlaylistInfo> {
+    await onProgress?.({phase: "preparing"})
+    return getPlaylistInfo(
+        env,
+        getImportSandboxId(cardImport),
+        cardImport.youtubeUrl,
+    )
+}
+
+async function importVideo(
+    sdk: YotoSdk,
+    env: Env,
+    cardImport: Import,
+    youtubeInfo: YouTubePlaylistInfo,
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
+): Promise<ImportedTrack[]> {
+    const {cardId} = cardImport
     const sandboxId = getImportSandboxId(cardImport)
     const limit = pLimit(CONCURRENCY_LIMIT)
+    const tracks = youtubeInfo.videos
+    const total = tracks.length
 
-    try {
-        // 1. Fetch YouTube playlist/video info via sandbox
-        await onProgress?.({phase: "preparing"})
-        const youtubeInfo = await getPlaylistInfo(env, sandboxId, youtubeUrl)
+    let downloadedCount = 0
+    await onProgress?.({phase: "downloading", current: 1, total})
 
-        // 2. Get existing card
-        const cardResponse = (await sdk.content.getCard(
-            cardId,
-        )) as unknown as YotoCard | null
+    const downloadResults = await Promise.allSettled(
+        tracks.map((track, index) =>
+            limit(async () => {
+                const preparedTrack = await prepareTrack(env, sandboxId, track)
+                downloadedCount++
+                if (downloadedCount < total) {
+                    await onProgress?.({
+                        phase: "downloading",
+                        current: downloadedCount + 1,
+                        total,
+                    })
+                }
+                return {index, preparedTrack, track}
+            }),
+        ),
+    )
 
-        if (!cardResponse) {
-            return {error: "Card not found"}
-        }
+    const failedDownload = downloadResults.find(
+        (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+    )
 
-        const existingChapters = cardResponse.content?.chapters ?? []
-        const tracksToAdd = youtubeInfo.videos
-        const total = tracksToAdd.length
+    if (failedDownload) {
+        await Promise.allSettled(
+            downloadResults
+                .filter(
+                    (
+                        result,
+                    ): result is PromiseFulfilledResult<{
+                        index: number
+                        preparedTrack: Track
+                        track: YouTubeTrack
+                    }> => result.status === "fulfilled",
+                )
+                .map(({value}) =>
+                    removeTrack(env, sandboxId, value.preparedTrack),
+                ),
+        )
+        throw failedDownload.reason
+    }
 
-        // 3. Download phase - download all tracks in parallel (5 at a time)
-        let downloadedCount = 0
-        await onProgress?.({phase: "downloading", current: 1, total})
+    const downloadedTracks = downloadResults.map(result => {
+        if (result.status !== "fulfilled") throw result.reason
+        return result.value
+    })
 
-        const downloadResults = await Promise.allSettled(
-            tracksToAdd.map((track, index) =>
-                limit(async () => {
-                    const preparedTrack = await prepareTrack(
+    let uploadedCount = 0
+    await onProgress?.({phase: "uploading", current: 1, total})
+
+    const uploadResults = await Promise.allSettled(
+        downloadedTracks.map(({index, preparedTrack, track}) =>
+            limit(async () => {
+                try {
+                    const audio = await uploadAudio(
+                        sdk,
                         env,
                         sandboxId,
-                        track,
+                        preparedTrack,
+                        {
+                            cardId,
+                            trackId: track.id,
+                            trackTitle: track.title,
+                        },
                     )
-                    downloadedCount++
-                    // Report next track in progress (if there are more)
-                    if (downloadedCount < total) {
+                    uploadedCount++
+                    if (uploadedCount < total) {
                         await onProgress?.({
-                            phase: "downloading",
-                            current: downloadedCount + 1,
+                            phase: "uploading",
+                            current: uploadedCount + 1,
                             total,
                         })
                     }
-                    return {index, preparedTrack, track}
-                }),
-            ),
-        )
+                    return {index, audio, track}
+                } finally {
+                    await removeTrack(env, sandboxId, preparedTrack)
+                }
+            }),
+        ),
+    )
 
-        const failedDownload = downloadResults.find(
-            (result): result is PromiseRejectedResult =>
-                result.status === "rejected",
-        )
+    const failedUpload = uploadResults.find(
+        (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+    )
+    if (failedUpload) throw failedUpload.reason
 
-        if (failedDownload) {
-            await Promise.allSettled(
-                downloadResults
-                    .filter(
-                        (
-                            result,
-                        ): result is PromiseFulfilledResult<{
-                            index: number
-                            preparedTrack: Track
-                            track: (typeof tracksToAdd)[number]
-                        }> => result.status === "fulfilled",
-                    )
-                    .map(({value}) =>
-                        removeTrack(env, sandboxId, value.preparedTrack),
-                    ),
-            )
-            throw failedDownload.reason
-        }
+    return uploadResults.map(result => {
+        if (result.status !== "fulfilled") throw result.reason
+        return result.value
+    })
+}
 
-        const downloadedTracks = downloadResults.map(result => {
-            if (result.status !== "fulfilled") throw result.reason
-            return result.value
-        })
+async function transcodeAudio(
+    sdk: YotoSdk,
+    cardId: string,
+    importedTracks: ImportedTrack[],
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
+): Promise<TranscodedTrack[]> {
+    const limit = pLimit(CONCURRENCY_LIMIT)
+    const total = importedTracks.length
+    let transcodedCount = 0
+    await onProgress?.({phase: "transcoding", current: 1, total})
 
-        // 4. Upload phase - upload all tracks in parallel (5 at a time)
-        let uploadedCount = 0
-        await onProgress?.({phase: "uploading", current: 1, total})
+    return Promise.all(
+        importedTracks.map(({index, audio, track}) =>
+            limit(async () => {
+                const transcoded = audio.alreadyTranscoded
+                    ? {
+                          key: audio.key,
+                          duration: audio.duration,
+                          fileSize: audio.fileSize,
+                      }
+                    : await waitForTranscode(sdk, audio.sha256, {
+                          cardId,
+                          trackId: track.id,
+                          trackTitle: track.title,
+                      })
 
-        const settledUploads = await Promise.allSettled(
-            downloadedTracks.map(({index, preparedTrack, track}) =>
-                limit(async () => {
-                    try {
-                        const result = await uploadAudio(
-                            sdk,
-                            env,
-                            sandboxId,
-                            preparedTrack,
-                            {
-                                cardId,
-                                trackId: track.id,
-                                trackTitle: track.title,
-                            },
-                        )
-                        uploadedCount++
-                        // Report next track in progress (if there are more)
-                        if (uploadedCount < total) {
-                            await onProgress?.({
-                                phase: "uploading",
-                                current: uploadedCount + 1,
-                                total,
-                            })
-                        }
-                        return {index, result, track}
-                    } finally {
-                        await removeTrack(env, sandboxId, preparedTrack)
-                    }
-                }),
-            ),
-        )
+                transcodedCount++
+                if (transcodedCount < total) {
+                    await onProgress?.({
+                        phase: "transcoding",
+                        current: transcodedCount + 1,
+                        total,
+                    })
+                }
+                return {index, audio: transcoded, track}
+            }),
+        ),
+    )
+}
 
-        const failedUpload = settledUploads.find(
-            (result): result is PromiseRejectedResult =>
-                result.status === "rejected",
-        )
-        if (failedUpload) throw failedUpload.reason
+async function updateCard(
+    sdk: YotoSdk,
+    cardId: string,
+    transcodedTracks: TranscodedTrack[],
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
+): Promise<ImportSuccess> {
+    await onProgress?.({phase: "finalizing"})
 
-        const uploadResults = settledUploads.map(result => {
-            if (result.status !== "fulfilled") throw result.reason
-            return result.value
-        })
+    const card = (await sdk.content.getCard(
+        cardId,
+    )) as unknown as YotoCard | null
+    if (!card) throw new Error("Card not found")
 
-        // 5. Transcode phase - wait for all transcodes in parallel (5 at a time)
-        let transcodedCount = 0
-        await onProgress?.({phase: "transcoding", current: 1, total})
+    const chapters: YotoChapter[] = [...(card.content?.chapters ?? [])]
+    const orderedTracks = [...transcodedTracks].sort(
+        (first, second) => first.index - second.index,
+    )
 
-        const transcodeResults = await Promise.all(
-            uploadResults.map(({index, result, track}) =>
-                limit(async () => {
-                    let transcoded: {
-                        key: string
-                        duration: number
-                        fileSize: number
-                    }
-
-                    if (result.alreadyTranscoded) {
-                        // Already transcoded, use cached result
-                        transcoded = {
-                            key: result.key,
-                            duration: result.duration,
-                            fileSize: result.fileSize,
-                        }
-                    } else {
-                        // Wait for transcode to complete
-                        transcoded = await waitForTranscode(
-                            sdk,
-                            result.sha256,
-                            {
-                                cardId,
-                                trackId: track.id,
-                                trackTitle: track.title,
-                            },
-                        )
-                    }
-
-                    transcodedCount++
-                    // Report next track in progress (if there are more)
-                    if (transcodedCount < total) {
-                        await onProgress?.({
-                            phase: "transcoding",
-                            current: transcodedCount + 1,
-                            total,
-                        })
-                    }
-                    return {index, transcoded, track}
-                }),
-            ),
-        )
-
-        // 6. Build chapters in order
-        const newChapters: YotoChapter[] = [...existingChapters]
-
-        // Sort by original index to maintain track order
-        transcodeResults.sort((a, b) => a.index - b.index)
-
-        for (const {transcoded, track} of transcodeResults) {
-            const nextKey = getNextChapterKey(newChapters)
-            const position = parseInt(nextKey, 10) + 1
-
-            const chapter = createChapter(
+    for (const {audio, track} of orderedTracks) {
+        const nextKey = getNextChapterKey(chapters)
+        chapters.push(
+            createChapter(
                 track.title,
-                transcoded.key,
-                position,
-                transcoded.duration,
-                transcoded.fileSize,
-            )
-
-            newChapters.push(chapter)
-        }
-
-        // 7. Update card with new chapters
-        await onProgress?.({phase: "finalizing"})
-        const cleanedChapters = stripNullValues(newChapters)
-
-        const updatedCard: YotoCard = {
-            cardId,
-            title: cardResponse.title,
-            content: {
-                ...cardResponse.content,
-                chapters: cleanedChapters,
-            },
-            metadata: cardResponse.metadata,
-        }
-
-        await sdk.content.updateCard(
-            updatedCard as unknown as Parameters<
-                typeof sdk.content.updateCard
-            >[0],
+                audio.key,
+                parseInt(nextKey, 10) + 1,
+                audio.duration,
+                audio.fileSize,
+            ),
         )
+    }
 
-        const addedCount = tracksToAdd.length
+    const updatedCard: YotoCard = {
+        cardId,
+        title: card.title,
+        content: {
+            ...card.content,
+            chapters: stripNullValues(chapters),
+        },
+        metadata: card.metadata,
+    }
 
-        return {
-            success: true,
-            message: `Added ${addedCount} track${addedCount !== 1 ? "s" : ""}`,
-            added: addedCount,
-            skipped: 0,
-        }
-    } catch (error) {
-        console.error("Import to card failed:", error)
-        return {
-            error:
-                error instanceof Error
-                    ? error.message
-                    : "Import failed. Please try again.",
-        }
+    await sdk.content.updateCard(
+        updatedCard as unknown as Parameters<typeof sdk.content.updateCard>[0],
+    )
+
+    const added = transcodedTracks.length
+    return {
+        status: "success",
+        message: `Added ${added} track${added !== 1 ? "s" : ""}`,
+        added,
+        skipped: 0,
     }
 }
+
+export {importVideo, inspectVideo, transcodeAudio, updateCard}
+export type {ImportedTrack, TranscodedTrack}
