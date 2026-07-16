@@ -18,12 +18,25 @@ import {ImportProgress} from "./import-progress"
 const createProgress = () => {
     const get = vi.fn()
     const put = vi.fn()
+    get.mockResolvedValue(undefined)
     const ctx = {
         storage: {get, put},
     } as unknown as DurableObjectState
     const progress = new ImportProgress(ctx, createMockEnv())
 
     return {get, progress, put}
+}
+
+const readEvent = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+    const {value, done} = await reader.read()
+    if (done || !value) return null
+
+    const data = new TextDecoder()
+        .decode(value)
+        .split("\n")
+        .find(line => line.startsWith("data: "))
+
+    return data ? JSON.parse(data.slice(6)) : null
 }
 
 describe("ImportProgress", () => {
@@ -37,25 +50,90 @@ describe("ImportProgress", () => {
 
         await progress.reportProgress(update)
 
-        expect(put).toHaveBeenCalledWith("progress", update)
+        expect(put).toHaveBeenCalledWith("event", {
+            type: "progress",
+            ...update,
+        })
     })
 
-    it("returns the latest progress", async () => {
-        const {get, progress} = createProgress()
-        const update: ImportProgressState = {
+    it("broadcasts progress and completion to an SSE subscriber", async () => {
+        const {progress} = createProgress()
+        const response = await progress.fetch(
+            new Request("https://example.com/events", {
+                headers: {"X-Import-Id": "import-1"},
+            }),
+        )
+        const reader = response.body!.getReader()
+
+        await expect(readEvent(reader)).resolves.toEqual({
+            type: "started",
+            importId: "import-1",
+        })
+
+        await progress.reportProgress({
             phase: "transcoding",
             current: 1,
             total: 1,
-        }
-        get.mockResolvedValue(update)
+        })
+        await expect(readEvent(reader)).resolves.toEqual({
+            type: "progress",
+            phase: "transcoding",
+            current: 1,
+            total: 1,
+        })
 
-        await expect(progress.getProgress()).resolves.toEqual(update)
+        await progress.reportComplete({
+            status: "success",
+            message: "Added 1 track",
+            added: 1,
+            skipped: 0,
+        })
+        await expect(readEvent(reader)).resolves.toEqual({
+            type: "complete",
+            success: true,
+            message: "Added 1 track",
+            added: 1,
+            skipped: 0,
+        })
+        await expect(reader.read()).resolves.toEqual({
+            value: undefined,
+            done: true,
+        })
     })
 
-    it("returns null before progress is reported", async () => {
+    it("replays the latest event to a new subscriber", async () => {
         const {get, progress} = createProgress()
-        get.mockResolvedValue(undefined)
+        get.mockResolvedValue({
+            type: "progress",
+            phase: "uploading",
+            current: 2,
+            total: 3,
+        })
 
-        await expect(progress.getProgress()).resolves.toBeNull()
+        const response = await progress.fetch(
+            new Request("https://example.com/events", {
+                headers: {"X-Import-Id": "import-1"},
+            }),
+        )
+        const reader = response.body!.getReader()
+
+        await readEvent(reader)
+        await expect(readEvent(reader)).resolves.toEqual({
+            type: "progress",
+            phase: "uploading",
+            current: 2,
+            total: 3,
+        })
+        await reader.cancel()
+    })
+
+    it("requires an import ID for subscriptions", async () => {
+        const {progress} = createProgress()
+
+        const response = await progress.fetch(
+            new Request("https://example.com/events"),
+        )
+
+        expect(response.status).toBe(400)
     })
 })

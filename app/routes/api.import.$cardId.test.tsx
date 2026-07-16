@@ -4,9 +4,10 @@ import {createMockEnv} from "~/tests/mocks"
 
 const mockCreateWorkflow = vi.fn()
 const mockCreateImportCredential = vi.fn()
+const mockGetProgress = vi.fn()
 const mockIsAuthenticated = vi.fn()
+const mockProgressFetch = vi.fn()
 const mockRequireAuthCore = vi.fn()
-const mockWorkflowStatus = vi.fn()
 
 vi.mock("~/lib/auth.server", () => ({
     isAuthenticated: (...args: unknown[]) => mockIsAuthenticated(...args),
@@ -32,10 +33,18 @@ const parseEvents = (body: string) =>
     body
         .trim()
         .split("\n\n")
-        .map(event => JSON.parse(event.replace(/^data: /, "")))
+        .map(event => {
+            const data = event
+                .split("\n")
+                .find(line => line.startsWith("data: "))
+            return JSON.parse(data!.slice(6))
+        })
 
-const createLoaderArgs = () => {
+const createLoaderArgs = (headers?: HeadersInit) => {
     const env = createMockEnv({
+        IMPORT_PROGRESS: {
+            getByName: mockGetProgress,
+        } as unknown as Env["IMPORT_PROGRESS"],
         IMPORT_WORKFLOW: {
             create: mockCreateWorkflow,
         } as unknown as Env["IMPORT_WORKFLOW"],
@@ -47,6 +56,7 @@ const createLoaderArgs = () => {
             params: {cardId},
             request: new Request(
                 `http://localhost/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`,
+                {headers},
             ),
             context: {
                 get: vi.fn().mockReturnValue({env}),
@@ -60,19 +70,18 @@ beforeEach(() => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
-    mockCreateWorkflow.mockResolvedValue({status: mockWorkflowStatus})
+    mockCreateWorkflow.mockResolvedValue({})
     mockCreateImportCredential.mockResolvedValue("encrypted-token")
+    mockGetProgress.mockReturnValue({fetch: mockProgressFetch})
     mockIsAuthenticated.mockResolvedValue(true)
     mockRequireAuthCore.mockResolvedValue({token})
-    mockWorkflowStatus.mockResolvedValue({
-        status: "complete",
-        output: {
-            importId: "import-1",
-            status: "success",
-            message: "Added 1 track",
-            added: 1,
-            skipped: 0,
-        },
+    mockProgressFetch.mockImplementation((request: Request) => {
+        const importId = request.headers.get("X-Import-Id")
+        return new Response(
+            `id: ${importId}\ndata: ${JSON.stringify({type: "started", importId})}\n\n` +
+                `id: ${importId}\ndata: ${JSON.stringify({type: "progress", phase: "transcoding", current: 1, total: 1})}\n\n` +
+                `id: ${importId}\ndata: ${JSON.stringify({type: "complete", success: true, message: "Added 1 track", added: 1, skipped: 0})}\n\n`,
+        )
     })
 })
 
@@ -99,11 +108,17 @@ describe("api/import/:cardId loader", () => {
             token,
             expect.any(Object),
         )
+        expect(mockGetProgress).toHaveBeenCalledWith(options.params.id)
         expect(events[0]).toEqual({
             type: "started",
             importId: options.params.id,
         })
-        expect(mockWorkflowStatus).toHaveBeenCalledOnce()
+        expect(events[1]).toEqual({
+            type: "progress",
+            phase: "transcoding",
+            current: 1,
+            total: 1,
+        })
         expect(events.at(-1)).toEqual({
             type: "complete",
             success: true,
@@ -113,10 +128,13 @@ describe("api/import/:cardId loader", () => {
         })
     })
 
-    it("reports workflow failures to the client", async () => {
-        mockWorkflowStatus.mockResolvedValue({
-            status: "errored",
-            error: {message: "Card not found"},
+    it("forwards progress errors to the client", async () => {
+        mockProgressFetch.mockImplementation((request: Request) => {
+            const importId = request.headers.get("X-Import-Id")
+            return new Response(
+                `id: ${importId}\ndata: ${JSON.stringify({type: "started", importId})}\n\n` +
+                    `id: ${importId}\ndata: ${JSON.stringify({type: "error", error: "Card not found"})}\n\n`,
+            )
         })
         const {args} = createLoaderArgs()
 
@@ -129,19 +147,19 @@ describe("api/import/:cardId loader", () => {
         })
     })
 
-    it("reports missing workflow output to the client", async () => {
-        mockWorkflowStatus.mockResolvedValue({
-            status: "complete",
-            output: null,
-        })
-        const {args} = createLoaderArgs()
+    it("reconnects to an existing import without creating another workflow", async () => {
+        const {args} = createLoaderArgs({"Last-Event-ID": "import-existing"})
 
         const response = await loader(args)
         const events = parseEvents(await response.text())
 
-        expect(events.at(-1)).toEqual({
-            type: "error",
-            error: "Import completed without a result",
+        expect(mockCreateWorkflow).not.toHaveBeenCalled()
+        expect(mockCreateImportCredential).not.toHaveBeenCalled()
+        expect(mockRequireAuthCore).not.toHaveBeenCalled()
+        expect(mockGetProgress).toHaveBeenCalledWith("import-existing")
+        expect(events[0]).toEqual({
+            type: "started",
+            importId: "import-existing",
         })
     })
 

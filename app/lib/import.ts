@@ -1,3 +1,5 @@
+import type {ImportProgress} from "~/lib/import-utils"
+
 type Import = {
     id: string
     cardId: string
@@ -24,9 +26,23 @@ type ImportWorkflowResult = {
     importId: string
 } & Extract<ImportResult, {status: "success"}>
 
+type ImportSuccess = Extract<ImportResult, {status: "success"}>
+
+type ImportStreamEvent =
+    | ({type: "progress"} & ImportProgress)
+    | ({type: "complete"; success: true} & Omit<ImportSuccess, "status">)
+    | {type: "error"; error: string}
+
 function getImportSandboxId(cardImport: Import): string {
     return `import-${cardImport.id}`
 }
 
 export {getImportSandboxId}
-export type {Import, ImportResult, ImportWorkflowParams, ImportWorkflowResult}
+export type {
+    Import,
+    ImportResult,
+    ImportStreamEvent,
+    ImportSuccess,
+    ImportWorkflowParams,
+    ImportWorkflowResult,
+}

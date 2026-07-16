@@ -8,6 +8,8 @@ const mockGetYotoSdk = vi.fn()
 const mockGetProgress = vi.fn()
 const mockPerformImportToCard = vi.fn()
 const mockReadImportCredential = vi.fn()
+const mockReportComplete = vi.fn()
+const mockReportError = vi.fn()
 const mockReportProgress = vi.fn()
 
 vi.mock("cloudflare:workers", () => ({
@@ -63,7 +65,11 @@ describe("ImportWorkflow", () => {
         vi.clearAllMocks()
         mockReadImportCredential.mockResolvedValue("access-token")
         mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
-        mockGetProgress.mockReturnValue({reportProgress: mockReportProgress})
+        mockGetProgress.mockReturnValue({
+            reportComplete: mockReportComplete,
+            reportError: mockReportError,
+            reportProgress: mockReportProgress,
+        })
         mockPerformImportToCard.mockResolvedValue({
             success: true,
             message: "Added 1 track",
@@ -111,6 +117,12 @@ describe("ImportWorkflow", () => {
         const update = {phase: "uploading", current: 1, total: 2}
         await reportProgress(update)
         expect(mockReportProgress).toHaveBeenCalledWith(update)
+        expect(mockReportComplete).toHaveBeenCalledWith({
+            status: "success",
+            message: "Added 1 track",
+            added: 1,
+            skipped: 0,
+        })
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,
@@ -136,6 +148,7 @@ describe("ImportWorkflow", () => {
             ),
         ).rejects.toThrow("Card not found")
 
+        expect(mockReportError).toHaveBeenCalledWith("Card not found")
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,

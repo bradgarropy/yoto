@@ -51,12 +51,22 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                         throw new Error(importResult.error)
                     }
 
-                    return {
+                    const result = {
                         status: "success" as const,
                         message: importResult.message,
                         added: importResult.added,
                         skipped: importResult.skipped,
                     }
+
+                    await progress.reportComplete(result)
+                    return result
+                } catch (error) {
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : "Import failed unexpectedly"
+                    await progress.reportError(message)
+                    throw error
                 } finally {
                     try {
                         await destroySandbox(this.env, sandboxId)
