@@ -2,11 +2,18 @@
 // Note: Actual yt-dlp operations moved to sandbox (workers/app.ts)
 
 // Types
+type YouTubeChapter = {
+    title: string
+    startTime: number
+    endTime: number
+}
+
 type YouTubeVideo = {
     id: string
     title: string
     url: string
     duration?: number
+    chapters?: YouTubeChapter[]
 }
 
 type YouTubePlaylist = {
@@ -62,6 +69,7 @@ const extractVideoId = (url: string): string => {
 
 export {extractPlaylistId, extractVideoId, isPlaylistUrl}
 export type {
+    YouTubeChapter,
     YouTubePlaylist as YouTubePlaylistInfo,
     YouTubeVideo as YouTubeTrack,
 }

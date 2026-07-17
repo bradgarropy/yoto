@@ -182,9 +182,27 @@ describe("prepareTrack", () => {
 })
 
 describe("getPlaylistInfo", () => {
-    it("includes video duration in the existing metadata lookup", async () => {
+    it("includes duration and chapter markers for a video", async () => {
         mockExec.mockResolvedValueOnce(
-            successfulCommand("video-1\tTest Track\t180.5\n"),
+            successfulCommand(
+                JSON.stringify({
+                    id: "video-1",
+                    title: "Test Track",
+                    duration: 180.5,
+                    chapters: [
+                        {
+                            title: "Chapter One",
+                            start_time: 0,
+                            end_time: 90,
+                        },
+                        {
+                            title: "Chapter Two",
+                            start_time: 90,
+                            end_time: 180.5,
+                        },
+                    ],
+                }),
+            ),
         )
 
         const result = await getPlaylistInfo(
@@ -197,11 +215,34 @@ describe("getPlaylistInfo", () => {
             {
                 ...sourceTrack,
                 duration: 180.5,
+                chapters: [
+                    {
+                        title: "Chapter One",
+                        startTime: 0,
+                        endTime: 90,
+                    },
+                    {
+                        title: "Chapter Two",
+                        startTime: 90,
+                        endTime: 180.5,
+                    },
+                ],
             },
         ])
         expect(mockExec).toHaveBeenCalledWith(
-            expect.stringContaining("%(duration)s"),
+            expect.stringContaining("--dump-single-json"),
         )
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringContaining("--skip-download --no-playlist"),
+        )
+    })
+
+    it("rejects malformed video JSON", async () => {
+        mockExec.mockResolvedValueOnce(successfulCommand("not-json"))
+
+        await expect(
+            getPlaylistInfo(mockEnv, sandboxId, sourceTrack.url),
+        ).rejects.toThrow("Failed to parse video info")
     })
 })
 

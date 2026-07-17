@@ -5,6 +5,7 @@ import {getSandbox} from "@cloudflare/sandbox"
 import shellEscape from "shell-escape"
 
 import type {
+    YouTubeChapter,
     YouTubePlaylistInfo,
     YouTubeTrack as SourceTrack,
 } from "./youtube.server"
@@ -39,6 +40,66 @@ function parseDuration(value: string | undefined): number | undefined {
 
     const duration = Number.parseFloat(value)
     return Number.isFinite(duration) && duration >= 0 ? duration : undefined
+}
+
+function parseVideoInfo(value: string): SourceTrack {
+    let metadata: unknown
+    try {
+        metadata = JSON.parse(value)
+    } catch {
+        throw new Error("Failed to parse video info")
+    }
+
+    if (!metadata || typeof metadata !== "object") {
+        throw new Error("Failed to parse video info")
+    }
+
+    const video = metadata as Record<string, unknown>
+    if (typeof video.id !== "string" || typeof video.title !== "string") {
+        throw new Error("Failed to parse video info")
+    }
+
+    const duration =
+        typeof video.duration === "number" &&
+        Number.isFinite(video.duration) &&
+        video.duration >= 0
+            ? video.duration
+            : undefined
+
+    const chapters = Array.isArray(video.chapters)
+        ? video.chapters.flatMap((value): YouTubeChapter[] => {
+              if (!value || typeof value !== "object") return []
+
+              const chapter = value as Record<string, unknown>
+              if (
+                  typeof chapter.title !== "string" ||
+                  typeof chapter.start_time !== "number" ||
+                  typeof chapter.end_time !== "number" ||
+                  !Number.isFinite(chapter.start_time) ||
+                  !Number.isFinite(chapter.end_time) ||
+                  chapter.start_time < 0 ||
+                  chapter.end_time <= chapter.start_time
+              ) {
+                  return []
+              }
+
+              return [
+                  {
+                      title: chapter.title,
+                      startTime: chapter.start_time,
+                      endTime: chapter.end_time,
+                  },
+              ]
+          })
+        : undefined
+
+    return {
+        id: video.id,
+        title: video.title,
+        url: `https://www.youtube.com/watch?v=${video.id}`,
+        duration,
+        chapters,
+    }
 }
 
 // Get playlist/video info from YouTube via sandbox
@@ -88,31 +149,25 @@ async function getPlaylistInfo(
         return {id: playlistId, title: playlistTitle, videos}
     } else {
         const result = await sandbox.exec(
-            `yt-dlp --no-check-certificates --print "%(id)s\t%(title)s\t%(duration)s" --no-playlist ${escapedUrl}`,
+            `yt-dlp --no-check-certificates --dump-single-json ` +
+                `--skip-download --no-playlist ${escapedUrl}`,
         )
 
         if (!result.success) {
             throw new Error(`Failed to get video info: ${result.stderr}`)
         }
 
-        const line = result.stdout.trim()
-        if (!line) {
+        const output = result.stdout.trim()
+        if (!output) {
             throw new Error("No video info found")
         }
 
-        const [videoId, title, duration] = line.split("\t")
+        const video = parseVideoInfo(output)
 
         return {
-            id: videoId,
-            title,
-            videos: [
-                {
-                    id: videoId,
-                    title,
-                    url: `https://www.youtube.com/watch?v=${videoId}`,
-                    duration: parseDuration(duration),
-                },
-            ],
+            id: video.id,
+            title: video.title,
+            videos: [video],
         }
     }
 }
