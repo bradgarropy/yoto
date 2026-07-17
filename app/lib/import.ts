@@ -4,6 +4,7 @@ type Import = {
     id: string
     cardId: string
     youtubeUrl: string
+    splitByChapters: boolean
 }
 
 type ImportWorkflowParams = Import & {

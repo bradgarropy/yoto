@@ -40,7 +40,15 @@ const parseEvents = (body: string) =>
             return JSON.parse(data!.slice(6))
         })
 
-const createLoaderArgs = (headers?: HeadersInit) => {
+const createLoaderArgs = ({
+    headers,
+    importUrl = youtubeUrl,
+    splitByChapters = "false",
+}: {
+    headers?: HeadersInit
+    importUrl?: string | null
+    splitByChapters?: string | null
+} = {}) => {
     const env = createMockEnv({
         IMPORT_PROGRESS: {
             getByName: mockGetProgress,
@@ -50,12 +58,18 @@ const createLoaderArgs = (headers?: HeadersInit) => {
         } as unknown as Env["IMPORT_WORKFLOW"],
     })
 
+    const searchParams = new URLSearchParams()
+    if (importUrl !== null) searchParams.set("url", importUrl)
+    if (splitByChapters !== null) {
+        searchParams.set("splitByChapters", splitByChapters)
+    }
+
     return {
         env,
         args: {
             params: {cardId},
             request: new Request(
-                `http://localhost/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`,
+                `http://localhost/api/import/${cardId}?${searchParams}`,
                 {headers},
             ),
             context: {
@@ -101,6 +115,7 @@ describe("api/import/:cardId loader", () => {
                 id: options.params.id,
                 cardId,
                 youtubeUrl,
+                splitByChapters: false,
                 credential: "encrypted-token",
             },
         })
@@ -128,6 +143,58 @@ describe("api/import/:cardId loader", () => {
         })
     })
 
+    it("passes the chapter preference to the workflow", async () => {
+        const {args} = createLoaderArgs({splitByChapters: "true"})
+
+        await loader(args)
+
+        expect(mockCreateWorkflow).toHaveBeenCalledWith({
+            id: expect.any(String),
+            params: {
+                id: expect.any(String),
+                cardId,
+                youtubeUrl,
+                splitByChapters: true,
+                credential: "encrypted-token",
+            },
+        })
+    })
+
+    it("defaults the chapter preference when it is omitted", async () => {
+        const {args} = createLoaderArgs({splitByChapters: null})
+
+        await loader(args)
+
+        expect(mockCreateWorkflow).toHaveBeenCalledWith({
+            id: expect.any(String),
+            params: expect.objectContaining({splitByChapters: false}),
+        })
+    })
+
+    it("rejects an invalid chapter preference", async () => {
+        const {args} = createLoaderArgs({splitByChapters: "yes"})
+
+        const response = await loader(args)
+
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toEqual({
+            error: "Invalid splitByChapters parameter",
+        })
+        expect(mockCreateWorkflow).not.toHaveBeenCalled()
+    })
+
+    it("rejects an invalid URL", async () => {
+        const {args} = createLoaderArgs({importUrl: "not-a-url"})
+
+        const response = await loader(args)
+
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toEqual({
+            error: "Invalid url parameter",
+        })
+        expect(mockCreateWorkflow).not.toHaveBeenCalled()
+    })
+
     it("forwards progress errors to the client", async () => {
         mockProgressFetch.mockImplementation((request: Request) => {
             const importId = request.headers.get("X-Import-Id")
@@ -148,7 +215,9 @@ describe("api/import/:cardId loader", () => {
     })
 
     it("reconnects to an existing import without creating another workflow", async () => {
-        const {args} = createLoaderArgs({"Last-Event-ID": "import-existing"})
+        const {args} = createLoaderArgs({
+            headers: {"Last-Event-ID": "import-existing"},
+        })
 
         const response = await loader(args)
         const events = parseEvents(await response.text())

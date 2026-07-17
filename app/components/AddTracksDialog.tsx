@@ -80,7 +80,11 @@ const AddTracksDialog = ({
         importIdRef.current = null
         setImportState({status: "importing", progress: null})
 
-        const url = `/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`
+        const searchParams = new URLSearchParams({
+            url: youtubeUrl,
+            splitByChapters: String(splitByChapters),
+        })
+        const url = `/api/import/${cardId}?${searchParams}`
         const eventSource = new EventSource(url)
         eventSourceRef.current = eventSource
 
@@ -109,6 +113,7 @@ const AddTracksDialog = ({
                     })
                     eventSource.close()
                     setYoutubeUrl("")
+                    setSplitByChapters(false)
                     revalidator.revalidate()
                 } else if (data.type === "error") {
                     setImportState({status: "error", error: data.error})
@@ -138,7 +143,7 @@ const AddTracksDialog = ({
             })
             eventSource.close()
         }
-    }, [cardId, youtubeUrl, revalidator])
+    }, [cardId, youtubeUrl, splitByChapters, revalidator])
 
     // Clean up on unmount
     useEffect(() => {

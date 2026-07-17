@@ -45,6 +45,7 @@ const cardImport: ImportWorkflowParams = {
     id: "import-1",
     cardId: "card-1",
     youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+    splitByChapters: true,
     credential: "encrypted-token",
 }
 const inspectedVideo = {
@@ -193,6 +194,7 @@ describe("ImportWorkflow", () => {
                 id: cardImport.id,
                 cardId: cardImport.cardId,
                 youtubeUrl: cardImport.youtubeUrl,
+                splitByChapters: cardImport.splitByChapters,
             },
             expect.any(Function),
         )

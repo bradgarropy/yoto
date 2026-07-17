@@ -40,6 +40,7 @@ const cardImport = {
     id: "test-job",
     cardId: "card-1",
     youtubeUrl: sourceTrack.url,
+    splitByChapters: false,
 }
 const preparedTrack = {
     path: "/tmp/video-1.mp3",
