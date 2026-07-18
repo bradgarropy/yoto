@@ -7,7 +7,7 @@ import shellEscape from "shell-escape"
 import type {
     YouTubeChapter,
     YouTubePlaylistInfo,
-    YouTubeTrack as SourceTrack,
+    YouTubeVideo,
 } from "./youtube.server"
 
 type Track = {
@@ -42,7 +42,7 @@ function parseDuration(value: string | undefined): number | undefined {
     return Number.isFinite(duration) && duration >= 0 ? duration : undefined
 }
 
-function parseVideoInfo(value: string): SourceTrack {
+function parseVideoInfo(value: string): YouTubeVideo {
     let metadata: unknown
     try {
         metadata = JSON.parse(value)
@@ -136,7 +136,7 @@ async function getPlaylistInfo(
         // Parse first line to get playlist info
         const [playlistId, playlistTitle] = lines[0].split("\t")
 
-        const videos: SourceTrack[] = lines.map(line => {
+        const videos: YouTubeVideo[] = lines.map(line => {
             const [, , videoId, title, duration] = line.split("\t")
             return {
                 id: videoId,
@@ -176,7 +176,7 @@ async function getPlaylistInfo(
 async function prepareTrack(
     env: Env,
     sandboxId: string,
-    track: SourceTrack,
+    track: YouTubeVideo,
 ): Promise<Track> {
     if (
         track.duration !== undefined &&

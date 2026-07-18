@@ -16,7 +16,7 @@ import {
     type Track,
     uploadTrack,
 } from "~/lib/sandbox.server"
-import type {YouTubeTrack} from "~/lib/youtube.server"
+import type {YouTubeVideo} from "~/lib/youtube.server"
 
 type YotoContent = {
     activity: string
@@ -50,13 +50,13 @@ type AudioUploadResult =
 
 type ImportedTrack = {
     index: number
-    track: YouTubeTrack
+    track: YouTubeVideo
     audio: AudioUploadResult
 }
 
 type TranscodedTrack = {
     index: number
-    track: YouTubeTrack
+    track: YouTubeVideo
     audio: {key: string; duration: number; fileSize: number}
 }
 
@@ -222,7 +222,7 @@ async function inspectVideo(
     env: Env,
     cardImport: Import,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<YouTubeTrack[]> {
+): Promise<YouTubeVideo[]> {
     await onProgress?.({phase: "preparing"})
     const youtubeInfo = await getPlaylistInfo(
         env,
@@ -236,7 +236,7 @@ async function importVideo(
     sdk: YotoSdk,
     env: Env,
     cardImport: Import,
-    tracks: YouTubeTrack[],
+    tracks: YouTubeVideo[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<ImportedTrack[]> {
     const {cardId} = cardImport
@@ -278,7 +278,7 @@ async function importVideo(
                     ): result is PromiseFulfilledResult<{
                         index: number
                         preparedTrack: Track
-                        track: YouTubeTrack
+                        track: YouTubeVideo
                     }> => result.status === "fulfilled",
                 )
                 .map(({value}) =>

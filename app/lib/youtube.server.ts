@@ -71,5 +71,5 @@ export {extractPlaylistId, extractVideoId, isPlaylistUrl}
 export type {
     YouTubeChapter,
     YouTubePlaylist as YouTubePlaylistInfo,
-    YouTubeVideo as YouTubeTrack,
+    YouTubeVideo,
 }
