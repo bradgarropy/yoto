@@ -16,7 +16,7 @@ import {
 } from "~/lib/import-utils"
 import {
     getPlaylistInfo,
-    prepareTrack,
+    prepareTracks,
     removeTrack,
     type Track,
     uploadTrack,
@@ -55,13 +55,13 @@ type AudioUploadResult =
 
 type ImportedTrack = {
     index: number
-    track: YouTubeVideo
+    track: AudioTrack
     audio: AudioUploadResult
 }
 
 type TranscodedTrack = {
     index: number
-    track: YouTubeVideo
+    track: AudioTrack
     audio: {key: string; duration: number; fileSize: number}
 }
 
@@ -270,22 +270,48 @@ async function importVideo(
     sdk: YotoSdk,
     env: Env,
     cardImport: Import,
-    tracks: YouTubeVideo[],
+    videos: YouTubeVideo[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<ImportedTrack[]> {
     const {cardId} = cardImport
     const sandboxId = getImportSandboxId(cardImport)
     const limit = pLimit(CONCURRENCY_LIMIT)
-    const total = tracks.length
+    let nextTrackIndex = 0
+    const sourcePlans = videos.map(video => ({
+        video,
+        tracks: createAudioTracks([video], cardImport.splitByChapters).map(
+            track => ({
+                index: nextTrackIndex++,
+                track,
+            }),
+        ),
+    }))
+    const total = nextTrackIndex
 
     let downloadedCount = 0
     await onProgress?.({phase: "downloading", current: 1, total})
 
     const downloadResults = await Promise.allSettled(
-        tracks.map((track, index) =>
+        sourcePlans.map(({video, tracks}) =>
             limit(async () => {
-                const preparedTrack = await prepareTrack(env, sandboxId, track)
-                downloadedCount++
+                const preparedTracks = await prepareTracks(
+                    env,
+                    sandboxId,
+                    video,
+                    tracks.map(({track}) => track),
+                )
+                if (preparedTracks.length !== tracks.length) {
+                    await Promise.allSettled(
+                        preparedTracks.map(track =>
+                            removeTrack(env, sandboxId, track),
+                        ),
+                    )
+                    throw new Error(
+                        `Failed to prepare every track for ${video.title}`,
+                    )
+                }
+
+                downloadedCount += preparedTracks.length
                 if (downloadedCount < total) {
                     await onProgress?.({
                         phase: "downloading",
@@ -293,7 +319,10 @@ async function importVideo(
                         total,
                     })
                 }
-                return {index, preparedTrack, track}
+                return preparedTracks.map((preparedTrack, index) => ({
+                    ...tracks[index],
+                    preparedTrack,
+                }))
             }),
         ),
     )
@@ -305,24 +334,18 @@ async function importVideo(
 
     if (failedDownload) {
         await Promise.allSettled(
-            downloadResults
-                .filter(
-                    (
-                        result,
-                    ): result is PromiseFulfilledResult<{
-                        index: number
-                        preparedTrack: Track
-                        track: YouTubeVideo
-                    }> => result.status === "fulfilled",
-                )
-                .map(({value}) =>
-                    removeTrack(env, sandboxId, value.preparedTrack),
-                ),
+            downloadResults.flatMap(result =>
+                result.status === "fulfilled"
+                    ? result.value.map(({preparedTrack}) =>
+                          removeTrack(env, sandboxId, preparedTrack),
+                      )
+                    : [],
+            ),
         )
         throw failedDownload.reason
     }
 
-    const downloadedTracks = downloadResults.map(result => {
+    const downloadedTracks = downloadResults.flatMap(result => {
         if (result.status !== "fulfilled") throw result.reason
         return result.value
     })
