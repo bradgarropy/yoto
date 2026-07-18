@@ -48,6 +48,16 @@ type AudioUploadResult =
     | {alreadyTranscoded: true; key: string; duration: number; fileSize: number}
     | {alreadyTranscoded: false; sha256: string}
 
+type AudioTrack = {
+    id: string
+    sourceId: string
+    title: string
+    url: string
+    duration?: number
+    startTime?: number
+    endTime?: number
+}
+
 type ImportedTrack = {
     index: number
     track: YouTubeVideo
@@ -68,6 +78,35 @@ type AudioLogContext = {
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
+}
+
+function createAudioTracks(
+    videos: YouTubeVideo[],
+    splitByChapters: boolean,
+): AudioTrack[] {
+    return videos.flatMap(video => {
+        if (!splitByChapters || !video.chapters?.length) {
+            return [
+                {
+                    id: video.id,
+                    sourceId: video.id,
+                    title: video.title,
+                    url: video.url,
+                    duration: video.duration,
+                },
+            ]
+        }
+
+        return video.chapters.map((chapter, index) => ({
+            id: `${video.id}-${String(index + 1).padStart(2, "0")}`,
+            sourceId: video.id,
+            title: chapter.title,
+            url: video.url,
+            duration: chapter.endTime - chapter.startTime,
+            startTime: chapter.startTime,
+            endTime: chapter.endTime,
+        }))
+    })
 }
 
 // Upload prepared audio from the Sandbox, returns sha256 for transcode polling
@@ -433,5 +472,11 @@ async function updateCard(
     }
 }
 
-export {importVideo, inspectVideo, transcodeAudio, updateCard}
-export type {ImportedTrack, TranscodedTrack}
+export {
+    createAudioTracks,
+    importVideo,
+    inspectVideo,
+    transcodeAudio,
+    updateCard,
+}
+export type {AudioTrack, ImportedTrack, TranscodedTrack}

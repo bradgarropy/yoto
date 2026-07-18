@@ -16,6 +16,7 @@ vi.mock("./sandbox.server", () => ({
 }))
 
 import {
+    createAudioTracks,
     type ImportedTrack,
     importVideo,
     inspectVideo,
@@ -91,6 +92,63 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks()
+})
+
+describe("createAudioTracks", () => {
+    const videoWithChapters = {
+        ...sourceTrack,
+        chapters: [
+            {title: "Chapter One", startTime: 0, endTime: 60},
+            {title: "Chapter Two", startTime: 60, endTime: 180},
+        ],
+    }
+
+    it("creates one track for each video when splitting is disabled", () => {
+        expect(createAudioTracks([videoWithChapters], false)).toEqual([
+            {
+                id: sourceTrack.id,
+                sourceId: sourceTrack.id,
+                title: sourceTrack.title,
+                url: sourceTrack.url,
+                duration: sourceTrack.duration,
+            },
+        ])
+    })
+
+    it("creates one track for each chapter when splitting is enabled", () => {
+        expect(createAudioTracks([videoWithChapters], true)).toEqual([
+            {
+                id: "video-1-01",
+                sourceId: sourceTrack.id,
+                title: "Chapter One",
+                url: sourceTrack.url,
+                duration: 60,
+                startTime: 0,
+                endTime: 60,
+            },
+            {
+                id: "video-1-02",
+                sourceId: sourceTrack.id,
+                title: "Chapter Two",
+                url: sourceTrack.url,
+                duration: 120,
+                startTime: 60,
+                endTime: 180,
+            },
+        ])
+    })
+
+    it("creates one track when splitting is enabled without chapters", () => {
+        expect(createAudioTracks([sourceTrack], true)).toEqual([
+            {
+                id: sourceTrack.id,
+                sourceId: sourceTrack.id,
+                title: sourceTrack.title,
+                url: sourceTrack.url,
+                duration: sourceTrack.duration,
+            },
+        ])
+    })
 })
 
 describe("inspectVideo", () => {
