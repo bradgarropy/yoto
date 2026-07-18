@@ -15,6 +15,7 @@ import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
 import {Progress} from "~/components/ui/progress"
 import {getProgressPercent, type ImportProgress} from "~/lib/import-utils"
+import {getYouTubeUrlType} from "~/lib/youtube"
 
 type ImportState =
     | {status: "idle"}
@@ -68,6 +69,15 @@ const AddTracksDialog = ({
     const revalidator = useRevalidator()
 
     const isImporting = importState.status === "importing"
+    const isVideoUrl = getYouTubeUrlType(youtubeUrl) === "video"
+
+    const handleYoutubeUrlChange = (value: string) => {
+        setYoutubeUrl(value)
+
+        if (getYouTubeUrlType(value) !== "video") {
+            setSplitByChapters(false)
+        }
+    }
 
     const startImport = useCallback(() => {
         if (!youtubeUrl.trim()) return
@@ -214,24 +224,28 @@ const AddTracksDialog = ({
                             required
                             disabled={isBusy || isImporting}
                             value={youtubeUrl}
-                            onChange={e => setYoutubeUrl(e.target.value)}
+                            onChange={e =>
+                                handleYoutubeUrlChange(e.target.value)
+                            }
                         />
-                        <div className="flex items-center gap-2">
-                            <Checkbox
-                                id="split-by-chapters"
-                                checked={splitByChapters}
-                                disabled={isBusy || isImporting}
-                                onCheckedChange={checked =>
-                                    setSplitByChapters(checked === true)
-                                }
-                            />
-                            <Label
-                                htmlFor="split-by-chapters"
-                                className="cursor-pointer"
-                            >
-                                Split by chapters
-                            </Label>
-                        </div>
+                        {isVideoUrl && (
+                            <div className="flex items-center gap-2">
+                                <Checkbox
+                                    id="split-by-chapters"
+                                    checked={splitByChapters}
+                                    disabled={isBusy || isImporting}
+                                    onCheckedChange={checked =>
+                                        setSplitByChapters(checked === true)
+                                    }
+                                />
+                                <Label
+                                    htmlFor="split-by-chapters"
+                                    className="cursor-pointer"
+                                >
+                                    Split by chapters
+                                </Label>
+                            </div>
+                        )}
                     </div>
                     <Button
                         type="submit"
