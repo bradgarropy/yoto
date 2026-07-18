@@ -48,29 +48,25 @@ const cardImport: ImportWorkflowParams = {
     splitByChapters: true,
     credential: "encrypted-token",
 }
-const inspectedVideo = {
-    id: "video-1",
-    title: "Test Video",
-    videos: [
-        {
-            id: "video-1",
-            title: "Test Video",
-            url: cardImport.youtubeUrl,
-            duration: 180,
-        },
-    ],
-}
+const inspectedTracks = [
+    {
+        id: "video-1",
+        title: "Test Video",
+        url: cardImport.youtubeUrl,
+        duration: 180,
+    },
+]
 const importedTracks = [
     {
         index: 0,
-        track: inspectedVideo.videos[0],
+        track: inspectedTracks[0],
         audio: {alreadyTranscoded: false as const, sha256: "audio-sha"},
     },
 ]
 const transcodedTracks = [
     {
         index: 0,
-        track: inspectedVideo.videos[0],
+        track: inspectedTracks[0],
         audio: {key: "transcoded-sha", duration: 180, fileSize: 100000},
     },
 ]
@@ -112,7 +108,7 @@ describe("ImportWorkflow", () => {
         })
         mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
         mockImportVideo.mockResolvedValue(importedTracks)
-        mockInspectVideo.mockResolvedValue(inspectedVideo)
+        mockInspectVideo.mockResolvedValue(inspectedTracks)
         mockReadImportCredential.mockResolvedValue("access-token")
         mockTranscodeAudio.mockResolvedValue(transcodedTracks)
         mockUpdateCard.mockResolvedValue(importResult)
@@ -202,7 +198,7 @@ describe("ImportWorkflow", () => {
             expect.any(Object),
             expect.any(Object),
             expect.objectContaining({id: cardImport.id}),
-            inspectedVideo,
+            inspectedTracks,
             expect.any(Function),
         )
         expect(mockTranscodeAudio).toHaveBeenCalledWith(

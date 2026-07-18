@@ -16,7 +16,7 @@ import {
     type Track,
     uploadTrack,
 } from "~/lib/sandbox.server"
-import type {YouTubePlaylistInfo, YouTubeTrack} from "~/lib/youtube.server"
+import type {YouTubeTrack} from "~/lib/youtube.server"
 
 type YotoContent = {
     activity: string
@@ -222,26 +222,26 @@ async function inspectVideo(
     env: Env,
     cardImport: Import,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<YouTubePlaylistInfo> {
+): Promise<YouTubeTrack[]> {
     await onProgress?.({phase: "preparing"})
-    return getPlaylistInfo(
+    const youtubeInfo = await getPlaylistInfo(
         env,
         getImportSandboxId(cardImport),
         cardImport.youtubeUrl,
     )
+    return youtubeInfo.videos
 }
 
 async function importVideo(
     sdk: YotoSdk,
     env: Env,
     cardImport: Import,
-    youtubeInfo: YouTubePlaylistInfo,
+    tracks: YouTubeTrack[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<ImportedTrack[]> {
     const {cardId} = cardImport
     const sandboxId = getImportSandboxId(cardImport)
     const limit = pLimit(CONCURRENCY_LIMIT)
-    const tracks = youtubeInfo.videos
     const total = tracks.length
 
     let downloadedCount = 0

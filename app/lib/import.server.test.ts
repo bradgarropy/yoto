@@ -106,7 +106,7 @@ describe("inspectVideo", () => {
             cardImport.youtubeUrl,
         )
         expect(mockPrepareTrack).not.toHaveBeenCalled()
-        expect(result).toEqual(video)
+        expect(result).toEqual(video.videos)
     })
 })
 
@@ -118,7 +118,7 @@ describe("importVideo", () => {
             uploadUrl: "https://uploads.example.com/audio",
         })
 
-        const result = await importVideo(sdk, mockEnv, cardImport, video)
+        const result = await importVideo(sdk, mockEnv, cardImport, video.videos)
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -150,7 +150,7 @@ describe("importVideo", () => {
             transcodedInfo: {duration: 180, fileSize: 100000},
         })
 
-        const result = await importVideo(sdk, mockEnv, cardImport, video)
+        const result = await importVideo(sdk, mockEnv, cardImport, video.videos)
 
         expect(mockGetUploadUrlForTranscode).not.toHaveBeenCalled()
         expect(mockUploadTrack).not.toHaveBeenCalled()
@@ -172,7 +172,7 @@ describe("importVideo", () => {
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
         await expect(
-            importVideo(sdk, mockEnv, cardImport, video),
+            importVideo(sdk, mockEnv, cardImport, video.videos),
         ).rejects.toThrow("Upload failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
@@ -193,10 +193,7 @@ describe("importVideo", () => {
             .mockRejectedValueOnce(new Error("Download failed"))
 
         await expect(
-            importVideo(sdk, mockEnv, cardImport, {
-                ...video,
-                videos: [sourceTrack, secondTrack],
-            }),
+            importVideo(sdk, mockEnv, cardImport, [sourceTrack, secondTrack]),
         ).rejects.toThrow("Download failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
