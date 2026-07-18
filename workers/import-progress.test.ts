@@ -87,6 +87,8 @@ describe("ImportProgress", () => {
             message: "Added 1 track",
             added: 1,
             skipped: 0,
+            description:
+                "No YouTube chapters were found, so the video was added as a single track.",
         })
         await expect(readEvent(reader)).resolves.toEqual({
             type: "complete",
@@ -94,6 +96,8 @@ describe("ImportProgress", () => {
             message: "Added 1 track",
             added: 1,
             skipped: 0,
+            description:
+                "No YouTube chapters were found, so the video was added as a single track.",
         })
         await expect(reader.read()).resolves.toEqual({
             value: undefined,

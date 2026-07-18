@@ -20,7 +20,13 @@ import {getYouTubeUrlType} from "~/lib/youtube"
 type ImportState =
     | {status: "idle"}
     | {status: "importing"; progress: ImportProgress | null}
-    | {status: "complete"; added: number; skipped: number; message: string}
+    | {
+          status: "complete"
+          added: number
+          skipped: number
+          message: string
+          description?: string
+      }
     | {status: "error"; error: string}
 
 const getProgressMessage = (progress: ImportProgress | null): string => {
@@ -120,6 +126,7 @@ const AddTracksDialog = ({
                         added: data.added,
                         skipped: data.skipped,
                         message: data.message,
+                        description: data.description,
                     })
                     eventSource.close()
                     setYoutubeUrl("")
@@ -167,7 +174,9 @@ const AddTracksDialog = ({
     // Show toast and close dialog on completion/error
     useEffect(() => {
         if (importState.status === "complete") {
-            toast.success(importState.message)
+            toast.success(importState.message, {
+                description: importState.description,
+            })
             onOpenChange(false)
             // Reset to idle after closing
             const timer = setTimeout(

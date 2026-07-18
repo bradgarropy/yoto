@@ -45,7 +45,7 @@ const cardImport: ImportWorkflowParams = {
     id: "import-1",
     cardId: "card-1",
     youtubeUrl: "https://www.youtube.com/watch?v=video-1",
-    splitByChapters: true,
+    splitByChapters: false,
     credential: "encrypted-token",
 }
 const inspectedTracks = [
@@ -77,8 +77,10 @@ const importResult = {
     skipped: 0,
 }
 
-const createEvent = () =>
-    ({payload: cardImport}) as Parameters<ImportWorkflow["run"]>[0]
+const createEvent = (overrides: Partial<ImportWorkflowParams> = {}) =>
+    ({
+        payload: {...cardImport, ...overrides},
+    }) as Parameters<ImportWorkflow["run"]>[0]
 
 const createWorkflow = () =>
     ({
@@ -220,6 +222,44 @@ describe("ImportWorkflow", () => {
             expect.any(Object),
             `import-${cardImport.id}`,
         )
+        expect(result).toEqual({importId: cardImport.id, ...importResult})
+    })
+
+    it("describes the fallback when chapter splitting is requested without chapter markers", async () => {
+        const result = await ImportWorkflow.prototype.run.call(
+            createWorkflow(),
+            createEvent({splitByChapters: true}),
+            createStep(),
+        )
+        const description =
+            "No YouTube chapters were found, so the video was added as a single track."
+
+        expect(mockReportComplete).toHaveBeenCalledWith({
+            ...importResult,
+            description,
+        })
+        expect(result).toEqual({
+            importId: cardImport.id,
+            ...importResult,
+            description,
+        })
+    })
+
+    it("does not describe a fallback when chapter markers are available", async () => {
+        mockInspectVideo.mockResolvedValue([
+            {
+                ...inspectedTracks[0],
+                chapters: [{title: "Chapter One", startTime: 0, endTime: 180}],
+            },
+        ])
+
+        const result = await ImportWorkflow.prototype.run.call(
+            createWorkflow(),
+            createEvent({splitByChapters: true}),
+            createStep(),
+        )
+
+        expect(mockReportComplete).toHaveBeenCalledWith(importResult)
         expect(result).toEqual({importId: cardImport.id, ...importResult})
     })
 
