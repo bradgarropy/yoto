@@ -2,6 +2,7 @@ import {isAuthenticated, requireAuthCore} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import type {Import} from "~/lib/import"
 import {createImportCredential} from "~/lib/import-credential.server"
+import {importSearchParamsSchema} from "~/schemas/import"
 
 import type {Route} from "./+types/api.import.$cardId"
 
@@ -17,12 +18,23 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     }
 
     const url = new URL(request.url)
-    const youtubeUrl = url.searchParams.get("url")
+    const searchParams = importSearchParamsSchema.safeParse(
+        Object.fromEntries(url.searchParams),
+    )
     const cardId = params.cardId
 
-    if (!youtubeUrl) {
-        return Response.json({error: "Missing url parameter"}, {status: 400})
+    if (!searchParams.success) {
+        return Response.json(
+            {
+                error:
+                    searchParams.error.issues[0]?.message ??
+                    "Invalid import parameters",
+            },
+            {status: 400},
+        )
     }
+
+    const {url: youtubeUrl, splitByChapters} = searchParams.data
 
     const existingImportId = request.headers.get("Last-Event-ID")
     if (existingImportId) {
@@ -33,7 +45,12 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     }
 
     const {token} = await requireAuthCore(request, env)
-    const cardImport: Import = {id: crypto.randomUUID(), cardId, youtubeUrl}
+    const cardImport: Import = {
+        id: crypto.randomUUID(),
+        cardId,
+        youtubeUrl,
+        splitByChapters,
+    }
     const importLogContext = {
         importId: cardImport.id,
         cardId,

@@ -20,9 +20,13 @@ vi.mock("@cloudflare/sandbox", () => ({
 
 import {
     destroySandbox,
+    downloadVideo,
     getPlaylistInfo,
+    prepareAudio,
     prepareTrack,
+    prepareTracks,
     removeTrack,
+    splitAudio,
     type Track,
     uploadTrack,
 } from "./sandbox.server"
@@ -36,9 +40,13 @@ const sourceTrack = {
     url: "https://www.youtube.com/watch?v=video-1",
 }
 
-const track: Track = {
+const downloadedAudio = {
     path: "/tmp/video-1.mp3",
     filename: "video-1.mp3",
+}
+
+const track: Track = {
+    ...downloadedAudio,
     sha256: "a".repeat(64),
     byteLength: 123456,
 }
@@ -51,6 +59,180 @@ const successfulCommand = (stdout = "") => ({
 
 beforeEach(() => {
     vi.clearAllMocks()
+})
+
+describe("downloadVideo", () => {
+    it("downloads audio into the sandbox", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+
+        const result = await downloadVideo(mockEnv, sandboxId, sourceTrack)
+
+        expect(result).toEqual({
+            path: "/tmp/video-1.mp3",
+            filename: "video-1.mp3",
+        })
+        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining("yt-dlp --no-check-certificates"),
+        )
+    })
+
+    it("removes a partial download when it fails", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce({
+                success: false,
+                stdout: "",
+                stderr: "download failed",
+            })
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            downloadVideo(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow("Failed to download Test Track: download failed")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
+})
+
+describe("splitAudio", () => {
+    const chapterTracks = [
+        {
+            id: "video-1-01",
+            sourceId: sourceTrack.id,
+            title: "Chapter One",
+            url: sourceTrack.url,
+            duration: 60,
+            startTime: 0,
+            endTime: 60,
+        },
+        {
+            id: "video-1-02",
+            sourceId: sourceTrack.id,
+            title: "Chapter Two",
+            url: sourceTrack.url,
+            duration: 120,
+            startTime: 60,
+            endTime: 180,
+        },
+    ]
+
+    it("splits downloaded audio in track order", async () => {
+        mockExec.mockResolvedValue(successfulCommand())
+
+        const result = await splitAudio(
+            mockEnv,
+            sandboxId,
+            downloadedAudio,
+            chapterTracks,
+        )
+
+        expect(result).toEqual([
+            {
+                path: "/tmp/video-1-01.mp3",
+                filename: "video-1-01.mp3",
+            },
+            {
+                path: "/tmp/video-1-02.mp3",
+                filename: "video-1-02.mp3",
+            },
+        ])
+        expect(mockExec).toHaveBeenNthCalledWith(
+            2,
+            "ffmpeg -v error -y -ss 0 -i '/tmp/video-1.mp3' -t 60 -map 0:a:0 -c:a copy '/tmp/video-1-01.mp3'",
+        )
+        expect(mockExec).toHaveBeenNthCalledWith(
+            4,
+            "ffmpeg -v error -y -ss 60 -i '/tmp/video-1.mp3' -t 120 -map 0:a:0 -c:a copy '/tmp/video-1-02.mp3'",
+        )
+    })
+
+    it("rejects invalid chapter ranges before using the sandbox", async () => {
+        await expect(
+            splitAudio(mockEnv, sandboxId, downloadedAudio, [
+                {...chapterTracks[0], endTime: 0},
+            ]),
+        ).rejects.toThrow("Invalid chapter range for Chapter One")
+
+        expect(mockGetSandbox).not.toHaveBeenCalled()
+    })
+
+    it("removes chapter files when splitting fails", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce({
+                success: false,
+                stdout: "",
+                stderr: "split failed",
+            })
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            splitAudio(mockEnv, sandboxId, downloadedAudio, chapterTracks),
+        ).rejects.toThrow("Failed to split Chapter Two: split failed")
+
+        expect(mockExec).toHaveBeenNthCalledWith(
+            5,
+            "rm -f '/tmp/video-1-01.mp3'",
+        )
+        expect(mockExec).toHaveBeenNthCalledWith(
+            6,
+            "rm -f '/tmp/video-1-02.mp3'",
+        )
+    })
+})
+
+describe("prepareAudio", () => {
+    it("validates and hashes downloaded audio", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand("123456\n"))
+            .mockResolvedValueOnce(successfulCommand("180.5\n"))
+            .mockResolvedValueOnce(
+                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.mp3\n`),
+            )
+
+        const result = await prepareAudio(
+            mockEnv,
+            sandboxId,
+            downloadedAudio,
+            sourceTrack.title,
+        )
+
+        expect(result).toEqual(track)
+        expect(mockExec).toHaveBeenNthCalledWith(
+            1,
+            "stat -c %s '/tmp/video-1.mp3'",
+        )
+        expect(mockExec).toHaveBeenNthCalledWith(
+            2,
+            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.mp3'",
+        )
+        expect(mockExec).toHaveBeenNthCalledWith(
+            3,
+            "sha256sum '/tmp/video-1.mp3'",
+        )
+    })
+
+    it("removes downloaded audio when validation fails", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand("invalid\n"))
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            prepareAudio(
+                mockEnv,
+                sandboxId,
+                downloadedAudio,
+                sourceTrack.title,
+            ),
+        ).rejects.toThrow("Failed to measure Test Track: invalid size")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
 })
 
 describe("prepareTrack", () => {
@@ -181,10 +363,183 @@ describe("prepareTrack", () => {
     })
 })
 
+describe("prepareTracks", () => {
+    const chapterTracks = [
+        {
+            id: "video-1-01",
+            sourceId: sourceTrack.id,
+            title: "Chapter One",
+            url: sourceTrack.url,
+            duration: 60,
+            startTime: 0,
+            endTime: 60,
+        },
+        {
+            id: "video-1-02",
+            sourceId: sourceTrack.id,
+            title: "Chapter Two",
+            url: sourceTrack.url,
+            duration: 120,
+            startTime: 60,
+            endTime: 180,
+        },
+    ]
+
+    it("downloads once and prepares each chapter in order", async () => {
+        mockExec.mockImplementation((command: string) => {
+            if (command.startsWith("stat ")) {
+                return successfulCommand("123456\n")
+            }
+            if (command.startsWith("ffprobe ")) {
+                return successfulCommand("60\n")
+            }
+            if (command.startsWith("sha256sum ")) {
+                return successfulCommand(`${"a".repeat(64)}  audio.mp3\n`)
+            }
+            return successfulCommand()
+        })
+
+        const result = await prepareTracks(
+            mockEnv,
+            sandboxId,
+            {
+                ...sourceTrack,
+                duration: 180,
+                chapters: [
+                    {title: "Chapter One", startTime: 0, endTime: 60},
+                    {title: "Chapter Two", startTime: 60, endTime: 180},
+                ],
+            },
+            chapterTracks,
+        )
+
+        expect(result).toEqual([
+            {
+                path: "/tmp/video-1-01.mp3",
+                filename: "video-1-01.mp3",
+                sha256: "a".repeat(64),
+                byteLength: 123456,
+            },
+            {
+                path: "/tmp/video-1-02.mp3",
+                filename: "video-1-02.mp3",
+                sha256: "a".repeat(64),
+                byteLength: 123456,
+            },
+        ])
+
+        const commands = mockExec.mock.calls.map(([command]) => command)
+        expect(
+            commands.filter(command => command.includes("yt-dlp")).length,
+        ).toBe(1)
+        expect(
+            commands.filter(command => command.startsWith("ffmpeg ")).length,
+        ).toBe(2)
+        expect(commands.at(-1)).toBe("rm -f '/tmp/video-1.mp3'")
+    })
+
+    it("uses the existing whole-video preparation path", async () => {
+        mockExec.mockImplementation((command: string) => {
+            if (command.startsWith("stat ")) {
+                return successfulCommand("123456\n")
+            }
+            if (command.startsWith("ffprobe ")) {
+                return successfulCommand("180\n")
+            }
+            if (command.startsWith("sha256sum ")) {
+                return successfulCommand(`${"a".repeat(64)}  audio.mp3\n`)
+            }
+            return successfulCommand()
+        })
+
+        const result = await prepareTracks(
+            mockEnv,
+            sandboxId,
+            {...sourceTrack, duration: 180},
+            [
+                {
+                    id: sourceTrack.id,
+                    sourceId: sourceTrack.id,
+                    title: sourceTrack.title,
+                    url: sourceTrack.url,
+                    duration: 180,
+                },
+            ],
+        )
+
+        expect(result).toEqual([track])
+        expect(
+            mockExec.mock.calls.filter(([command]) =>
+                command.startsWith("ffmpeg "),
+            ),
+        ).toHaveLength(0)
+    })
+
+    it("rejects tracks from a different source before downloading", async () => {
+        await expect(
+            prepareTracks(mockEnv, sandboxId, sourceTrack, [
+                {...chapterTracks[0], sourceId: "video-2"},
+            ]),
+        ).rejects.toThrow("Tracks do not belong to Test Track")
+
+        expect(mockGetSandbox).not.toHaveBeenCalled()
+    })
+
+    it("removes the source and chapter files when preparation fails", async () => {
+        mockExec.mockImplementation((command: string) => {
+            if (command.startsWith("stat ") && command.includes("video-1-02")) {
+                return successfulCommand("invalid\n")
+            }
+            if (command.startsWith("stat ")) {
+                return successfulCommand("123456\n")
+            }
+            if (command.startsWith("ffprobe ")) {
+                return successfulCommand("60\n")
+            }
+            if (command.startsWith("sha256sum ")) {
+                return successfulCommand(`${"a".repeat(64)}  audio.mp3\n`)
+            }
+            return successfulCommand()
+        })
+
+        await expect(
+            prepareTracks(
+                mockEnv,
+                sandboxId,
+                {...sourceTrack, duration: 180},
+                chapterTracks,
+            ),
+        ).rejects.toThrow("Failed to measure Chapter Two: invalid size")
+
+        const commands = mockExec.mock.calls.map(([command]) => command)
+        expect(commands).toContain("rm -f '/tmp/video-1.mp3'")
+        expect(commands).toContain("rm -f '/tmp/video-1-01.mp3'")
+        expect(commands).toContain("rm -f '/tmp/video-1-02.mp3'")
+    })
+})
+
 describe("getPlaylistInfo", () => {
-    it("includes video duration in the existing metadata lookup", async () => {
+    it("includes duration and chapter markers for a video", async () => {
         mockExec.mockResolvedValueOnce(
-            successfulCommand("video-1\tTest Track\t180.5\n"),
+            successfulCommand(
+                JSON.stringify({
+                    id: "video-1",
+                    title: "Test Track",
+                    duration: 180.5,
+                    chapters: [
+                        {
+                            title: "Chapter One",
+                            start_time: 0,
+                            end_time: 90,
+                        },
+                        {
+                            title: "Chapter Two",
+                            start_time: 90,
+                            end_time: 180.5,
+                        },
+                    ],
+                }),
+            ),
         )
 
         const result = await getPlaylistInfo(
@@ -197,11 +552,34 @@ describe("getPlaylistInfo", () => {
             {
                 ...sourceTrack,
                 duration: 180.5,
+                chapters: [
+                    {
+                        title: "Chapter One",
+                        startTime: 0,
+                        endTime: 90,
+                    },
+                    {
+                        title: "Chapter Two",
+                        startTime: 90,
+                        endTime: 180.5,
+                    },
+                ],
             },
         ])
         expect(mockExec).toHaveBeenCalledWith(
-            expect.stringContaining("%(duration)s"),
+            expect.stringContaining("--dump-single-json"),
         )
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringContaining("--skip-download --no-playlist"),
+        )
+    })
+
+    it("rejects malformed video JSON", async () => {
+        mockExec.mockResolvedValueOnce(successfulCommand("not-json"))
+
+        await expect(
+            getPlaylistInfo(mockEnv, sandboxId, sourceTrack.url),
+        ).rejects.toThrow("Failed to parse video info")
     })
 })
 

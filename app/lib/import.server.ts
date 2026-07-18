@@ -1,7 +1,12 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
-import {getImportSandboxId, type Import, type ImportSuccess} from "~/lib/import"
+import {
+    type AudioTrack,
+    getImportSandboxId,
+    type Import,
+    type ImportSuccess,
+} from "~/lib/import"
 import {
     createChapter,
     getNextChapterKey,
@@ -11,12 +16,12 @@ import {
 } from "~/lib/import-utils"
 import {
     getPlaylistInfo,
-    prepareTrack,
+    prepareTracks,
     removeTrack,
     type Track,
     uploadTrack,
 } from "~/lib/sandbox.server"
-import type {YouTubePlaylistInfo, YouTubeTrack} from "~/lib/youtube.server"
+import type {YouTubeVideo} from "~/lib/youtube.server"
 
 type YotoContent = {
     activity: string
@@ -50,13 +55,13 @@ type AudioUploadResult =
 
 type ImportedTrack = {
     index: number
-    track: YouTubeTrack
+    track: AudioTrack
     audio: AudioUploadResult
 }
 
 type TranscodedTrack = {
     index: number
-    track: YouTubeTrack
+    track: AudioTrack
     audio: {key: string; duration: number; fileSize: number}
 }
 
@@ -68,6 +73,35 @@ type AudioLogContext = {
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
+}
+
+function createAudioTracks(
+    videos: YouTubeVideo[],
+    splitByChapters: boolean,
+): AudioTrack[] {
+    return videos.flatMap(video => {
+        if (!splitByChapters || !video.chapters?.length) {
+            return [
+                {
+                    id: video.id,
+                    sourceId: video.id,
+                    title: video.title,
+                    url: video.url,
+                    duration: video.duration,
+                },
+            ]
+        }
+
+        return video.chapters.map((chapter, index) => ({
+            id: `${video.id}-${String(index + 1).padStart(2, "0")}`,
+            sourceId: video.id,
+            title: chapter.title,
+            url: video.url,
+            duration: chapter.endTime - chapter.startTime,
+            startTime: chapter.startTime,
+            endTime: chapter.endTime,
+        }))
+    })
 }
 
 // Upload prepared audio from the Sandbox, returns sha256 for transcode polling
@@ -222,36 +256,62 @@ async function inspectVideo(
     env: Env,
     cardImport: Import,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<YouTubePlaylistInfo> {
+): Promise<YouTubeVideo[]> {
     await onProgress?.({phase: "preparing"})
-    return getPlaylistInfo(
+    const youtubeInfo = await getPlaylistInfo(
         env,
         getImportSandboxId(cardImport),
         cardImport.youtubeUrl,
     )
+    return youtubeInfo.videos
 }
 
 async function importVideo(
     sdk: YotoSdk,
     env: Env,
     cardImport: Import,
-    youtubeInfo: YouTubePlaylistInfo,
+    videos: YouTubeVideo[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<ImportedTrack[]> {
     const {cardId} = cardImport
     const sandboxId = getImportSandboxId(cardImport)
     const limit = pLimit(CONCURRENCY_LIMIT)
-    const tracks = youtubeInfo.videos
-    const total = tracks.length
+    let nextTrackIndex = 0
+    const sourcePlans = videos.map(video => ({
+        video,
+        tracks: createAudioTracks([video], cardImport.splitByChapters).map(
+            track => ({
+                index: nextTrackIndex++,
+                track,
+            }),
+        ),
+    }))
+    const total = nextTrackIndex
 
     let downloadedCount = 0
     await onProgress?.({phase: "downloading", current: 1, total})
 
     const downloadResults = await Promise.allSettled(
-        tracks.map((track, index) =>
+        sourcePlans.map(({video, tracks}) =>
             limit(async () => {
-                const preparedTrack = await prepareTrack(env, sandboxId, track)
-                downloadedCount++
+                const preparedTracks = await prepareTracks(
+                    env,
+                    sandboxId,
+                    video,
+                    tracks.map(({track}) => track),
+                )
+                if (preparedTracks.length !== tracks.length) {
+                    await Promise.allSettled(
+                        preparedTracks.map(track =>
+                            removeTrack(env, sandboxId, track),
+                        ),
+                    )
+                    throw new Error(
+                        `Failed to prepare every track for ${video.title}`,
+                    )
+                }
+
+                downloadedCount += preparedTracks.length
                 if (downloadedCount < total) {
                     await onProgress?.({
                         phase: "downloading",
@@ -259,7 +319,10 @@ async function importVideo(
                         total,
                     })
                 }
-                return {index, preparedTrack, track}
+                return preparedTracks.map((preparedTrack, index) => ({
+                    ...tracks[index],
+                    preparedTrack,
+                }))
             }),
         ),
     )
@@ -271,24 +334,18 @@ async function importVideo(
 
     if (failedDownload) {
         await Promise.allSettled(
-            downloadResults
-                .filter(
-                    (
-                        result,
-                    ): result is PromiseFulfilledResult<{
-                        index: number
-                        preparedTrack: Track
-                        track: YouTubeTrack
-                    }> => result.status === "fulfilled",
-                )
-                .map(({value}) =>
-                    removeTrack(env, sandboxId, value.preparedTrack),
-                ),
+            downloadResults.flatMap(result =>
+                result.status === "fulfilled"
+                    ? result.value.map(({preparedTrack}) =>
+                          removeTrack(env, sandboxId, preparedTrack),
+                      )
+                    : [],
+            ),
         )
         throw failedDownload.reason
     }
 
-    const downloadedTracks = downloadResults.map(result => {
+    const downloadedTracks = downloadResults.flatMap(result => {
         if (result.status !== "fulfilled") throw result.reason
         return result.value
     })
@@ -433,5 +490,11 @@ async function updateCard(
     }
 }
 
-export {importVideo, inspectVideo, transcodeAudio, updateCard}
+export {
+    createAudioTracks,
+    importVideo,
+    inspectVideo,
+    transcodeAudio,
+    updateCard,
+}
 export type {ImportedTrack, TranscodedTrack}

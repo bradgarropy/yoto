@@ -43,7 +43,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         ) => progress.reportProgress(update)
 
         try {
-            const video = await step.do(
+            const tracks = await step.do(
                 "inspect video",
                 {
                     retries: {
@@ -72,7 +72,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                         sdk,
                         this.env,
                         cardImport,
-                        video,
+                        tracks,
                         reportProgress,
                     )
                 },

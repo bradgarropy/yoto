@@ -4,18 +4,19 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {createMockEnv} from "~/tests/mocks"
 
 const mockGetPlaylistInfo = vi.fn()
-const mockPrepareTrack = vi.fn()
+const mockPrepareTracks = vi.fn()
 const mockRemoveTrack = vi.fn()
 const mockUploadTrack = vi.fn()
 
 vi.mock("./sandbox.server", () => ({
     getPlaylistInfo: (...args: unknown[]) => mockGetPlaylistInfo(...args),
-    prepareTrack: (...args: unknown[]) => mockPrepareTrack(...args),
+    prepareTracks: (...args: unknown[]) => mockPrepareTracks(...args),
     removeTrack: (...args: unknown[]) => mockRemoveTrack(...args),
     uploadTrack: (...args: unknown[]) => mockUploadTrack(...args),
 }))
 
 import {
+    createAudioTracks,
     type ImportedTrack,
     importVideo,
     inspectVideo,
@@ -40,12 +41,20 @@ const cardImport = {
     id: "test-job",
     cardId: "card-1",
     youtubeUrl: sourceTrack.url,
+    splitByChapters: false,
 }
 const preparedTrack = {
     path: "/tmp/video-1.mp3",
     filename: "video-1.mp3",
     sha256: "a".repeat(64),
     byteLength: 123456,
+}
+const audioTrack = {
+    id: sourceTrack.id,
+    sourceId: sourceTrack.id,
+    title: sourceTrack.title,
+    url: sourceTrack.url,
+    duration: sourceTrack.duration,
 }
 
 const mockGetCard = vi.fn()
@@ -82,7 +91,7 @@ beforeEach(() => {
         },
         metadata: {},
     })
-    mockPrepareTrack.mockResolvedValue(preparedTrack)
+    mockPrepareTracks.mockResolvedValue([preparedTrack])
     mockRemoveTrack.mockResolvedValue(undefined)
     mockUpdateCard.mockResolvedValue(undefined)
     mockUploadTrack.mockResolvedValue(undefined)
@@ -90,6 +99,63 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks()
+})
+
+describe("createAudioTracks", () => {
+    const videoWithChapters = {
+        ...sourceTrack,
+        chapters: [
+            {title: "Chapter One", startTime: 0, endTime: 60},
+            {title: "Chapter Two", startTime: 60, endTime: 180},
+        ],
+    }
+
+    it("creates one track for each video when splitting is disabled", () => {
+        expect(createAudioTracks([videoWithChapters], false)).toEqual([
+            {
+                id: sourceTrack.id,
+                sourceId: sourceTrack.id,
+                title: sourceTrack.title,
+                url: sourceTrack.url,
+                duration: sourceTrack.duration,
+            },
+        ])
+    })
+
+    it("creates one track for each chapter when splitting is enabled", () => {
+        expect(createAudioTracks([videoWithChapters], true)).toEqual([
+            {
+                id: "video-1-01",
+                sourceId: sourceTrack.id,
+                title: "Chapter One",
+                url: sourceTrack.url,
+                duration: 60,
+                startTime: 0,
+                endTime: 60,
+            },
+            {
+                id: "video-1-02",
+                sourceId: sourceTrack.id,
+                title: "Chapter Two",
+                url: sourceTrack.url,
+                duration: 120,
+                startTime: 60,
+                endTime: 180,
+            },
+        ])
+    })
+
+    it("creates one track when splitting is enabled without chapters", () => {
+        expect(createAudioTracks([sourceTrack], true)).toEqual([
+            {
+                id: sourceTrack.id,
+                sourceId: sourceTrack.id,
+                title: sourceTrack.title,
+                url: sourceTrack.url,
+                duration: sourceTrack.duration,
+            },
+        ])
+    })
 })
 
 describe("inspectVideo", () => {
@@ -104,8 +170,8 @@ describe("inspectVideo", () => {
             sandboxId,
             cardImport.youtubeUrl,
         )
-        expect(mockPrepareTrack).not.toHaveBeenCalled()
-        expect(result).toEqual(video)
+        expect(mockPrepareTracks).not.toHaveBeenCalled()
+        expect(result).toEqual(video.videos)
     })
 })
 
@@ -117,7 +183,7 @@ describe("importVideo", () => {
             uploadUrl: "https://uploads.example.com/audio",
         })
 
-        const result = await importVideo(sdk, mockEnv, cardImport, video)
+        const result = await importVideo(sdk, mockEnv, cardImport, video.videos)
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -133,7 +199,7 @@ describe("importVideo", () => {
         expect(result).toEqual([
             {
                 index: 0,
-                track: sourceTrack,
+                track: audioTrack,
                 audio: {
                     alreadyTranscoded: false,
                     sha256: preparedTrack.sha256,
@@ -149,7 +215,7 @@ describe("importVideo", () => {
             transcodedInfo: {duration: 180, fileSize: 100000},
         })
 
-        const result = await importVideo(sdk, mockEnv, cardImport, video)
+        const result = await importVideo(sdk, mockEnv, cardImport, video.videos)
 
         expect(mockGetUploadUrlForTranscode).not.toHaveBeenCalled()
         expect(mockUploadTrack).not.toHaveBeenCalled()
@@ -162,6 +228,48 @@ describe("importVideo", () => {
         })
     })
 
+    it("prepares and uploads each chapter from one source video", async () => {
+        const videoWithChapters = {
+            ...sourceTrack,
+            chapters: [
+                {title: "Chapter One", startTime: 0, endTime: 60},
+                {title: "Chapter Two", startTime: 60, endTime: 180},
+            ],
+        }
+        const chapterTracks = createAudioTracks([videoWithChapters], true)
+        const preparedChapters = chapterTracks.map((track, index) => ({
+            path: `/tmp/${track.id}.mp3`,
+            filename: `${track.id}.mp3`,
+            sha256: String(index + 1).repeat(64),
+            byteLength: 123456,
+        }))
+        mockPrepareTracks.mockResolvedValueOnce(preparedChapters)
+        mockGetTranscodedUpload.mockRejectedValue(new Error("Not found"))
+        mockGetUploadUrlForTranscode.mockImplementation((sha256: string) => ({
+            uploadId: sha256,
+            uploadUrl: `https://uploads.example.com/${sha256}`,
+        }))
+
+        const result = await importVideo(
+            sdk,
+            mockEnv,
+            {...cardImport, splitByChapters: true},
+            [videoWithChapters],
+        )
+
+        expect(mockPrepareTracks).toHaveBeenCalledExactlyOnceWith(
+            mockEnv,
+            sandboxId,
+            videoWithChapters,
+            chapterTracks,
+        )
+        expect(mockUploadTrack).toHaveBeenCalledTimes(2)
+        expect(result.map(({index, track}) => ({index, track}))).toEqual([
+            {index: 0, track: chapterTracks[0]},
+            {index: 1, track: chapterTracks[1]},
+        ])
+    })
+
     it("removes prepared audio when upload fails", async () => {
         mockGetTranscodedUpload.mockRejectedValueOnce(new Error("Not found"))
         mockGetUploadUrlForTranscode.mockResolvedValue({
@@ -171,7 +279,7 @@ describe("importVideo", () => {
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
         await expect(
-            importVideo(sdk, mockEnv, cardImport, video),
+            importVideo(sdk, mockEnv, cardImport, video.videos),
         ).rejects.toThrow("Upload failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
@@ -187,15 +295,12 @@ describe("importVideo", () => {
             title: "Failed Track",
             url: "https://www.youtube.com/watch?v=video-2",
         }
-        mockPrepareTrack
-            .mockResolvedValueOnce(preparedTrack)
+        mockPrepareTracks
+            .mockResolvedValueOnce([preparedTrack])
             .mockRejectedValueOnce(new Error("Download failed"))
 
         await expect(
-            importVideo(sdk, mockEnv, cardImport, {
-                ...video,
-                videos: [sourceTrack, secondTrack],
-            }),
+            importVideo(sdk, mockEnv, cardImport, [sourceTrack, secondTrack]),
         ).rejects.toThrow("Download failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
@@ -212,7 +317,7 @@ describe("transcodeAudio", () => {
         const importedTracks: ImportedTrack[] = [
             {
                 index: 0,
-                track: sourceTrack,
+                track: audioTrack,
                 audio: {
                     alreadyTranscoded: false,
                     sha256: preparedTrack.sha256,
@@ -240,7 +345,7 @@ describe("transcodeAudio", () => {
         expect(result).toEqual([
             {
                 index: 0,
-                track: sourceTrack,
+                track: audioTrack,
                 audio: {
                     key: "transcoded-sha",
                     duration: 180,
@@ -256,7 +361,7 @@ describe("updateCard", () => {
         const result = await updateCard(sdk, cardImport.cardId, [
             {
                 index: 0,
-                track: sourceTrack,
+                track: audioTrack,
                 audio: {
                     key: "transcoded-sha",
                     duration: 180,

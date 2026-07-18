@@ -3,6 +3,7 @@ import {useRevalidator} from "react-router"
 import {toast} from "sonner"
 
 import {Button} from "~/components/ui/button"
+import {Checkbox} from "~/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
@@ -11,8 +12,10 @@ import {
     DialogTitle,
 } from "~/components/ui/dialog"
 import {Input} from "~/components/ui/input"
+import {Label} from "~/components/ui/label"
 import {Progress} from "~/components/ui/progress"
 import {getProgressPercent, type ImportProgress} from "~/lib/import-utils"
+import {getYouTubeUrlType} from "~/lib/youtube"
 
 type ImportState =
     | {status: "idle"}
@@ -60,11 +63,21 @@ const AddTracksDialog = ({
         status: "idle",
     })
     const [youtubeUrl, setYoutubeUrl] = useState("")
+    const [splitByChapters, setSplitByChapters] = useState(false)
     const eventSourceRef = useRef<EventSource | null>(null)
     const importIdRef = useRef<string | null>(null)
     const revalidator = useRevalidator()
 
     const isImporting = importState.status === "importing"
+    const isVideoUrl = getYouTubeUrlType(youtubeUrl) === "video"
+
+    const handleYoutubeUrlChange = (value: string) => {
+        setYoutubeUrl(value)
+
+        if (getYouTubeUrlType(value) !== "video") {
+            setSplitByChapters(false)
+        }
+    }
 
     const startImport = useCallback(() => {
         if (!youtubeUrl.trim()) return
@@ -77,7 +90,11 @@ const AddTracksDialog = ({
         importIdRef.current = null
         setImportState({status: "importing", progress: null})
 
-        const url = `/api/import/${cardId}?url=${encodeURIComponent(youtubeUrl)}`
+        const searchParams = new URLSearchParams({
+            url: youtubeUrl,
+            splitByChapters: String(splitByChapters),
+        })
+        const url = `/api/import/${cardId}?${searchParams}`
         const eventSource = new EventSource(url)
         eventSourceRef.current = eventSource
 
@@ -106,6 +123,7 @@ const AddTracksDialog = ({
                     })
                     eventSource.close()
                     setYoutubeUrl("")
+                    setSplitByChapters(false)
                     revalidator.revalidate()
                 } else if (data.type === "error") {
                     setImportState({status: "error", error: data.error})
@@ -135,7 +153,7 @@ const AddTracksDialog = ({
             })
             eventSource.close()
         }
-    }, [cardId, youtubeUrl, revalidator])
+    }, [cardId, youtubeUrl, splitByChapters, revalidator])
 
     // Clean up on unmount
     useEffect(() => {
@@ -198,15 +216,37 @@ const AddTracksDialog = ({
                         Paste a YouTube video or playlist URL to import tracks.
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <Input
-                        type="url"
-                        placeholder="https://www.youtube.com/watch?v=abc123"
-                        required
-                        disabled={isBusy || isImporting}
-                        value={youtubeUrl}
-                        onChange={e => setYoutubeUrl(e.target.value)}
-                    />
+                <form onSubmit={handleSubmit} className="space-y-6 pt-2">
+                    <div className="space-y-2">
+                        <Input
+                            type="url"
+                            placeholder="https://www.youtube.com/watch?v=abc123"
+                            required
+                            disabled={isBusy || isImporting}
+                            value={youtubeUrl}
+                            onChange={e =>
+                                handleYoutubeUrlChange(e.target.value)
+                            }
+                        />
+                        {isVideoUrl && (
+                            <div className="flex items-center gap-2">
+                                <Checkbox
+                                    id="split-by-chapters"
+                                    checked={splitByChapters}
+                                    disabled={isBusy || isImporting}
+                                    onCheckedChange={checked =>
+                                        setSplitByChapters(checked === true)
+                                    }
+                                />
+                                <Label
+                                    htmlFor="split-by-chapters"
+                                    className="cursor-pointer"
+                                >
+                                    Split by chapters
+                                </Label>
+                            </div>
+                        )}
+                    </div>
                     <Button
                         type="submit"
                         disabled={isBusy || isImporting || !youtubeUrl.trim()}
