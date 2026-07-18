@@ -20,6 +20,7 @@ vi.mock("@cloudflare/sandbox", () => ({
 
 import {
     destroySandbox,
+    downloadVideo,
     getPlaylistInfo,
     prepareTrack,
     removeTrack,
@@ -51,6 +52,42 @@ const successfulCommand = (stdout = "") => ({
 
 beforeEach(() => {
     vi.clearAllMocks()
+})
+
+describe("downloadVideo", () => {
+    it("downloads audio into the sandbox", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce(successfulCommand())
+
+        const result = await downloadVideo(mockEnv, sandboxId, sourceTrack)
+
+        expect(result).toEqual({
+            path: "/tmp/video-1.mp3",
+            filename: "video-1.mp3",
+        })
+        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining("yt-dlp --no-check-certificates"),
+        )
+    })
+
+    it("removes a partial download when it fails", async () => {
+        mockExec
+            .mockResolvedValueOnce(successfulCommand())
+            .mockResolvedValueOnce({
+                success: false,
+                stdout: "",
+                stderr: "download failed",
+            })
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            downloadVideo(mockEnv, sandboxId, sourceTrack),
+        ).rejects.toThrow("Failed to download Test Track: download failed")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+    })
 })
 
 describe("prepareTrack", () => {

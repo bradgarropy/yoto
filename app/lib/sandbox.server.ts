@@ -17,6 +17,11 @@ type Track = {
     byteLength: number
 }
 
+type DownloadedAudio = {
+    path: string
+    filename: string
+}
+
 const MAX_TRACK_BYTES = 100_000_000
 const MAX_TRACK_DURATION_SECONDS = 60 * 60
 
@@ -172,6 +177,41 @@ async function getPlaylistInfo(
     }
 }
 
+// Download a video's audio and leave it in the sandbox
+async function downloadVideo(
+    env: Env,
+    sandboxId: string,
+    video: YouTubeVideo,
+): Promise<DownloadedAudio> {
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
+    const filename = `${video.id}.mp3`
+    const path = `/tmp/${filename}`
+    const escapedPath = escapeShellArg(path)
+    const escapedUrl = escapeShellArg(video.url)
+
+    // Remove files left behind by an interrupted attempt for the same video.
+    await sandbox.exec(`rm -f ${escapedPath}`)
+
+    try {
+        const downloadResult = await sandbox.exec(
+            `yt-dlp --no-check-certificates ` +
+                `--extract-audio --audio-format mp3 --audio-quality 0 ` +
+                `-o ${escapedPath} --no-playlist ${escapedUrl}`,
+        )
+
+        if (!downloadResult.success) {
+            throw new Error(
+                `Failed to download ${video.title}: ${downloadResult.stderr}`,
+            )
+        }
+
+        return {path, filename}
+    } catch (error) {
+        await sandbox.exec(`rm -f ${escapedPath}`)
+        throw error
+    }
+}
+
 // Download a track, hash it, and leave it in the sandbox for direct upload
 async function prepareTrack(
     env: Env,
@@ -188,28 +228,11 @@ async function prepareTrack(
         )
     }
 
+    const downloadedAudio = await downloadVideo(env, sandboxId, track)
     const sandbox = getSandbox(env.SANDBOX, sandboxId)
-    const filename = `${track.id}.mp3`
-    const path = `/tmp/${filename}`
-    const escapedPath = escapeShellArg(path)
-    const escapedUrl = escapeShellArg(track.url)
-
-    // Remove files left behind by an interrupted attempt for the same track.
-    await sandbox.exec(`rm -f ${escapedPath}`)
+    const escapedPath = escapeShellArg(downloadedAudio.path)
 
     try {
-        const downloadResult = await sandbox.exec(
-            `yt-dlp --no-check-certificates ` +
-                `--extract-audio --audio-format mp3 --audio-quality 0 ` +
-                `-o ${escapedPath} --no-playlist ${escapedUrl}`,
-        )
-
-        if (!downloadResult.success) {
-            throw new Error(
-                `Failed to download ${track.title}: ${downloadResult.stderr}`,
-            )
-        }
-
         const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
         if (!sizeResult.success) {
             throw new Error(
@@ -275,7 +298,7 @@ async function prepareTrack(
             throw new Error(`Failed to hash ${track.title}: invalid SHA-256`)
         }
 
-        return {path, filename, sha256, byteLength}
+        return {...downloadedAudio, sha256, byteLength}
     } catch (error) {
         await sandbox.exec(`rm -f ${escapedPath}`)
         throw error
@@ -338,5 +361,12 @@ async function destroySandbox(env: Env, sandboxId: string): Promise<void> {
     await sandbox.destroy()
 }
 
-export {destroySandbox, getPlaylistInfo, prepareTrack, removeTrack, uploadTrack}
-export type {Track}
+export {
+    destroySandbox,
+    downloadVideo,
+    getPlaylistInfo,
+    prepareTrack,
+    removeTrack,
+    uploadTrack,
+}
+export type {DownloadedAudio, Track}
