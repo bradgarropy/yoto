@@ -23,6 +23,7 @@ class ImportProgress extends DurableObject<Env> {
             message: result.message,
             added: result.added,
             skipped: result.skipped,
+            ...(result.description ? {description: result.description} : {}),
         })
     }
 

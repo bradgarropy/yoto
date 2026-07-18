@@ -27,6 +27,7 @@ type ImportResult =
           message: string
           added: number
           skipped: number
+          description?: string
       }
     | {
           status: "error"

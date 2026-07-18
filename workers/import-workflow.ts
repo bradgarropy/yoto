@@ -55,6 +55,9 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 },
                 () => inspectVideo(this.env, cardImport, reportProgress),
             )
+            const chapterSplitUnavailable =
+                cardImport.splitByChapters &&
+                tracks.every(track => !track.chapters?.length)
 
             const importedTracks = await step.do(
                 "import video",
@@ -116,11 +119,19 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 },
             )
 
-            await progress.reportComplete(result)
+            const completedResult = chapterSplitUnavailable
+                ? {
+                      ...result,
+                      description:
+                          "No YouTube chapters were found, so the video was added as a single track.",
+                  }
+                : result
+
+            await progress.reportComplete(completedResult)
 
             return {
                 importId: cardImport.id,
-                ...result,
+                ...completedResult,
             }
         } catch (error) {
             const message =
