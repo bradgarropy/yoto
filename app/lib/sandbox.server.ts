@@ -4,6 +4,7 @@
 import {getSandbox} from "@cloudflare/sandbox"
 import shellEscape from "shell-escape"
 
+import type {AudioTrack} from "./import"
 import type {
     YouTubeChapter,
     YouTubePlaylistInfo,
@@ -212,6 +213,150 @@ async function downloadVideo(
     }
 }
 
+// Split downloaded audio into chapter files without re-encoding
+async function splitAudio(
+    env: Env,
+    sandboxId: string,
+    source: DownloadedAudio,
+    tracks: AudioTrack[],
+): Promise<DownloadedAudio[]> {
+    const segments = tracks.map(track => {
+        const {startTime, endTime} = track
+        if (
+            startTime === undefined ||
+            endTime === undefined ||
+            !Number.isFinite(startTime) ||
+            !Number.isFinite(endTime) ||
+            startTime < 0 ||
+            endTime <= startTime
+        ) {
+            throw new Error(`Invalid chapter range for ${track.title}`)
+        }
+
+        const audio = {
+            path: `/tmp/${track.id}.mp3`,
+            filename: `${track.id}.mp3`,
+        }
+        if (audio.path === source.path) {
+            throw new Error(`Invalid chapter output for ${track.title}`)
+        }
+
+        return {
+            audio,
+            duration: endTime - startTime,
+            startTime,
+            title: track.title,
+        }
+    })
+
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
+    const escapedSourcePath = escapeShellArg(source.path)
+
+    try {
+        for (const segment of segments) {
+            const escapedOutputPath = escapeShellArg(segment.audio.path)
+            await sandbox.exec(`rm -f ${escapedOutputPath}`)
+
+            const splitResult = await sandbox.exec(
+                `ffmpeg -v error -y ` +
+                    `-ss ${segment.startTime} -i ${escapedSourcePath} ` +
+                    `-t ${segment.duration} -map 0:a:0 -c:a copy ` +
+                    `${escapedOutputPath}`,
+            )
+            if (!splitResult.success) {
+                throw new Error(
+                    `Failed to split ${segment.title}: ${splitResult.stderr}`,
+                )
+            }
+        }
+
+        return segments.map(segment => segment.audio)
+    } catch (error) {
+        for (const segment of segments) {
+            const escapedOutputPath = escapeShellArg(segment.audio.path)
+            await sandbox.exec(`rm -f ${escapedOutputPath}`)
+        }
+        throw error
+    }
+}
+
+// Validate and hash downloaded audio for direct upload
+async function prepareAudio(
+    env: Env,
+    sandboxId: string,
+    audio: DownloadedAudio,
+    title: string,
+): Promise<Track> {
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
+    const escapedPath = escapeShellArg(audio.path)
+
+    try {
+        const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
+        if (!sizeResult.success) {
+            throw new Error(`Failed to measure ${title}: ${sizeResult.stderr}`)
+        }
+
+        const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
+        if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+            throw new Error(`Failed to measure ${title}: invalid size`)
+        }
+
+        const durationResult = await sandbox.exec(
+            `ffprobe -v error -show_entries format=duration ` +
+                `-of default=noprint_wrappers=1:nokey=1 ${escapedPath}`,
+        )
+        if (!durationResult.success) {
+            throw new Error(
+                `Failed to measure ${title}: ${durationResult.stderr}`,
+            )
+        }
+
+        const durationSeconds = Number.parseFloat(durationResult.stdout.trim())
+        if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
+            throw new Error(`Failed to measure ${title}: invalid duration`)
+        }
+
+        const isTooLarge = byteLength > MAX_TRACK_BYTES
+        const isTooLong = durationSeconds > MAX_TRACK_DURATION_SECONDS
+
+        if (isTooLarge && isTooLong) {
+            throw new Error(
+                `${title} is too long and too large for Yoto. ` +
+                    `Tracks must be 60 minutes or shorter and 100 MB or smaller.`,
+            )
+        }
+
+        if (isTooLong) {
+            throw new Error(
+                `${title} is too long for Yoto. ` +
+                    `Tracks must be 60 minutes or shorter.`,
+            )
+        }
+
+        if (isTooLarge) {
+            throw new Error(
+                `${title} is too large for Yoto. ` +
+                    `Tracks must be 100 MB or smaller.`,
+            )
+        }
+
+        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
+        if (!hashResult.success) {
+            throw new Error(`Failed to hash ${title}: ${hashResult.stderr}`)
+        }
+
+        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
+        if (!/^[a-f0-9]{64}$/.test(sha256)) {
+            throw new Error(`Failed to hash ${title}: invalid SHA-256`)
+        }
+
+        return {...audio, sha256, byteLength}
+    } catch (error) {
+        await sandbox.exec(`rm -f ${escapedPath}`)
+        throw error
+    }
+}
+
 // Download a track, hash it, and leave it in the sandbox for direct upload
 async function prepareTrack(
     env: Env,
@@ -228,79 +373,63 @@ async function prepareTrack(
         )
     }
 
-    const downloadedAudio = await downloadVideo(env, sandboxId, track)
-    const sandbox = getSandbox(env.SANDBOX, sandboxId)
-    const escapedPath = escapeShellArg(downloadedAudio.path)
+    const audio = await downloadVideo(env, sandboxId, track)
+    return prepareAudio(env, sandboxId, audio, track.title)
+}
+
+// Prepare every requested track from one source video
+async function prepareTracks(
+    env: Env,
+    sandboxId: string,
+    video: YouTubeVideo,
+    tracks: AudioTrack[],
+): Promise<Track[]> {
+    if (tracks.length === 0) return []
+
+    if (tracks.some(track => track.sourceId !== video.id)) {
+        throw new Error(`Tracks do not belong to ${video.title}`)
+    }
+
+    const segmentedTracks = tracks.filter(
+        track => track.startTime !== undefined || track.endTime !== undefined,
+    )
+
+    if (segmentedTracks.length === 0) {
+        if (tracks.length !== 1) {
+            throw new Error(
+                `Multiple whole tracks requested for ${video.title}`,
+            )
+        }
+        return [await prepareTrack(env, sandboxId, video)]
+    }
+
+    if (segmentedTracks.length !== tracks.length) {
+        throw new Error(`Mixed track ranges requested for ${video.title}`)
+    }
+
+    let source: DownloadedAudio | undefined
+    let chapterAudio: DownloadedAudio[] = []
 
     try {
-        const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
-        if (!sizeResult.success) {
-            throw new Error(
-                `Failed to measure ${track.title}: ${sizeResult.stderr}`,
+        source = await downloadVideo(env, sandboxId, video)
+        chapterAudio = await splitAudio(env, sandboxId, source, tracks)
+
+        const preparedTracks: Track[] = []
+        for (const [index, audio] of chapterAudio.entries()) {
+            preparedTracks.push(
+                await prepareAudio(env, sandboxId, audio, tracks[index].title),
             )
         }
 
-        const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
-        if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
-            throw new Error(`Failed to measure ${track.title}: invalid size`)
-        }
-
-        const durationResult = await sandbox.exec(
-            `ffprobe -v error -show_entries format=duration ` +
-                `-of default=noprint_wrappers=1:nokey=1 ${escapedPath}`,
-        )
-        if (!durationResult.success) {
-            throw new Error(
-                `Failed to measure ${track.title}: ${durationResult.stderr}`,
-            )
-        }
-
-        const durationSeconds = Number.parseFloat(durationResult.stdout.trim())
-        if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
-            throw new Error(
-                `Failed to measure ${track.title}: invalid duration`,
-            )
-        }
-
-        const isTooLarge = byteLength > MAX_TRACK_BYTES
-        const isTooLong = durationSeconds > MAX_TRACK_DURATION_SECONDS
-
-        if (isTooLarge && isTooLong) {
-            throw new Error(
-                `${track.title} is too long and too large for Yoto. ` +
-                    `Tracks must be 60 minutes or shorter and 100 MB or smaller.`,
-            )
-        }
-
-        if (isTooLong) {
-            throw new Error(
-                `${track.title} is too long for Yoto. ` +
-                    `Tracks must be 60 minutes or shorter.`,
-            )
-        }
-
-        if (isTooLarge) {
-            throw new Error(
-                `${track.title} is too large for Yoto. ` +
-                    `Tracks must be 100 MB or smaller.`,
-            )
-        }
-
-        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
-        if (!hashResult.success) {
-            throw new Error(
-                `Failed to hash ${track.title}: ${hashResult.stderr}`,
-            )
-        }
-
-        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
-        if (!/^[a-f0-9]{64}$/.test(sha256)) {
-            throw new Error(`Failed to hash ${track.title}: invalid SHA-256`)
-        }
-
-        return {...downloadedAudio, sha256, byteLength}
+        await removeTrack(env, sandboxId, source)
+        return preparedTracks
     } catch (error) {
-        await sandbox.exec(`rm -f ${escapedPath}`)
+        await Promise.allSettled(
+            chapterAudio.map(audio => removeTrack(env, sandboxId, audio)),
+        )
+        if (source) {
+            await Promise.allSettled([removeTrack(env, sandboxId, source)])
+        }
         throw error
     }
 }
@@ -343,7 +472,7 @@ async function uploadTrack(
 async function removeTrack(
     env: Env,
     sandboxId: string,
-    track: Track,
+    track: DownloadedAudio,
 ): Promise<void> {
     const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const escapedPath = escapeShellArg(track.path)
@@ -365,8 +494,11 @@ export {
     destroySandbox,
     downloadVideo,
     getPlaylistInfo,
+    prepareAudio,
     prepareTrack,
+    prepareTracks,
     removeTrack,
+    splitAudio,
     uploadTrack,
 }
 export type {DownloadedAudio, Track}

@@ -11,6 +11,16 @@ type ImportWorkflowParams = Import & {
     credential: string
 }
 
+type AudioTrack = {
+    id: string
+    sourceId: string
+    title: string
+    url: string
+    duration?: number
+    startTime?: number
+    endTime?: number
+}
+
 type ImportResult =
     | {
           status: "success"
@@ -40,6 +50,7 @@ function getImportSandboxId(cardImport: Import): string {
 
 export {getImportSandboxId}
 export type {
+    AudioTrack,
     Import,
     ImportResult,
     ImportStreamEvent,

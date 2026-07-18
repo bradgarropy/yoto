@@ -1,7 +1,12 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
 import pLimit from "p-limit"
 
-import {getImportSandboxId, type Import, type ImportSuccess} from "~/lib/import"
+import {
+    type AudioTrack,
+    getImportSandboxId,
+    type Import,
+    type ImportSuccess,
+} from "~/lib/import"
 import {
     createChapter,
     getNextChapterKey,
@@ -47,16 +52,6 @@ type TranscodeResult = {
 type AudioUploadResult =
     | {alreadyTranscoded: true; key: string; duration: number; fileSize: number}
     | {alreadyTranscoded: false; sha256: string}
-
-type AudioTrack = {
-    id: string
-    sourceId: string
-    title: string
-    url: string
-    duration?: number
-    startTime?: number
-    endTime?: number
-}
 
 type ImportedTrack = {
     index: number
@@ -479,4 +474,4 @@ export {
     transcodeAudio,
     updateCard,
 }
-export type {AudioTrack, ImportedTrack, TranscodedTrack}
+export type {ImportedTrack, TranscodedTrack}
