@@ -90,13 +90,13 @@ const initiateLogin = async (): Promise<DeviceCodeResult> => {
     const startedAt = Date.now()
     const auth = getAuth()
 
-    telemetry.info(EVENT.AUTH.STARTED)
+    telemetry.info(EVENT.AUTH.LOGIN.STARTED)
 
     try {
         const result = await auth.initiate(AUTH_SCOPE)
 
         if (!result.success) {
-            telemetry.error(EVENT.AUTH.FAILED, {
+            telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
                 stage: "initiate",
                 reason: getAuthFailureReason(result.error),
                 durationMs: Date.now() - startedAt,
@@ -105,7 +105,7 @@ const initiateLogin = async (): Promise<DeviceCodeResult> => {
 
         return result
     } catch (error) {
-        telemetry.error(EVENT.AUTH.FAILED, {
+        telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
             stage: "initiate",
             reason: "unexpected_error",
             errorName: error instanceof Error ? error.name : "UnknownError",
@@ -143,9 +143,9 @@ const completeLogin = async (
             }
 
             if (reason === "provider_error") {
-                telemetry.error(EVENT.AUTH.FAILED, context)
+                telemetry.error(EVENT.AUTH.LOGIN.FAILED, context)
             } else {
-                telemetry.warn(EVENT.AUTH.FAILED, context)
+                telemetry.warn(EVENT.AUTH.LOGIN.FAILED, context)
             }
 
             return {success: false, error}
@@ -159,13 +159,13 @@ const completeLogin = async (
         const timeRemaining = getTimeUntilExpiry(result.tokens)
         const expiresIn = formatTimeRemaining(timeRemaining)
 
-        telemetry.info(EVENT.AUTH.COMPLETED, {
+        telemetry.info(EVENT.AUTH.LOGIN.COMPLETED, {
             durationMs: Date.now() - startedAt,
         })
 
         return {success: true, expiresIn, setCookie}
     } catch (error) {
-        telemetry.error(EVENT.AUTH.FAILED, {
+        telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
             stage: "complete",
             reason: "unexpected_error",
             errorName: error instanceof Error ? error.name : "UnknownError",
@@ -177,7 +177,24 @@ const completeLogin = async (
 
 // Returns Set-Cookie header to clear auth
 const logout = async (request: Request, env: Env): Promise<string> => {
-    return clearAuthCookie(env, isSecureRequest(request))
+    const startedAt = Date.now()
+
+    try {
+        const setCookie = await clearAuthCookie(env, isSecureRequest(request))
+
+        telemetry.info(EVENT.AUTH.LOGOUT.COMPLETED, {
+            durationMs: Date.now() - startedAt,
+        })
+
+        return setCookie
+    } catch (error) {
+        telemetry.error(EVENT.AUTH.LOGOUT.FAILED, {
+            reason: "unexpected_error",
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            durationMs: Date.now() - startedAt,
+        })
+        throw error
+    }
 }
 
 // Returns token status (requires request to read cookie)
@@ -223,6 +240,7 @@ const tryRefreshToken = async (
     refreshToken: string,
     secure: boolean,
 ): Promise<{tokens: StoredTokens; setCookie: string} | null> => {
+    const startedAt = Date.now()
     const auth = getAuth()
 
     try {
@@ -233,10 +251,24 @@ const tryRefreshToken = async (
                 env,
                 secure,
             )
+
+            telemetry.info(EVENT.AUTH.REFRESH.COMPLETED, {
+                durationMs: Date.now() - startedAt,
+            })
+
             return {tokens: result.tokens, setCookie}
         }
-    } catch {
-        // Refresh failed, token is invalid
+
+        telemetry.warn(EVENT.AUTH.REFRESH.FAILED, {
+            reason: "rejected",
+            durationMs: Date.now() - startedAt,
+        })
+    } catch (error) {
+        telemetry.error(EVENT.AUTH.REFRESH.FAILED, {
+            reason: "unexpected_error",
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            durationMs: Date.now() - startedAt,
+        })
     }
 
     return null

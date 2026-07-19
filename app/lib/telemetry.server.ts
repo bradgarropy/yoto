@@ -3,9 +3,19 @@ type TelemetryLevel = "debug" | "info" | "warn" | "error"
 
 const EVENT = {
     AUTH: {
-        STARTED: "auth.started",
-        COMPLETED: "auth.completed",
-        FAILED: "auth.failed",
+        LOGIN: {
+            STARTED: "auth.login.started",
+            COMPLETED: "auth.login.completed",
+            FAILED: "auth.login.failed",
+        },
+        LOGOUT: {
+            COMPLETED: "auth.logout.completed",
+            FAILED: "auth.logout.failed",
+        },
+        REFRESH: {
+            COMPLETED: "auth.refresh.completed",
+            FAILED: "auth.refresh.failed",
+        },
     },
 } as const
 

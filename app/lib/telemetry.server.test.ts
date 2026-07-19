@@ -17,7 +17,7 @@ describe("telemetry", () => {
             .spyOn(console, method)
             .mockImplementation(() => {})
 
-        telemetry[method](EVENT.AUTH.COMPLETED, {
+        telemetry[method](EVENT.AUTH.LOGIN.COMPLETED, {
             importId: "import-123",
             durationMs: 250,
         })
@@ -25,7 +25,7 @@ describe("telemetry", () => {
         expect(consoleSpy).toHaveBeenCalledWith({
             importId: "import-123",
             durationMs: 250,
-            event: EVENT.AUTH.COMPLETED,
+            event: EVENT.AUTH.LOGIN.COMPLETED,
             level,
         })
     })
@@ -35,10 +35,10 @@ describe("telemetry", () => {
             .spyOn(console, "info")
             .mockImplementation(() => {})
 
-        telemetry.info(EVENT.AUTH.STARTED)
+        telemetry.info(EVENT.AUTH.LOGIN.STARTED)
 
         expect(consoleSpy).toHaveBeenCalledWith({
-            event: EVENT.AUTH.STARTED,
+            event: EVENT.AUTH.LOGIN.STARTED,
             level: "info",
         })
     })
@@ -48,13 +48,13 @@ describe("telemetry", () => {
             .spyOn(console, "warn")
             .mockImplementation(() => {})
 
-        telemetry.warn(EVENT.AUTH.FAILED, {
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
             event: "wrong.event",
             level: "info",
         })
 
         expect(consoleSpy).toHaveBeenCalledWith({
-            event: EVENT.AUTH.FAILED,
+            event: EVENT.AUTH.LOGIN.FAILED,
             level: "warn",
         })
     })
