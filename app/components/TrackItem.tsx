@@ -14,6 +14,7 @@ import {
     AlertDialogTrigger,
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
+import {Checkbox} from "~/components/ui/checkbox"
 import {Dialog, DialogContent, DialogTrigger} from "~/components/ui/dialog"
 import {formatDuration} from "~/lib/format"
 
@@ -33,6 +34,9 @@ const TrackItem = ({
     onIconDialogChange,
     iconPickerContent,
     onCopy,
+    isSelecting,
+    isSelected,
+    onSelectedChange,
 }: {
     track: Track
     onDragEnd: () => void
@@ -42,6 +46,9 @@ const TrackItem = ({
     onIconDialogChange: (open: boolean) => void
     iconPickerContent: React.ReactNode
     onCopy: () => void
+    isSelecting: boolean
+    isSelected: boolean
+    onSelectedChange: (selected: boolean) => void
 }) => {
     const dragControls = useDragControls()
 
@@ -70,14 +77,25 @@ const TrackItem = ({
                 duration: 0.2,
             }}
         >
-            <button
-                type="button"
-                className="touch-none cursor-grab active:cursor-grabbing p-1 -m-1"
-                onPointerDown={e => dragControls.start(e)}
-                aria-label="Drag to reorder"
-            >
-                <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-            </button>
+            {isSelecting ? (
+                <Checkbox
+                    checked={isSelected}
+                    disabled={isBusy}
+                    onCheckedChange={checked =>
+                        onSelectedChange(checked === true)
+                    }
+                    aria-label={`Select track: ${track.title}`}
+                />
+            ) : (
+                <button
+                    type="button"
+                    className="touch-none cursor-grab active:cursor-grabbing p-1 -m-1"
+                    onPointerDown={e => dragControls.start(e)}
+                    aria-label="Drag to reorder"
+                >
+                    <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+            )}
             <Dialog open={isIconDialogOpen} onOpenChange={onIconDialogChange}>
                 <DialogTrigger asChild>
                     <button

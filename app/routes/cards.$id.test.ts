@@ -3,7 +3,7 @@ import {describe, expect, it, vi} from "vitest"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {authContext} from "~/middleware/auth.server"
 
-import {loader} from "./cards.$id"
+import {action, loader} from "./cards.$id"
 
 const mockGetYotoIconUrlMap = vi.fn()
 
@@ -87,5 +87,164 @@ describe("cards.$id loader", () => {
             },
         ])
         expect(getMediaUrl).not.toHaveBeenCalled()
+    })
+})
+
+describe("cards.$id action", () => {
+    it("deletes multiple tracks with one card update", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Test Card",
+                    content: {
+                        activity: "yoto_Player",
+                        chapters: [
+                            {key: "01", title: "One"},
+                            {key: "02", title: "Two"},
+                            {key: "03", title: "Three"},
+                        ],
+                        restricted: false,
+                        config: {onlineOnly: false},
+                        version: "1",
+                    },
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "deleteTracks")
+        formData.set("trackKeys", JSON.stringify(["01", "03"]))
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) {
+                    return {sdk}
+                }
+
+                if (key === cloudflareContext) {
+                    return {env: {} as Env}
+                }
+
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({success: true, deletedCount: 2})
+        expect(updateCard).toHaveBeenCalledExactlyOnceWith({
+            cardId: "card-id",
+            title: "Test Card",
+            content: {
+                activity: "yoto_Player",
+                chapters: [{key: "02", title: "Two"}],
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        })
+    })
+
+    it("copies multiple tracks in source order with one card update", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sourceCard = {
+            cardId: "card-id",
+            title: "Source Card",
+            content: {
+                activity: "yoto_Player",
+                chapters: [
+                    {key: "01", title: "One"},
+                    {key: "02", title: "Two"},
+                    {key: "03", title: "Three"},
+                ],
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        }
+        const destinationCard = {
+            cardId: "destination-id",
+            title: "Destination Card",
+            content: {
+                activity: "yoto_Player",
+                chapters: [{key: "04", title: "Existing"}],
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        }
+        const sdk = {
+            content: {
+                getCard: vi.fn((cardId: string) =>
+                    Promise.resolve(
+                        cardId === "card-id" ? sourceCard : destinationCard,
+                    ),
+                ),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "copyTracks")
+        formData.set("trackKeys", JSON.stringify(["03", "01"]))
+        formData.set("destinationCardId", "destination-id")
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) {
+                    return {sdk}
+                }
+
+                if (key === cloudflareContext) {
+                    return {env: {} as Env}
+                }
+
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({
+            success: true,
+            copied: true,
+            copiedCount: 2,
+            destinationCardTitle: "Destination Card",
+        })
+        expect(updateCard).toHaveBeenCalledExactlyOnceWith({
+            cardId: "destination-id",
+            title: "Destination Card",
+            content: {
+                activity: "yoto_Player",
+                chapters: [
+                    {key: "04", title: "Existing"},
+                    {key: "05", title: "One"},
+                    {key: "06", title: "Three"},
+                ],
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        })
     })
 })
