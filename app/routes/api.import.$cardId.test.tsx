@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
+import {EVENT} from "~/lib/telemetry.server"
 import {createMockEnv} from "~/tests/mocks"
 
 const mockCreateWorkflow = vi.fn()
@@ -123,6 +124,15 @@ describe("api/import/:cardId loader", () => {
             token,
             expect.any(Object),
         )
+        expect(console.info).toHaveBeenCalledWith({
+            importId: options.params.id,
+            cardId,
+            youtubeUrl,
+            sourceType: "video",
+            splitByChapters: false,
+            event: EVENT.IMPORT.STARTED,
+            level: "info",
+        })
         expect(mockGetProgress).toHaveBeenCalledWith(options.params.id)
         expect(events[0]).toEqual({
             type: "started",
@@ -242,5 +252,18 @@ describe("api/import/:cardId loader", () => {
         await expect(response.json()).resolves.toEqual({
             error: "Unable to start import",
         })
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId,
+                youtubeUrl,
+                sourceType: "video",
+                splitByChapters: false,
+                stage: "create_workflow",
+                reason: "workflow_creation_failed",
+                errorName: "Error",
+                event: EVENT.IMPORT.FAILED,
+                level: "error",
+            }),
+        )
     })
 })

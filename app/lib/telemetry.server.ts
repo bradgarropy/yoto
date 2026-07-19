@@ -17,6 +17,11 @@ const EVENT = {
             FAILED: "auth.refresh.failed",
         },
     },
+    IMPORT: {
+        STARTED: "import.started",
+        COMPLETED: "import.completed",
+        FAILED: "import.failed",
+    },
 } as const
 
 type EventValue<T> = T extends string

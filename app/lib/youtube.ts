@@ -30,5 +30,33 @@ const getYouTubeUrlType = (value: string): YouTubeUrlType => {
     }
 }
 
-export {getYouTubeUrlType}
+const getCanonicalYouTubeUrl = (value: string): string => {
+    try {
+        const url = new URL(value)
+        const type = getYouTubeUrlType(value)
+
+        if (type === "playlist") {
+            const playlistId = url.searchParams.get("list")
+            if (playlistId) {
+                return `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`
+            }
+        }
+
+        if (type === "video") {
+            const videoId =
+                url.hostname === "youtu.be"
+                    ? url.pathname.slice(1)
+                    : url.searchParams.get("v")
+            if (videoId) {
+                return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
+            }
+        }
+
+        return value
+    } catch {
+        return value
+    }
+}
+
+export {getCanonicalYouTubeUrl, getYouTubeUrlType}
 export type {YouTubeUrlType}

@@ -2,6 +2,8 @@ import {isAuthenticated, requireAuthCore} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import type {Import} from "~/lib/import"
 import {createImportCredential} from "~/lib/import-credential.server"
+import {EVENT, telemetry} from "~/lib/telemetry.server"
+import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
 import {importSearchParamsSchema} from "~/schemas/import"
 
 import type {Route} from "./+types/api.import.$cardId"
@@ -54,6 +56,9 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     const importLogContext = {
         importId: cardImport.id,
         cardId,
+        youtubeUrl: getCanonicalYouTubeUrl(youtubeUrl),
+        sourceType: getYouTubeUrlType(youtubeUrl),
+        splitByChapters,
     }
     const progressInstance = env.IMPORT_PROGRESS.getByName(cardImport.id)
 
@@ -63,11 +68,13 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             id: cardImport.id,
             params: {...cardImport, credential},
         })
-        console.info("Import workflow created", importLogContext)
+        telemetry.info(EVENT.IMPORT.STARTED, importLogContext)
     } catch (error) {
-        console.error("Failed to start import workflow", {
+        telemetry.error(EVENT.IMPORT.FAILED, {
             ...importLogContext,
-            error: error instanceof Error ? error.message : String(error),
+            stage: "create_workflow",
+            reason: "workflow_creation_failed",
+            errorName: error instanceof Error ? error.name : "UnknownError",
         })
         return Response.json({error: "Unable to start import"}, {status: 500})
     }

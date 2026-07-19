@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {getYouTubeUrlType} from "./youtube"
+import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "./youtube"
 
 describe("getYouTubeUrlType", () => {
     it.each([
@@ -29,5 +29,31 @@ describe("getYouTubeUrlType", () => {
         "https://www.youtube.com/shorts/abc123",
     ])("returns unknown for an unsupported URL: %s", url => {
         expect(getYouTubeUrlType(url)).toBe("unknown")
+    })
+})
+
+describe("getCanonicalYouTubeUrl", () => {
+    it.each([
+        "https://www.youtube.com/watch?v=abc123&t=30&feature=share",
+        "https://youtu.be/abc123?t=30",
+    ])("canonicalizes a video URL: %s", url => {
+        expect(getCanonicalYouTubeUrl(url)).toBe(
+            "https://www.youtube.com/watch?v=abc123",
+        )
+    })
+
+    it.each([
+        "https://www.youtube.com/playlist?list=PL123&si=tracking",
+        "https://www.youtube.com/watch?v=abc123&list=PL123&index=2",
+    ])("canonicalizes a playlist URL: %s", url => {
+        expect(getCanonicalYouTubeUrl(url)).toBe(
+            "https://www.youtube.com/playlist?list=PL123",
+        )
+    })
+
+    it("preserves an unsupported URL", () => {
+        expect(getCanonicalYouTubeUrl("https://example.com/video")).toBe(
+            "https://example.com/video",
+        )
     })
 })

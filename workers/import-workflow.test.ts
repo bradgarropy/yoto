@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 import type {ImportWorkflowParams} from "~/lib/import"
+import {EVENT} from "~/lib/telemetry.server"
 import {createMockEnv} from "~/tests/mocks"
 
 const mockDestroySandbox = vi.fn()
@@ -80,6 +81,7 @@ const importResult = {
 const createEvent = (overrides: Partial<ImportWorkflowParams> = {}) =>
     ({
         payload: {...cardImport, ...overrides},
+        timestamp: new Date(),
     }) as Parameters<ImportWorkflow["run"]>[0]
 
 const createWorkflow = () =>
@@ -101,6 +103,7 @@ describe("ImportWorkflow", () => {
         vi.clearAllMocks()
         vi.spyOn(console, "info").mockImplementation(() => {})
         vi.spyOn(console, "warn").mockImplementation(() => {})
+        vi.spyOn(console, "error").mockImplementation(() => {})
 
         mockDestroySandbox.mockResolvedValue(undefined)
         mockGetProgress.mockReturnValue({
@@ -218,6 +221,23 @@ describe("ImportWorkflow", () => {
         expect(mockReadImportCredential).toHaveBeenCalledTimes(3)
         expect(mockReportComplete).toHaveBeenCalledWith(importResult)
         expect(mockReportError).not.toHaveBeenCalled()
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                importId: cardImport.id,
+                cardId: cardImport.cardId,
+                youtubeUrl: cardImport.youtubeUrl,
+                sourceType: "video",
+                splitByChapters: false,
+                durationMs: expect.any(Number),
+                sourceTrackCount: 1,
+                sourceDurationSeconds: 180,
+                added: 1,
+                skipped: 0,
+                chapterSplitUnavailable: false,
+                event: EVENT.IMPORT.COMPLETED,
+                level: "info",
+            }),
+        )
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,
@@ -277,6 +297,22 @@ describe("ImportWorkflow", () => {
 
         expect(mockImportVideo).not.toHaveBeenCalled()
         expect(mockReportError).toHaveBeenCalledWith("Containers unavailable")
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                importId: cardImport.id,
+                cardId: cardImport.cardId,
+                youtubeUrl: cardImport.youtubeUrl,
+                sourceType: "video",
+                splitByChapters: false,
+                stage: "inspect_video",
+                reason: "workflow_step_failed",
+                errorName: "Error",
+                errorMessage: "Containers unavailable",
+                durationMs: expect.any(Number),
+                event: EVENT.IMPORT.FAILED,
+                level: "error",
+            }),
+        )
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,
