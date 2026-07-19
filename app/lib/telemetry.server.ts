@@ -30,6 +30,14 @@ const EVENT = {
             COMPLETED: "track.delete.completed",
             FAILED: "track.delete.failed",
         },
+        ICON: {
+            COMPLETED: "track.icon.completed",
+            FAILED: "track.icon.failed",
+        },
+        REORDER: {
+            COMPLETED: "track.reorder.completed",
+            FAILED: "track.reorder.failed",
+        },
     },
 } as const
 
@@ -67,6 +75,18 @@ type TrackOperationPayload = DurationPayload & {
     failedCount: number
 }
 
+type TrackIconPayload = DurationPayload & {
+    cardId: string
+    trackKey: string
+    iconType: "yoto" | "community"
+}
+
+type TrackReorderPayload = DurationPayload & {
+    cardId: string
+    trackKeys: string[]
+    trackCount: number
+}
+
 type TelemetryPayloads = {
     [EVENT.AUTH.LOGIN.STARTED]: undefined
     [EVENT.AUTH.LOGIN.COMPLETED]: DurationPayload
@@ -102,6 +122,10 @@ type TelemetryPayloads = {
     [EVENT.TRACK.COPY.FAILED]: TrackOperationPayload & {reason: string}
     [EVENT.TRACK.DELETE.COMPLETED]: TrackOperationPayload
     [EVENT.TRACK.DELETE.FAILED]: TrackOperationPayload & {reason: string}
+    [EVENT.TRACK.ICON.COMPLETED]: TrackIconPayload
+    [EVENT.TRACK.ICON.FAILED]: TrackIconPayload & {reason: string}
+    [EVENT.TRACK.REORDER.COMPLETED]: TrackReorderPayload
+    [EVENT.TRACK.REORDER.FAILED]: TrackReorderPayload & {reason: string}
 }
 
 type TelemetryArguments<TEvent extends TelemetryEvent> =

@@ -538,13 +538,24 @@ export async function action({params, request, context}: Route.ActionArgs) {
         }
 
         if (intent === "reorderTracks") {
-            const trackKeysJson = formData.get("trackKeys") as string
+            const trackKeys = getTrackKeys(formData)
+            const telemetryPayload = {
+                cardId,
+                trackKeys,
+                trackCount: trackKeys.length,
+                durationMs: Date.now() - startedAt,
+            }
+            const result = trackKeysSchema.safeParse(trackKeys)
 
-            if (!trackKeysJson) {
+            if (!result.success) {
+                telemetry.warn(EVENT.TRACK.REORDER.FAILED, {
+                    ...telemetryPayload,
+                    reason: "invalid_request",
+                })
                 return {error: "Track keys are required"}
             }
 
-            const newOrder = JSON.parse(trackKeysJson) as string[]
+            const newOrder = result.data
 
             // Get current card
             const card = (await sdk.content.getCard(
@@ -555,6 +566,18 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const chapterMap = new Map(
                 card.content.chapters.map(chapter => [chapter.key, chapter]),
             )
+
+            if (
+                newOrder.length !== card.content.chapters.length ||
+                newOrder.some(key => !chapterMap.has(key))
+            ) {
+                telemetry.warn(EVENT.TRACK.REORDER.FAILED, {
+                    ...telemetryPayload,
+                    reason: "tracks_not_found",
+                    durationMs: Date.now() - startedAt,
+                })
+                return {error: "One or more tracks were not found"}
+            }
 
             // Reorder chapters to match the new order
             const reorderedChapters = newOrder
@@ -581,6 +604,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.TRACK.REORDER.COMPLETED, {
+                ...telemetryPayload,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, reordered: true}
         }
 
@@ -671,10 +698,21 @@ export async function action({params, request, context}: Route.ActionArgs) {
         if (intent === "updateTrackIcon") {
             const trackKey = formData.get("trackKey") as string
             const iconId = formData.get("iconId") as string
-            const iconType =
-                (formData.get("iconType") as "yoto" | "community") ?? "yoto"
+            const requestedIconType = formData.get("iconType")
+            const iconType: "yoto" | "community" =
+                requestedIconType === "community" ? "community" : "yoto"
+            const telemetryPayload = {
+                cardId,
+                trackKey: trackKey ?? "",
+                iconType,
+                durationMs: Date.now() - startedAt,
+            }
 
             if (!trackKey || !iconId) {
+                telemetry.warn(EVENT.TRACK.ICON.FAILED, {
+                    ...telemetryPayload,
+                    reason: "invalid_request",
+                })
                 return {error: "Track key and icon ID are required"}
             }
 
@@ -689,6 +727,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 const iconTokenResult = await getToken(request, env)
 
                 if (!iconTokenResult) {
+                    telemetry.warn(EVENT.TRACK.ICON.FAILED, {
+                        ...telemetryPayload,
+                        reason: "authentication_required",
+                        durationMs: Date.now() - startedAt,
+                    })
                     return {error: "Authentication required to upload icons"}
                 }
 
@@ -705,6 +748,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 )
 
                 if (!uploadResponse.ok) {
+                    telemetry.error(EVENT.TRACK.ICON.FAILED, {
+                        ...telemetryPayload,
+                        reason: `upload_failed_${uploadResponse.status}`,
+                        durationMs: Date.now() - startedAt,
+                    })
                     return {
                         error: `Icon upload failed: ${uploadResponse.statusText}`,
                     }
@@ -721,6 +769,17 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const card = (await sdk.content.getCard(
                 cardId,
             )) as unknown as CardData
+
+            if (
+                !card.content.chapters.some(chapter => chapter.key === trackKey)
+            ) {
+                telemetry.warn(EVENT.TRACK.ICON.FAILED, {
+                    ...telemetryPayload,
+                    reason: "track_not_found",
+                    durationMs: Date.now() - startedAt,
+                })
+                return {error: "Track not found"}
+            }
 
             // Find and update the chapter's icon (both chapter-level and track-level)
             const updatedChapters = card.content.chapters.map(chapter => {
@@ -763,6 +822,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.TRACK.ICON.COMPLETED, {
+                ...telemetryPayload,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, iconUpdated: true}
         }
 
@@ -857,6 +920,32 @@ export async function action({params, request, context}: Route.ActionArgs) {
         return {error: "Invalid intent"}
     } catch (error) {
         trackTelemetry?.failed("operation_failed", "error")
+
+        if (intent === "reorderTracks") {
+            const trackKeys = getTrackKeys(formData)
+            telemetry.error(EVENT.TRACK.REORDER.FAILED, {
+                cardId,
+                trackKeys,
+                trackCount: trackKeys.length,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "updateTrackIcon") {
+            const trackKey = formData.get("trackKey")
+            telemetry.error(EVENT.TRACK.ICON.FAILED, {
+                cardId,
+                trackKey: typeof trackKey === "string" ? trackKey : "",
+                iconType:
+                    formData.get("iconType") === "community"
+                        ? "community"
+                        : "yoto",
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
         console.error("Failed to perform action:", error)
         return {error: "Operation failed"}
     }

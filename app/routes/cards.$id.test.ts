@@ -389,4 +389,192 @@ describe("cards.$id action", () => {
             }),
         )
     })
+
+    it("reports a completed track reorder", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Test Card",
+                    content: {
+                        chapters: [
+                            {key: "01", title: "One"},
+                            {key: "02", title: "Two"},
+                        ],
+                    },
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "reorderTracks")
+        formData.set("trackKeys", JSON.stringify(["02", "01"]))
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({success: true, reordered: true})
+        expect(updateCard).toHaveBeenCalledExactlyOnceWith({
+            cardId: "card-id",
+            title: "Test Card",
+            content: {
+                chapters: [
+                    {key: "02", title: "Two"},
+                    {key: "01", title: "One"},
+                ],
+            },
+            metadata: {},
+        })
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                trackKeys: ["02", "01"],
+                trackCount: 2,
+                durationMs: expect.any(Number),
+                event: EVENT.TRACK.REORDER.COMPLETED,
+                level: "info",
+            }),
+        )
+    })
+
+    it("reports a completed track icon update", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Test Card",
+                    content: {
+                        chapters: [
+                            {
+                                key: "01",
+                                title: "One",
+                                tracks: [{display: {}}],
+                            },
+                        ],
+                    },
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "updateTrackIcon")
+        formData.set("trackKey", "01")
+        formData.set("iconId", "icon-id")
+        formData.set("iconType", "yoto")
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({success: true, iconUpdated: true})
+        expect(updateCard).toHaveBeenCalledExactlyOnceWith({
+            cardId: "card-id",
+            title: "Test Card",
+            content: {
+                chapters: [
+                    {
+                        key: "01",
+                        title: "One",
+                        display: {icon16x16: "yoto:#icon-id"},
+                        tracks: [{display: {icon16x16: "yoto:#icon-id"}}],
+                    },
+                ],
+            },
+            metadata: {},
+        })
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                trackKey: "01",
+                iconType: "yoto",
+                durationMs: expect.any(Number),
+                event: EVENT.TRACK.ICON.COMPLETED,
+                level: "info",
+            }),
+        )
+    })
+
+    it("warns when assigning an icon to a missing track", async () => {
+        const updateCard = vi.fn()
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Test Card",
+                    content: {
+                        chapters: [{key: "01", title: "One"}],
+                    },
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "updateTrackIcon")
+        formData.set("trackKey", "02")
+        formData.set("iconId", "icon-id")
+        formData.set("iconType", "yoto")
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({error: "Track not found"})
+        expect(updateCard).not.toHaveBeenCalled()
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                trackKey: "02",
+                iconType: "yoto",
+                reason: "track_not_found",
+                durationMs: expect.any(Number),
+                event: EVENT.TRACK.ICON.FAILED,
+                level: "warn",
+            }),
+        )
+    })
 })
