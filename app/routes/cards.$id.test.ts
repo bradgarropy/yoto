@@ -7,9 +7,10 @@ import {authContext} from "~/middleware/auth.server"
 import {action, loader} from "./cards.$id"
 
 const mockGetYotoIconUrlMap = vi.fn()
+const mockGetNumberIcons = vi.fn()
 
 vi.mock("~/lib/yoto-icons.server", () => ({
-    getNumberIcons: vi.fn(),
+    getNumberIcons: (...args: unknown[]) => mockGetNumberIcons(...args),
     getYotoIconUrlMap: (...args: unknown[]) => mockGetYotoIconUrlMap(...args),
 }))
 
@@ -573,6 +574,192 @@ describe("cards.$id action", () => {
                 reason: "track_not_found",
                 durationMs: expect.any(Number),
                 event: EVENT.TRACK.ICON.FAILED,
+                level: "warn",
+            }),
+        )
+    })
+
+    it("reports a completed card deletion", async () => {
+        const deleteCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {content: {deleteCard}}
+        const formData = new FormData()
+        formData.set("intent", "deleteCard")
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toBeInstanceOf(Response)
+        expect((result as Response).headers.get("Location")).toBe("/cards")
+        expect(deleteCard).toHaveBeenCalledExactlyOnceWith("card-id")
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                durationMs: expect.any(Number),
+                event: EVENT.CARD.DELETE.COMPLETED,
+                level: "info",
+            }),
+        )
+    })
+
+    it("reports a completed card title update", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Old Title",
+                    content: {chapters: []},
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "updateTitle")
+        formData.set("title", "New Title")
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({success: true, titleUpdated: true})
+        expect(updateCard).toHaveBeenCalledExactlyOnceWith({
+            cardId: "card-id",
+            title: "New Title",
+            content: {chapters: []},
+            metadata: {},
+        })
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                durationMs: expect.any(Number),
+                event: EVENT.CARD.TITLE.COMPLETED,
+                level: "info",
+            }),
+        )
+    })
+
+    it("reports automatic track numbering counts", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Test Card",
+                    content: {
+                        chapters: [
+                            {key: "01", title: "One"},
+                            {key: "02", title: "Two"},
+                            {key: "03", title: "Three"},
+                        ],
+                    },
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        mockGetNumberIcons.mockResolvedValue(
+            new Map([
+                [1, "one-icon"],
+                [2, "two-icon"],
+            ]),
+        )
+        const formData = new FormData()
+        formData.set("intent", "numberTracks")
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({success: true, tracksNumbered: true})
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                trackCount: 3,
+                numberedCount: 2,
+                durationMs: expect.any(Number),
+                event: EVENT.TRACK.NUMBER.COMPLETED,
+                level: "info",
+            }),
+        )
+    })
+
+    it("warns when a cover has an unsupported file type", async () => {
+        const formData = new FormData()
+        formData.set("intent", "updateCover")
+        formData.set(
+            "coverFile",
+            new File(["not an image"], "cover.txt", {type: "text/plain"}),
+        )
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) return {sdk: {}}
+                if (key === cloudflareContext) return {env: {} as Env}
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({
+            error: "Cover image must be a JPEG, PNG, GIF, or WebP",
+        })
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: "card-id",
+                fileSizeBytes: 12,
+                contentType: "text/plain",
+                reason: "unsupported_file_type",
+                durationMs: expect.any(Number),
+                event: EVENT.CARD.COVER.FAILED,
                 level: "warn",
             }),
         )

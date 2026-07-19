@@ -534,6 +534,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
         if (intent === "deleteCard") {
             await sdk.content.deleteCard(cardId)
 
+            telemetry.info(EVENT.CARD.DELETE.COMPLETED, {
+                cardId,
+                durationMs: Date.now() - startedAt,
+            })
             return redirect("/cards")
         }
 
@@ -613,13 +617,28 @@ export async function action({params, request, context}: Route.ActionArgs) {
 
         if (intent === "updateCover") {
             const coverFile = formData.get("coverFile") as File
+            const coverTelemetryPayload = {
+                cardId,
+                fileSizeBytes: coverFile?.size ?? 0,
+                contentType: coverFile?.type ?? "",
+                durationMs: Date.now() - startedAt,
+            }
 
             if (!coverFile || coverFile.size === 0) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "invalid_request",
+                })
                 return {error: "Cover image file is required"}
             }
 
             const MAX_COVER_SIZE = 10 * 1024 * 1024 // 10MB
             if (coverFile.size > MAX_COVER_SIZE) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "file_too_large",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Cover image must be under 10MB"}
             }
 
@@ -630,12 +649,22 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 "image/webp",
             ]
             if (!ALLOWED_IMAGE_TYPES.includes(coverFile.type)) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "unsupported_file_type",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Cover image must be a JPEG, PNG, GIF, or WebP"}
             }
 
             const tokenResult = await getToken(request, env)
 
             if (!tokenResult) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "authentication_required",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Authentication required to upload cover"}
             }
 
@@ -657,6 +686,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
             })
 
             if (!uploadResponse.ok) {
+                telemetry.error(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: `upload_failed_${uploadResponse.status}`,
+                    durationMs: Date.now() - startedAt,
+                })
                 return {
                     error: `Cover upload failed: ${uploadResponse.statusText}`,
                 }
@@ -692,6 +726,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.CARD.COVER.COMPLETED, {
+                ...coverTelemetryPayload,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, coverUpdated: true}
         }
 
@@ -833,6 +871,13 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const numberIcons = await getNumberIcons(request, env)
 
             if (numberIcons.size === 0) {
+                telemetry.warn(EVENT.TRACK.NUMBER.FAILED, {
+                    cardId,
+                    trackCount: 0,
+                    numberedCount: 0,
+                    reason: "icons_unavailable",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Could not find number icons"}
             }
 
@@ -840,6 +885,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const card = (await sdk.content.getCard(
                 cardId,
             )) as unknown as CardData
+            const numberedCount = card.content.chapters.filter((_, index) =>
+                numberIcons.has(index + 1),
+            ).length
 
             const updatedChapters = card.content.chapters.map(
                 (chapter, index) => {
@@ -884,6 +932,12 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.TRACK.NUMBER.COMPLETED, {
+                cardId,
+                trackCount: card.content.chapters.length,
+                numberedCount,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, tracksNumbered: true}
         }
 
@@ -892,6 +946,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
 
             if (!result.success) {
                 const error = result.error.issues[0]?.message ?? "Invalid title"
+                telemetry.warn(EVENT.CARD.TITLE.FAILED, {
+                    cardId,
+                    reason: "invalid_request",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error}
             }
 
@@ -914,6 +973,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.CARD.TITLE.COMPLETED, {
+                cardId,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, titleUpdated: true}
         }
 
@@ -941,6 +1004,43 @@ export async function action({params, request, context}: Route.ActionArgs) {
                     formData.get("iconType") === "community"
                         ? "community"
                         : "yoto",
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "deleteCard") {
+            telemetry.error(EVENT.CARD.DELETE.FAILED, {
+                cardId,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "updateTitle") {
+            telemetry.error(EVENT.CARD.TITLE.FAILED, {
+                cardId,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "updateCover") {
+            const coverFile = formData.get("coverFile")
+            telemetry.error(EVENT.CARD.COVER.FAILED, {
+                cardId,
+                fileSizeBytes: coverFile instanceof File ? coverFile.size : 0,
+                contentType: coverFile instanceof File ? coverFile.type : "",
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "numberTracks") {
+            telemetry.error(EVENT.TRACK.NUMBER.FAILED, {
+                cardId,
+                trackCount: 0,
+                numberedCount: 0,
                 reason: "operation_failed",
                 durationMs: Date.now() - startedAt,
             })

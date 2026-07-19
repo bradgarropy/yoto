@@ -21,6 +21,20 @@ const EVENT = {
         COMPLETED: "import.completed",
         FAILED: "import.failed",
     },
+    CARD: {
+        DELETE: {
+            COMPLETED: "card.delete.completed",
+            FAILED: "card.delete.failed",
+        },
+        TITLE: {
+            COMPLETED: "card.title.completed",
+            FAILED: "card.title.failed",
+        },
+        COVER: {
+            COMPLETED: "card.cover.completed",
+            FAILED: "card.cover.failed",
+        },
+    },
     TRACK: {
         COPY: {
             COMPLETED: "track.copy.completed",
@@ -37,6 +51,10 @@ const EVENT = {
         REORDER: {
             COMPLETED: "track.reorder.completed",
             FAILED: "track.reorder.failed",
+        },
+        NUMBER: {
+            COMPLETED: "track.number.completed",
+            FAILED: "track.number.failed",
         },
     },
 } as const
@@ -87,6 +105,20 @@ type TrackReorderPayload = DurationPayload & {
     trackCount: number
 }
 
+type CardMutationPayload = DurationPayload & {
+    cardId: string
+}
+
+type CardCoverPayload = CardMutationPayload & {
+    fileSizeBytes: number
+    contentType: string
+}
+
+type TrackNumberPayload = CardMutationPayload & {
+    trackCount: number
+    numberedCount: number
+}
+
 type TelemetryPayloads = {
     [EVENT.AUTH.LOGIN.STARTED]: undefined
     [EVENT.AUTH.LOGIN.COMPLETED]: DurationPayload
@@ -118,6 +150,12 @@ type TelemetryPayloads = {
         errorMessage?: string
         durationMs?: number
     }
+    [EVENT.CARD.DELETE.COMPLETED]: CardMutationPayload
+    [EVENT.CARD.DELETE.FAILED]: CardMutationPayload & {reason: string}
+    [EVENT.CARD.TITLE.COMPLETED]: CardMutationPayload
+    [EVENT.CARD.TITLE.FAILED]: CardMutationPayload & {reason: string}
+    [EVENT.CARD.COVER.COMPLETED]: CardCoverPayload
+    [EVENT.CARD.COVER.FAILED]: CardCoverPayload & {reason: string}
     [EVENT.TRACK.COPY.COMPLETED]: TrackOperationPayload
     [EVENT.TRACK.COPY.FAILED]: TrackOperationPayload & {reason: string}
     [EVENT.TRACK.DELETE.COMPLETED]: TrackOperationPayload
@@ -126,6 +164,8 @@ type TelemetryPayloads = {
     [EVENT.TRACK.ICON.FAILED]: TrackIconPayload & {reason: string}
     [EVENT.TRACK.REORDER.COMPLETED]: TrackReorderPayload
     [EVENT.TRACK.REORDER.FAILED]: TrackReorderPayload & {reason: string}
+    [EVENT.TRACK.NUMBER.COMPLETED]: TrackNumberPayload
+    [EVENT.TRACK.NUMBER.FAILED]: TrackNumberPayload & {reason: string}
 }
 
 type TelemetryArguments<TEvent extends TelemetryEvent> =
