@@ -11,6 +11,7 @@ import {
     getTokensFromCookie,
     serializeAuthCookie,
 } from "./auth-cookie.server"
+import {EVENT, telemetry} from "./telemetry.server"
 
 // Auth0 configuration for Yoto
 const AUTH_CONFIG = {
@@ -71,10 +72,47 @@ const isSecureRequest = (request: Request): boolean => {
     return new URL(request.url).protocol === "https:"
 }
 
+const getAuthFailureReason = (error?: string) => {
+    switch (error) {
+        case "access_denied":
+            return "access_denied"
+        case "expired_token":
+            return "expired_token"
+        case "Authentication timeout. Please try again.":
+            return "timeout"
+        default:
+            return "provider_error"
+    }
+}
+
 // Initiates device code flow - returns info for user to complete auth
 const initiateLogin = async (): Promise<DeviceCodeResult> => {
+    const startedAt = Date.now()
     const auth = getAuth()
-    return auth.initiate(AUTH_SCOPE)
+
+    telemetry.info(EVENT.AUTH.STARTED)
+
+    try {
+        const result = await auth.initiate(AUTH_SCOPE)
+
+        if (!result.success) {
+            telemetry.error(EVENT.AUTH.FAILED, {
+                stage: "initiate",
+                reason: getAuthFailureReason(result.error),
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        return result
+    } catch (error) {
+        telemetry.error(EVENT.AUTH.FAILED, {
+            stage: "initiate",
+            reason: "unexpected_error",
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            durationMs: Date.now() - startedAt,
+        })
+        throw error
+    }
 }
 
 // Polls for token after user completes auth in browser
@@ -89,23 +127,52 @@ const completeLogin = async (
     | {success: true; expiresIn: string; setCookie: string}
     | {success: false; error: string}
 > => {
+    const startedAt = Date.now()
     const auth = getAuth()
 
-    const result = await auth.pollForToken(deviceCode, interval, timeout)
+    try {
+        const result = await auth.pollForToken(deviceCode, interval, timeout)
 
-    if (!result.success || !result.tokens) {
-        return {success: false, error: result.error ?? "Authentication failed"}
+        if (!result.success || !result.tokens) {
+            const error = result.error ?? "Authentication failed"
+            const reason = getAuthFailureReason(error)
+            const context = {
+                stage: "complete",
+                reason,
+                durationMs: Date.now() - startedAt,
+            }
+
+            if (reason === "provider_error") {
+                telemetry.error(EVENT.AUTH.FAILED, context)
+            } else {
+                telemetry.warn(EVENT.AUTH.FAILED, context)
+            }
+
+            return {success: false, error}
+        }
+
+        const setCookie = await serializeAuthCookie(
+            result.tokens,
+            env,
+            isSecureRequest(request),
+        )
+        const timeRemaining = getTimeUntilExpiry(result.tokens)
+        const expiresIn = formatTimeRemaining(timeRemaining)
+
+        telemetry.info(EVENT.AUTH.COMPLETED, {
+            durationMs: Date.now() - startedAt,
+        })
+
+        return {success: true, expiresIn, setCookie}
+    } catch (error) {
+        telemetry.error(EVENT.AUTH.FAILED, {
+            stage: "complete",
+            reason: "unexpected_error",
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            durationMs: Date.now() - startedAt,
+        })
+        throw error
     }
-
-    const setCookie = await serializeAuthCookie(
-        result.tokens,
-        env,
-        isSecureRequest(request),
-    )
-    const timeRemaining = getTimeUntilExpiry(result.tokens)
-    const expiresIn = formatTimeRemaining(timeRemaining)
-
-    return {success: true, expiresIn, setCookie}
 }
 
 // Returns Set-Cookie header to clear auth
