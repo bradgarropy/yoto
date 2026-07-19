@@ -137,7 +137,7 @@ const completeLogin = async (
             const error = result.error ?? "Authentication failed"
             const reason = getAuthFailureReason(error)
             const context = {
-                stage: "complete",
+                stage: "complete" as const,
                 reason,
                 durationMs: Date.now() - startedAt,
             }

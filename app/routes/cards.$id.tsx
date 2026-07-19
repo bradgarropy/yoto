@@ -44,6 +44,7 @@ import {getToken} from "~/lib/auth.server"
 import {getCardCoverUrl} from "~/lib/card-utils"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/import-utils"
+import {EVENT, telemetry} from "~/lib/telemetry.server"
 import type {CardData} from "~/lib/types"
 import {parseFormData} from "~/lib/validation.server"
 import {getNumberIcons, getYotoIconUrlMap} from "~/lib/yoto-icons.server"
@@ -147,10 +148,107 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     }
 }
 
+type TrackOperation = "copy" | "delete"
+
+const TRACK_EVENT = {
+    copy: {
+        completed: EVENT.TRACK.COPY.COMPLETED,
+        failed: EVENT.TRACK.COPY.FAILED,
+    },
+    delete: {
+        completed: EVENT.TRACK.DELETE.COMPLETED,
+        failed: EVENT.TRACK.DELETE.FAILED,
+    },
+} as const
+
+const getTrackOperation = (
+    intent: FormDataEntryValue | null,
+): TrackOperation | null => {
+    if (intent === "copyTrack" || intent === "copyTracks") return "copy"
+    if (intent === "deleteTrack" || intent === "deleteTracks") return "delete"
+    return null
+}
+
+const getTrackKeys = (formData: FormData): string[] => {
+    const trackKey = formData.get("trackKey")
+    if (typeof trackKey === "string" && trackKey) return [trackKey]
+
+    const trackKeys = formData.get("trackKeys")
+    if (typeof trackKeys !== "string") return []
+
+    try {
+        const parsed = JSON.parse(trackKeys)
+        return Array.isArray(parsed)
+            ? parsed.filter(value => typeof value === "string")
+            : []
+    } catch {
+        return []
+    }
+}
+
+function createTrackOperationTelemetry({
+    cardId,
+    formData,
+    intent,
+    startedAt,
+}: {
+    cardId: string
+    formData: FormData
+    intent: FormDataEntryValue | null
+    startedAt: number
+}) {
+    const operation = getTrackOperation(intent)
+    if (!operation) return null
+
+    const trackKeys = getTrackKeys(formData)
+    const requestedCount = trackKeys.length
+    const destinationCardId = formData.get("destinationCardId")
+    const basePayload = {
+        cardId,
+        ...(typeof destinationCardId === "string" &&
+            destinationCardId && {destinationCardId}),
+        trackKeys,
+        requestedCount,
+    }
+
+    return {
+        completed(succeededCount = requestedCount) {
+            telemetry.info(TRACK_EVENT[operation].completed, {
+                ...basePayload,
+                succeededCount,
+                failedCount: requestedCount - succeededCount,
+                durationMs: Date.now() - startedAt,
+            })
+        },
+        failed(reason: string, level: "warn" | "error" = "warn") {
+            const payload = {
+                ...basePayload,
+                succeededCount: 0,
+                failedCount: requestedCount,
+                reason,
+                durationMs: Date.now() - startedAt,
+            }
+
+            if (level === "error") {
+                telemetry.error(TRACK_EVENT[operation].failed, payload)
+            } else {
+                telemetry.warn(TRACK_EVENT[operation].failed, payload)
+            }
+        },
+    }
+}
+
 export async function action({params, request, context}: Route.ActionArgs) {
+    const startedAt = Date.now()
     const cardId = params.id
     const formData = await request.formData()
     const intent = formData.get("intent")
+    const trackTelemetry = createTrackOperationTelemetry({
+        cardId,
+        formData,
+        intent,
+        startedAt,
+    })
 
     // Get env from Cloudflare context
     const {env} = context.get(cloudflareContext)
@@ -162,6 +260,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const trackKey = formData.get("trackKey") as string
 
             if (!trackKey) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track key is required"}
             }
 
@@ -174,6 +273,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const updatedChapters = card.content.chapters.filter(
                 chapter => chapter.key !== trackKey,
             )
+
+            if (updatedChapters.length === card.content.chapters.length) {
+                trackTelemetry?.failed("track_not_found")
+                return {error: "Track not found"}
+            }
 
             // Update card with remaining chapters
             const updatedCard = {
@@ -192,6 +296,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed()
             return {success: true, deleted: trackKey}
         }
 
@@ -199,6 +304,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const trackKeysJson = formData.get("trackKeys")
 
             if (typeof trackKeysJson !== "string") {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track keys are required"}
             }
 
@@ -207,12 +313,14 @@ export async function action({params, request, context}: Route.ActionArgs) {
             try {
                 trackKeys = JSON.parse(trackKeysJson)
             } catch {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Invalid track keys"}
             }
 
             const result = trackKeysSchema.safeParse(trackKeys)
 
             if (!result.success) {
+                trackTelemetry?.failed("invalid_request")
                 return {
                     error:
                         result.error.issues[0]?.message ?? "Invalid track keys",
@@ -230,6 +338,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 card.content.chapters.length - updatedChapters.length
 
             if (deletedCount === 0) {
+                trackTelemetry?.failed("tracks_not_found")
                 return {error: "Selected tracks were not found"}
             }
 
@@ -249,6 +358,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed(deletedCount)
             return {success: true, deletedCount}
         }
 
@@ -259,14 +369,17 @@ export async function action({params, request, context}: Route.ActionArgs) {
             ) as string
 
             if (!trackKey) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track key is required"}
             }
 
             if (!destinationCardId) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Destination card is required"}
             }
 
             if (destinationCardId === cardId) {
+                trackTelemetry?.failed("same_card")
                 return {error: "Cannot copy a track to the same card"}
             }
 
@@ -285,6 +398,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             )
 
             if (!chapterToCopy) {
+                trackTelemetry?.failed("track_not_found")
                 return {error: "Track not found on source card"}
             }
 
@@ -316,6 +430,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed()
             return {
                 success: true,
                 copied: true,
@@ -328,14 +443,17 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const destinationCardId = formData.get("destinationCardId")
 
             if (typeof trackKeysJson !== "string") {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track keys are required"}
             }
 
             if (typeof destinationCardId !== "string" || !destinationCardId) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Destination card is required"}
             }
 
             if (destinationCardId === cardId) {
+                trackTelemetry?.failed("same_card")
                 return {error: "Cannot copy tracks to the same card"}
             }
 
@@ -344,12 +462,14 @@ export async function action({params, request, context}: Route.ActionArgs) {
             try {
                 trackKeys = JSON.parse(trackKeysJson)
             } catch {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Invalid track keys"}
             }
 
             const result = trackKeysSchema.safeParse(trackKeys)
 
             if (!result.success) {
+                trackTelemetry?.failed("invalid_request")
                 return {
                     error:
                         result.error.issues[0]?.message ?? "Invalid track keys",
@@ -368,6 +488,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             )
 
             if (chaptersToCopy.length !== selectedTrackKeys.size) {
+                trackTelemetry?.failed("tracks_not_found")
                 return {error: "One or more selected tracks were not found"}
             }
 
@@ -400,6 +521,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed(chaptersToCopy.length)
             return {
                 success: true,
                 copied: true,
@@ -734,6 +856,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
 
         return {error: "Invalid intent"}
     } catch (error) {
+        trackTelemetry?.failed("operation_failed", "error")
         console.error("Failed to perform action:", error)
         return {error: "Operation failed"}
     }

@@ -18,12 +18,10 @@ describe("telemetry", () => {
             .mockImplementation(() => {})
 
         telemetry[method](EVENT.AUTH.LOGIN.COMPLETED, {
-            importId: "import-123",
             durationMs: 250,
         })
 
         expect(consoleSpy).toHaveBeenCalledWith({
-            importId: "import-123",
             durationMs: 250,
             event: EVENT.AUTH.LOGIN.COMPLETED,
             level,
@@ -48,12 +46,20 @@ describe("telemetry", () => {
             .spyOn(console, "warn")
             .mockImplementation(() => {})
 
-        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
+        const payload = {
+            stage: "complete",
+            reason: "access_denied",
+            durationMs: 250,
             event: "wrong.event",
             level: "info",
-        })
+        } as const
+
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, payload)
 
         expect(consoleSpy).toHaveBeenCalledWith({
+            stage: "complete",
+            reason: "access_denied",
+            durationMs: 250,
             event: EVENT.AUTH.LOGIN.FAILED,
             level: "warn",
         })
