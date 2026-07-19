@@ -1,4 +1,4 @@
-import {ListChecks, ListOrdered, Plus, Trash2, X} from "lucide-react"
+import {Copy, ListChecks, ListOrdered, Plus, Trash2, X} from "lucide-react"
 import {Reorder} from "motion/react"
 import {useEffect, useRef, useState} from "react"
 import {
@@ -49,7 +49,7 @@ import {parseFormData} from "~/lib/validation.server"
 import {getNumberIcons, getYotoIconUrlMap} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
-import {deleteTracksSchema, updateTitleSchema} from "~/schemas/card"
+import {trackKeysSchema, updateTitleSchema} from "~/schemas/card"
 
 import type {Route} from "./+types/cards.$id"
 
@@ -210,7 +210,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 return {error: "Invalid track keys"}
             }
 
-            const result = deleteTracksSchema.safeParse(trackKeys)
+            const result = trackKeysSchema.safeParse(trackKeys)
 
             if (!result.success) {
                 return {
@@ -320,6 +320,92 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 success: true,
                 copied: true,
                 destinationCardTitle: destCardData.title ?? "Untitled Card",
+            }
+        }
+
+        if (intent === "copyTracks") {
+            const trackKeysJson = formData.get("trackKeys")
+            const destinationCardId = formData.get("destinationCardId")
+
+            if (typeof trackKeysJson !== "string") {
+                return {error: "Track keys are required"}
+            }
+
+            if (typeof destinationCardId !== "string" || !destinationCardId) {
+                return {error: "Destination card is required"}
+            }
+
+            if (destinationCardId === cardId) {
+                return {error: "Cannot copy tracks to the same card"}
+            }
+
+            let trackKeys: unknown
+
+            try {
+                trackKeys = JSON.parse(trackKeysJson)
+            } catch {
+                return {error: "Invalid track keys"}
+            }
+
+            const result = trackKeysSchema.safeParse(trackKeys)
+
+            if (!result.success) {
+                return {
+                    error:
+                        result.error.issues[0]?.message ?? "Invalid track keys",
+                }
+            }
+
+            const [sourceCard, destinationCard] = await Promise.all([
+                sdk.content.getCard(cardId),
+                sdk.content.getCard(destinationCardId),
+            ])
+            const sourceCardData = sourceCard as unknown as CardData
+            const destinationCardData = destinationCard as unknown as CardData
+            const selectedTrackKeys = new Set(result.data)
+            const chaptersToCopy = sourceCardData.content.chapters.filter(
+                chapter => chapter.key && selectedTrackKeys.has(chapter.key),
+            )
+
+            if (chaptersToCopy.length !== selectedTrackKeys.size) {
+                return {error: "One or more selected tracks were not found"}
+            }
+
+            const updatedChapters = [
+                ...stripNullValues(destinationCardData.content.chapters),
+            ]
+
+            for (const chapter of chaptersToCopy) {
+                updatedChapters.push(
+                    stripNullValues({
+                        ...chapter,
+                        key: getNextChapterKey(updatedChapters),
+                    }),
+                )
+            }
+
+            const updatedDestinationCard = {
+                cardId: destinationCardId,
+                title: destinationCardData.title,
+                content: {
+                    ...destinationCardData.content,
+                    chapters: updatedChapters,
+                },
+                metadata: destinationCardData.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedDestinationCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {
+                success: true,
+                copied: true,
+                copiedCount: chaptersToCopy.length,
+                destinationCardTitle:
+                    destinationCardData.title ?? "Untitled Card",
             }
         }
 
@@ -666,6 +752,7 @@ export type ActionData = {
     coverUpdated?: boolean
     tracksNumbered?: boolean
     copied?: boolean
+    copiedCount?: number
     destinationCardTitle?: string
     titleUpdated?: boolean
 }
@@ -717,7 +804,7 @@ export default function CardDetail({
     const [addTracksDialogOpen, setAddTracksDialogOpen] = useState(false)
 
     // State for copy track dialog
-    const [copyTrackKey, setCopyTrackKey] = useState<string | null>(null)
+    const [copyTrackKeys, setCopyTrackKeys] = useState<string[]>([])
 
     // Sync local state with loader data when it changes
     useEffect(() => {
@@ -869,10 +956,15 @@ export default function CardDetail({
             copyFetcher.data
         ) {
             if (copyFetcher.data.copied) {
+                const copiedCount = copyFetcher.data.copiedCount ?? 1
                 toast.success(
-                    `Track copied to ${copyFetcher.data.destinationCardTitle}`,
+                    copiedCount === 1
+                        ? `Track copied to ${copyFetcher.data.destinationCardTitle}`
+                        : `${copiedCount} tracks copied to ${copyFetcher.data.destinationCardTitle}`,
                 )
-                setCopyTrackKey(null)
+                setCopyTrackKeys([])
+                setSelectedTrackKeys(new Set())
+                setIsSelectingTracks(false)
             } else if (copyFetcher.data.error) {
                 toast.error(copyFetcher.data.error)
             }
@@ -1209,73 +1301,101 @@ export default function CardDetail({
                                     {selectedTrackCount} of{" "}
                                     {orderedTracks.length} selected
                                 </span>
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="ml-auto text-muted-foreground hover:text-destructive"
-                                            disabled={
-                                                isBusy ||
-                                                selectedTrackCount === 0
-                                            }
-                                        >
-                                            <Trash2 className="h-4 w-4 sm:mr-2" />
-                                            <span className="hidden sm:inline">
-                                                Delete
-                                            </span>
-                                        </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>
-                                                Delete {selectedTrackCount}{" "}
-                                                Track
-                                                {selectedTrackCount === 1
-                                                    ? ""
-                                                    : "s"}
-                                            </AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                Are you sure you want to delete{" "}
-                                                {selectedTrackCount} selected{" "}
-                                                track
-                                                {selectedTrackCount === 1
-                                                    ? ""
-                                                    : "s"}
-                                                ? This will remove{" "}
-                                                {selectedTrackCount === 1
-                                                    ? "it"
-                                                    : "them"}{" "}
-                                                from the card.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>
-                                                Cancel
-                                            </AlertDialogCancel>
-                                            <Form method="post">
-                                                <input
-                                                    type="hidden"
-                                                    name="intent"
-                                                    value="deleteTracks"
-                                                />
-                                                <input
-                                                    type="hidden"
-                                                    name="trackKeys"
-                                                    value={JSON.stringify([
-                                                        ...selectedTrackKeys,
-                                                    ])}
-                                                />
-                                                <AlertDialogAction
-                                                    type="submit"
-                                                    className="bg-destructive text-white hover:bg-destructive/90"
-                                                >
-                                                    Delete
-                                                </AlertDialogAction>
-                                            </Form>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
+                                <div className="ml-auto flex items-center gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-muted-foreground hover:text-foreground"
+                                        disabled={
+                                            isBusy || selectedTrackCount === 0
+                                        }
+                                        aria-label={`Copy ${selectedTrackCount} selected track${
+                                            selectedTrackCount === 1 ? "" : "s"
+                                        }`}
+                                        onClick={() => {
+                                            setCopyTrackKeys(
+                                                orderedTracks
+                                                    .filter(track =>
+                                                        selectedTrackKeys.has(
+                                                            track.key,
+                                                        ),
+                                                    )
+                                                    .map(track => track.key),
+                                            )
+                                        }}
+                                    >
+                                        <Copy className="h-4 w-4" />
+                                    </Button>
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-muted-foreground hover:text-destructive"
+                                                disabled={
+                                                    isBusy ||
+                                                    selectedTrackCount === 0
+                                                }
+                                                aria-label={`Delete ${selectedTrackCount} selected track${
+                                                    selectedTrackCount === 1
+                                                        ? ""
+                                                        : "s"
+                                                }`}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>
+                                                    Delete {selectedTrackCount}{" "}
+                                                    Track
+                                                    {selectedTrackCount === 1
+                                                        ? ""
+                                                        : "s"}
+                                                </AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    Are you sure you want to
+                                                    delete {selectedTrackCount}{" "}
+                                                    selected track
+                                                    {selectedTrackCount === 1
+                                                        ? ""
+                                                        : "s"}
+                                                    ? This will remove{" "}
+                                                    {selectedTrackCount === 1
+                                                        ? "it"
+                                                        : "them"}{" "}
+                                                    from the card.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>
+                                                    Cancel
+                                                </AlertDialogCancel>
+                                                <Form method="post">
+                                                    <input
+                                                        type="hidden"
+                                                        name="intent"
+                                                        value="deleteTracks"
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="trackKeys"
+                                                        value={JSON.stringify([
+                                                            ...selectedTrackKeys,
+                                                        ])}
+                                                    />
+                                                    <AlertDialogAction
+                                                        type="submit"
+                                                        className="bg-destructive text-white hover:bg-destructive/90"
+                                                    >
+                                                        Delete
+                                                    </AlertDialogAction>
+                                                </Form>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </div>
                             </div>
                         )}
 
@@ -1318,7 +1438,7 @@ export default function CardDetail({
                                             />
                                         }
                                         onCopy={() =>
-                                            setCopyTrackKey(track.key)
+                                            setCopyTrackKeys([track.key])
                                         }
                                         isSelecting={isSelectingTracks}
                                         isSelected={selectedTrackKeys.has(
@@ -1351,18 +1471,21 @@ export default function CardDetail({
                     onOpenChange={setAddTracksDialogOpen}
                 />
 
-                {copyTrackKey && (
+                {copyTrackKeys.length > 0 && (
                     <CopyTrackDialog
-                        track={
-                            orderedTracks.find(t => t.key === copyTrackKey) ?? {
-                                key: copyTrackKey,
-                                title: "Unknown Track",
-                            }
-                        }
+                        tracks={copyTrackKeys.map(
+                            trackKey =>
+                                orderedTracks.find(
+                                    track => track.key === trackKey,
+                                ) ?? {
+                                    key: trackKey,
+                                    title: "Unknown Track",
+                                },
+                        )}
                         cards={otherCards}
                         open={true}
                         onOpenChange={open => {
-                            if (!open) setCopyTrackKey(null)
+                            if (!open) setCopyTrackKeys([])
                         }}
                         copyFetcher={copyFetcher}
                     />

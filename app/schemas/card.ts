@@ -4,7 +4,7 @@ const updateTitleSchema = z.object({
     title: z.string().trim().min(1, "Card title cannot be empty"),
 })
 
-const deleteTracksSchema = z
+const trackKeysSchema = z
     .array(z.string().min(1))
     .min(1, "Select at least one track")
     .refine(trackKeys => new Set(trackKeys).size === trackKeys.length, {
@@ -13,5 +13,5 @@ const deleteTracksSchema = z
 
 type UpdateTitleData = z.infer<typeof updateTitleSchema>
 
-export {deleteTracksSchema, updateTitleSchema}
+export {trackKeysSchema, updateTitleSchema}
 export type {UpdateTitleData}
