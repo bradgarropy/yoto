@@ -49,7 +49,7 @@ import {parseFormData} from "~/lib/validation.server"
 import {getNumberIcons, getYotoIconUrlMap} from "~/lib/yoto-icons.server"
 import {fetchCommunityIconImage} from "~/lib/yotoicons-community.server"
 import {authContext} from "~/middleware/auth.server"
-import {updateTitleSchema} from "~/schemas/card"
+import {deleteTracksSchema, updateTitleSchema} from "~/schemas/card"
 
 import type {Route} from "./+types/cards.$id"
 
@@ -193,6 +193,63 @@ export async function action({params, request, context}: Route.ActionArgs) {
             )
 
             return {success: true, deleted: trackKey}
+        }
+
+        if (intent === "deleteTracks") {
+            const trackKeysJson = formData.get("trackKeys")
+
+            if (typeof trackKeysJson !== "string") {
+                return {error: "Track keys are required"}
+            }
+
+            let trackKeys: unknown
+
+            try {
+                trackKeys = JSON.parse(trackKeysJson)
+            } catch {
+                return {error: "Invalid track keys"}
+            }
+
+            const result = deleteTracksSchema.safeParse(trackKeys)
+
+            if (!result.success) {
+                return {
+                    error:
+                        result.error.issues[0]?.message ?? "Invalid track keys",
+                }
+            }
+
+            const selectedTrackKeys = new Set(result.data)
+            const card = (await sdk.content.getCard(
+                cardId,
+            )) as unknown as CardData
+            const updatedChapters = card.content.chapters.filter(
+                chapter => !chapter.key || !selectedTrackKeys.has(chapter.key),
+            )
+            const deletedCount =
+                card.content.chapters.length - updatedChapters.length
+
+            if (deletedCount === 0) {
+                return {error: "Selected tracks were not found"}
+            }
+
+            const updatedCard = {
+                cardId,
+                title: card.title,
+                content: {
+                    ...card.content,
+                    chapters: stripNullValues(updatedChapters),
+                },
+                metadata: card.metadata,
+            }
+
+            await sdk.content.updateCard(
+                updatedCard as unknown as Parameters<
+                    typeof sdk.content.updateCard
+                >[0],
+            )
+
+            return {success: true, deletedCount}
         }
 
         if (intent === "copyTrack") {
@@ -603,6 +660,7 @@ export type ActionData = {
     added?: number
     skipped?: number
     deleted?: string
+    deletedCount?: number
     reordered?: boolean
     iconUpdated?: boolean
     coverUpdated?: boolean
@@ -712,7 +770,15 @@ export default function CardDetail({
     useEffect(() => {
         if (!actionData) return
 
-        if (actionData.deleted) {
+        if (actionData.deletedCount) {
+            toast.success(
+                `${actionData.deletedCount} track${
+                    actionData.deletedCount === 1 ? "" : "s"
+                } deleted successfully`,
+            )
+            setSelectedTrackKeys(new Set())
+            setIsSelectingTracks(false)
+        } else if (actionData.deleted) {
             toast.success("Track deleted successfully")
         } else if (actionData.success && actionData.message) {
             toast.success(actionData.message)
@@ -1143,6 +1209,73 @@ export default function CardDetail({
                                     {selectedTrackCount} of{" "}
                                     {orderedTracks.length} selected
                                 </span>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="ml-auto text-muted-foreground hover:text-destructive"
+                                            disabled={
+                                                isBusy ||
+                                                selectedTrackCount === 0
+                                            }
+                                        >
+                                            <Trash2 className="h-4 w-4 sm:mr-2" />
+                                            <span className="hidden sm:inline">
+                                                Delete
+                                            </span>
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>
+                                                Delete {selectedTrackCount}{" "}
+                                                Track
+                                                {selectedTrackCount === 1
+                                                    ? ""
+                                                    : "s"}
+                                            </AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Are you sure you want to delete{" "}
+                                                {selectedTrackCount} selected{" "}
+                                                track
+                                                {selectedTrackCount === 1
+                                                    ? ""
+                                                    : "s"}
+                                                ? This will remove{" "}
+                                                {selectedTrackCount === 1
+                                                    ? "it"
+                                                    : "them"}{" "}
+                                                from the card.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>
+                                                Cancel
+                                            </AlertDialogCancel>
+                                            <Form method="post">
+                                                <input
+                                                    type="hidden"
+                                                    name="intent"
+                                                    value="deleteTracks"
+                                                />
+                                                <input
+                                                    type="hidden"
+                                                    name="trackKeys"
+                                                    value={JSON.stringify([
+                                                        ...selectedTrackKeys,
+                                                    ])}
+                                                />
+                                                <AlertDialogAction
+                                                    type="submit"
+                                                    className="bg-destructive text-white hover:bg-destructive/90"
+                                                >
+                                                    Delete
+                                                </AlertDialogAction>
+                                            </Form>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
                             </div>
                         )}
 

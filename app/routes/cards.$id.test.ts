@@ -3,7 +3,7 @@ import {describe, expect, it, vi} from "vitest"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {authContext} from "~/middleware/auth.server"
 
-import {loader} from "./cards.$id"
+import {action, loader} from "./cards.$id"
 
 const mockGetYotoIconUrlMap = vi.fn()
 
@@ -87,5 +87,72 @@ describe("cards.$id loader", () => {
             },
         ])
         expect(getMediaUrl).not.toHaveBeenCalled()
+    })
+})
+
+describe("cards.$id action", () => {
+    it("deletes multiple tracks with one card update", async () => {
+        const updateCard = vi.fn().mockResolvedValue(undefined)
+        const sdk = {
+            content: {
+                getCard: vi.fn().mockResolvedValue({
+                    cardId: "card-id",
+                    title: "Test Card",
+                    content: {
+                        activity: "yoto_Player",
+                        chapters: [
+                            {key: "01", title: "One"},
+                            {key: "02", title: "Two"},
+                            {key: "03", title: "Three"},
+                        ],
+                        restricted: false,
+                        config: {onlineOnly: false},
+                        version: "1",
+                    },
+                    metadata: {},
+                }),
+                updateCard,
+            },
+        }
+        const formData = new FormData()
+        formData.set("intent", "deleteTracks")
+        formData.set("trackKeys", JSON.stringify(["01", "03"]))
+        const request = new Request("https://example.com/cards/card-id", {
+            method: "POST",
+            body: formData,
+        })
+        const context = {
+            get: vi.fn(key => {
+                if (key === authContext) {
+                    return {sdk}
+                }
+
+                if (key === cloudflareContext) {
+                    return {env: {} as Env}
+                }
+
+                throw new Error("Unexpected context")
+            }),
+        }
+
+        const result = await action({
+            params: {id: "card-id"},
+            request,
+            context,
+        } as never)
+
+        expect(result).toEqual({success: true, deletedCount: 2})
+        expect(updateCard).toHaveBeenCalledExactlyOnceWith({
+            cardId: "card-id",
+            title: "Test Card",
+            content: {
+                activity: "yoto_Player",
+                chapters: [{key: "02", title: "Two"}],
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        })
     })
 })
