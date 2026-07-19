@@ -22,6 +22,10 @@ const EVENT = {
         FAILED: "import.failed",
     },
     CARD: {
+        CREATE: {
+            COMPLETED: "card.create.completed",
+            FAILED: "card.create.failed",
+        },
         DELETE: {
             COMPLETED: "card.delete.completed",
             FAILED: "card.delete.failed",
@@ -109,6 +113,10 @@ type CardMutationPayload = DurationPayload & {
     cardId: string
 }
 
+type CardCreatePayload = DurationPayload & {
+    cardId: string
+}
+
 type CardCoverPayload = CardMutationPayload & {
     fileSizeBytes: number
     contentType: string
@@ -150,6 +158,8 @@ type TelemetryPayloads = {
         errorMessage?: string
         durationMs?: number
     }
+    [EVENT.CARD.CREATE.COMPLETED]: CardCreatePayload
+    [EVENT.CARD.CREATE.FAILED]: DurationPayload & {reason: string}
     [EVENT.CARD.DELETE.COMPLETED]: CardMutationPayload
     [EVENT.CARD.DELETE.FAILED]: CardMutationPayload & {reason: string}
     [EVENT.CARD.TITLE.COMPLETED]: CardMutationPayload
