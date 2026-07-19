@@ -1,4 +1,4 @@
-import {ListOrdered, Plus, Trash2} from "lucide-react"
+import {ListChecks, ListOrdered, Plus, Trash2, X} from "lucide-react"
 import {Reorder} from "motion/react"
 import {useEffect, useRef, useState} from "react"
 import {
@@ -628,7 +628,12 @@ export default function CardDetail({
 
     // Local state for optimistic reordering
     const [orderedTracks, setOrderedTracks] = useState<Track[]>(tracks)
+    const [selectedTrackKeys, setSelectedTrackKeys] = useState<Set<string>>(
+        () => new Set(),
+    )
+    const [isSelectingTracks, setIsSelectingTracks] = useState(false)
     const hasOrderChangedRef = useRef(false)
+    const trackKeys = tracks.map(track => track.key).join("\0")
 
     // State for cover upload dialog
     const [coverDialogOpen, setCoverDialogOpen] = useState(false)
@@ -660,6 +665,10 @@ export default function CardDetail({
         setOrderedTracks(tracks)
         hasOrderChangedRef.current = false
     }, [tracks])
+
+    useEffect(() => {
+        setSelectedTrackKeys(new Set())
+    }, [trackKeys])
 
     const isReordering = reorderFetcher.state !== "idle"
     const isNumbering = numberFetcher.state !== "idle"
@@ -1024,9 +1033,39 @@ export default function CardDetail({
                         </AlertDialogContent>
                     </AlertDialog>
 
+                    <Button
+                        variant="outline"
+                        disabled={isBusy || orderedTracks.length === 0}
+                        aria-label={
+                            isSelectingTracks
+                                ? "Cancel track selection"
+                                : "Select tracks"
+                        }
+                        onClick={() => {
+                            if (isSelectingTracks) {
+                                setSelectedTrackKeys(new Set())
+                            }
+
+                            setIsSelectingTracks(!isSelectingTracks)
+                        }}
+                    >
+                        {isSelectingTracks ? (
+                            <X className="h-4 w-4 sm:mr-2" />
+                        ) : (
+                            <ListChecks className="h-4 w-4 sm:mr-2" />
+                        )}
+                        <span className="hidden sm:inline">
+                            {isSelectingTracks ? "Cancel" : "Select Tracks"}
+                        </span>
+                    </Button>
+
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button variant="destructive" disabled={isBusy}>
+                            <Button
+                                variant="destructive"
+                                className="ml-auto"
+                                disabled={isBusy}
+                            >
                                 <Trash2 className="h-4 w-4 sm:mr-2" />
                                 <span className="hidden sm:inline">
                                     {isDeletingCard
@@ -1108,6 +1147,23 @@ export default function CardDetail({
                                         onCopy={() =>
                                             setCopyTrackKey(track.key)
                                         }
+                                        isSelecting={isSelectingTracks}
+                                        isSelected={selectedTrackKeys.has(
+                                            track.key,
+                                        )}
+                                        onSelectedChange={selected => {
+                                            setSelectedTrackKeys(current => {
+                                                const next = new Set(current)
+
+                                                if (selected) {
+                                                    next.add(track.key)
+                                                } else {
+                                                    next.delete(track.key)
+                                                }
+
+                                                return next
+                                            })
+                                        }}
                                     />
                                 ))}
                             </Reorder.Group>
