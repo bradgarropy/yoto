@@ -30,6 +30,7 @@ import {
 } from "~/components/ui/alert-dialog"
 import {Button} from "~/components/ui/button"
 import {Card, CardContent} from "~/components/ui/card"
+import {Checkbox} from "~/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
@@ -681,6 +682,10 @@ export default function CardDetail({
         titleFetcher.state !== "idle"
     const pendingIntent = navigation.formData?.get("intent")
     const isDeletingCard = pendingIntent === "deleteCard"
+    const selectedTrackCount = selectedTrackKeys.size
+    const allTracksSelected =
+        orderedTracks.length > 0 && selectedTrackCount === orderedTracks.length
+    const someTracksSelected = selectedTrackCount > 0 && !allTracksSelected
 
     // Handle visual reorder during drag (no API call)
     const handleReorder = (newOrder: Track[]) => {
@@ -1106,6 +1111,41 @@ export default function CardDetail({
 
                 <Card>
                     <CardContent>
+                        {isSelectingTracks && (
+                            <div className="flex items-center gap-4 border-b py-3">
+                                <Checkbox
+                                    checked={
+                                        allTracksSelected
+                                            ? true
+                                            : someTracksSelected
+                                              ? "indeterminate"
+                                              : false
+                                    }
+                                    disabled={isBusy}
+                                    onCheckedChange={checked => {
+                                        setSelectedTrackKeys(
+                                            checked === true
+                                                ? new Set(
+                                                      orderedTracks.map(
+                                                          track => track.key,
+                                                      ),
+                                                  )
+                                                : new Set(),
+                                        )
+                                    }}
+                                    aria-label={
+                                        allTracksSelected
+                                            ? "Deselect all tracks"
+                                            : "Select all tracks"
+                                    }
+                                />
+                                <span className="text-sm text-muted-foreground">
+                                    {selectedTrackCount} of{" "}
+                                    {orderedTracks.length} selected
+                                </span>
+                            </div>
+                        )}
+
                         {orderedTracks.length === 0 ? (
                             <p className="text-muted-foreground text-center py-4">
                                 No tracks on this card yet.
