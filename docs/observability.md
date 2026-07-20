@@ -163,11 +163,15 @@ In production:
 5. Filter or group records by `event`, `message`, `level`, `reason`, `cardId`,
    or `importId`.
 
+Cloudflare automatic tracing is enabled at 100% sampling during its initial
+evaluation. Traces include Worker handlers, fetch calls, and binding calls
+without custom application instrumentation.
+
 ## Future Integrations
 
 Planned observability work:
 
-- Enable Cloudflare automatic tracing for requests, bindings, and fetch calls.
+- Evaluate trace coverage and choose a permanent sampling rate.
 - Evaluate Analytics Engine for aggregate product metrics.
 - Evaluate an OpenTelemetry destination when external dashboards or alerts are
   needed.
