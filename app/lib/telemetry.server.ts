@@ -1,3 +1,6 @@
+import {env} from "cloudflare:workers"
+
+import {writeAnalyticsEvent} from "~/lib/analytics.server"
 import {logger} from "~/lib/logger.server"
 
 const EVENT = {
@@ -193,30 +196,41 @@ function createEvent<TEvent extends TelemetryEvent>(
     }
 }
 
+function recordEvent<TEvent extends TelemetryEvent>(
+    event: TEvent,
+    payload: TelemetryPayloads[TEvent] | undefined,
+) {
+    writeAnalyticsEvent(env.ANALYTICS, event, payload)
+}
+
 const telemetry = {
     debug<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
         logger.debug(createEvent(event, payload))
+        recordEvent(event, payload)
     },
     info<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
         logger.info(createEvent(event, payload))
+        recordEvent(event, payload)
     },
     warn<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
         logger.warn(createEvent(event, payload))
+        recordEvent(event, payload)
     },
     error<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
         logger.error(createEvent(event, payload))
+        recordEvent(event, payload)
     },
 }
 

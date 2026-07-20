@@ -104,4 +104,16 @@ function createAnalyticsDataPoint<TEvent extends TelemetryEvent>(
     }
 }
 
-export {ANALYTICS_COLUMN, createAnalyticsDataPoint}
+function writeAnalyticsEvent<TEvent extends TelemetryEvent>(
+    analytics: AnalyticsEngineDataset,
+    event: TEvent,
+    payload: TelemetryPayloads[TEvent] | undefined,
+) {
+    analytics.writeDataPoint(createAnalyticsDataPoint(event, payload))
+}
+
+export {
+    ANALYTICS_COLUMN,
+    createAnalyticsDataPoint,
+    writeAnalyticsEvent,
+}

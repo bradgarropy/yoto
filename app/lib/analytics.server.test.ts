@@ -3,6 +3,7 @@ import {describe, expect, it} from "vitest"
 import {
     ANALYTICS_COLUMN,
     createAnalyticsDataPoint,
+    writeAnalyticsEvent,
 } from "~/lib/analytics.server"
 import {EVENT} from "~/lib/telemetry.server"
 
@@ -135,5 +136,23 @@ describe("createAnalyticsDataPoint", () => {
                 CHAPTER_SPLIT_UNAVAILABLE: "double13",
             },
         })
+    })
+
+    it("writes a serialized event to Analytics Engine", () => {
+        const writeDataPoint = vi.fn()
+        const analytics = {
+            writeDataPoint,
+        } as unknown as AnalyticsEngineDataset
+
+        writeAnalyticsEvent(analytics, EVENT.AUTH.LOGIN.COMPLETED, {
+            durationMs: 250,
+        })
+
+        expect(writeDataPoint).toHaveBeenCalledOnce()
+        expect(writeDataPoint).toHaveBeenCalledWith(
+            createAnalyticsDataPoint(EVENT.AUTH.LOGIN.COMPLETED, {
+                durationMs: 250,
+            }),
+        )
     })
 })
