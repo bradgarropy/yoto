@@ -44,8 +44,9 @@ const cardImport = {
     splitByChapters: false,
 }
 const preparedTrack = {
-    path: "/tmp/video-1.mp3",
-    filename: "video-1.mp3",
+    path: "/tmp/video-1.m4a",
+    filename: "video-1.m4a",
+    contentType: "audio/mp4",
     sha256: "a".repeat(64),
     byteLength: 123456,
 }
@@ -197,6 +198,12 @@ describe("importVideo", () => {
             sandboxId,
             preparedTrack,
         )
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "yoto.audio.upload.completed",
+                durationMs: expect.any(Number),
+            }),
+        )
         expect(result).toEqual([
             {
                 index: 0,
@@ -239,8 +246,9 @@ describe("importVideo", () => {
         }
         const chapterTracks = createAudioTracks([videoWithChapters], true)
         const preparedChapters = chapterTracks.map((track, index) => ({
-            path: `/tmp/${track.id}.mp3`,
-            filename: `${track.id}.mp3`,
+            path: `/tmp/${track.id}.m4a`,
+            filename: `${track.id}.m4a`,
+            contentType: "audio/mp4",
             sha256: String(index + 1).repeat(64),
             byteLength: 123456,
         }))
@@ -343,6 +351,12 @@ describe("transcodeAudio", () => {
             importedTracks,
         )
 
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "yoto.audio.transcode.completed",
+                durationMs: expect.any(Number),
+            }),
+        )
         expect(result).toEqual([
             {
                 index: 0,

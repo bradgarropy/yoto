@@ -5,22 +5,22 @@ import {getSandbox} from "@cloudflare/sandbox"
 import shellEscape from "shell-escape"
 
 import type {AudioTrack} from "./import"
+import {logger} from "./logger.server"
 import type {
     YouTubeChapter,
     YouTubePlaylistInfo,
     YouTubeVideo,
 } from "./youtube.server"
 
-type Track = {
-    path: string
-    filename: string
-    sha256: string
-    byteLength: number
-}
-
 type DownloadedAudio = {
     path: string
     filename: string
+    contentType: string
+}
+
+type Track = DownloadedAudio & {
+    sha256: string
+    byteLength: number
 }
 
 const MAX_TRACK_BYTES = 100_000_000
@@ -114,6 +114,8 @@ async function getPlaylistInfo(
     sandboxId: string,
     url: string,
 ): Promise<YouTubePlaylistInfo> {
+    const startedAt = Date.now()
+
     // Validate URL before processing
     if (!isYoutubeUrl(url)) {
         throw new Error("Invalid YouTube URL")
@@ -152,6 +154,14 @@ async function getPlaylistInfo(
             }
         })
 
+        logger.info({
+            message: "youtube.inspect.completed",
+            sandboxId,
+            sourceType: "playlist",
+            sourceCount: videos.length,
+            durationMs: Date.now() - startedAt,
+        })
+
         return {id: playlistId, title: playlistTitle, videos}
     } else {
         const result = await sandbox.exec(
@@ -170,6 +180,14 @@ async function getPlaylistInfo(
 
         const video = parseVideoInfo(output)
 
+        logger.info({
+            message: "youtube.inspect.completed",
+            sandboxId,
+            sourceType: "video",
+            sourceCount: 1,
+            durationMs: Date.now() - startedAt,
+        })
+
         return {
             id: video.id,
             title: video.title,
@@ -184,9 +202,11 @@ async function downloadVideo(
     sandboxId: string,
     video: YouTubeVideo,
 ): Promise<DownloadedAudio> {
+    const startedAt = Date.now()
     const sandbox = getSandbox(env.SANDBOX, sandboxId)
-    const filename = `${video.id}.mp3`
+    const filename = `${video.id}.m4a`
     const path = `/tmp/${filename}`
+    const contentType = "audio/mp4"
     const escapedPath = escapeShellArg(path)
     const escapedUrl = escapeShellArg(video.url)
 
@@ -196,7 +216,7 @@ async function downloadVideo(
     try {
         const downloadResult = await sandbox.exec(
             `yt-dlp --no-check-certificates ` +
-                `--extract-audio --audio-format mp3 --audio-quality 0 ` +
+                `--format 'bestaudio[ext=m4a]' ` +
                 `-o ${escapedPath} --no-playlist ${escapedUrl}`,
         )
 
@@ -206,7 +226,15 @@ async function downloadVideo(
             )
         }
 
-        return {path, filename}
+        logger.info({
+            message: "youtube.audio.download.completed",
+            sandboxId,
+            videoId: video.id,
+            sourceDurationSeconds: video.duration,
+            durationMs: Date.now() - startedAt,
+        })
+
+        return {path, filename, contentType}
     } catch (error) {
         await sandbox.exec(`rm -f ${escapedPath}`)
         throw error
@@ -220,6 +248,7 @@ async function splitAudio(
     source: DownloadedAudio,
     tracks: AudioTrack[],
 ): Promise<DownloadedAudio[]> {
+    const startedAt = Date.now()
     const segments = tracks.map(track => {
         const {startTime, endTime} = track
         if (
@@ -234,8 +263,9 @@ async function splitAudio(
         }
 
         const audio = {
-            path: `/tmp/${track.id}.mp3`,
-            filename: `${track.id}.mp3`,
+            path: `/tmp/${track.id}.m4a`,
+            filename: `${track.id}.m4a`,
+            contentType: source.contentType,
         }
         if (audio.path === source.path) {
             throw new Error(`Invalid chapter output for ${track.title}`)
@@ -270,6 +300,14 @@ async function splitAudio(
             }
         }
 
+        logger.info({
+            message: "audio.split.completed",
+            sandboxId,
+            sourceFilename: source.filename,
+            trackCount: segments.length,
+            durationMs: Date.now() - startedAt,
+        })
+
         return segments.map(segment => segment.audio)
     } catch (error) {
         for (const segment of segments) {
@@ -287,6 +325,7 @@ async function prepareAudio(
     audio: DownloadedAudio,
     title: string,
 ): Promise<Track> {
+    const startedAt = Date.now()
     const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const escapedPath = escapeShellArg(audio.path)
 
@@ -349,6 +388,15 @@ async function prepareAudio(
         if (!/^[a-f0-9]{64}$/.test(sha256)) {
             throw new Error(`Failed to hash ${title}: invalid SHA-256`)
         }
+
+        logger.info({
+            message: "audio.prepare.completed",
+            sandboxId,
+            filename: audio.filename,
+            bytes: byteLength,
+            durationSeconds,
+            durationMs: Date.now() - startedAt,
+        })
 
         return {...audio, sha256, byteLength}
     } catch (error) {
@@ -456,7 +504,7 @@ async function uploadTrack(
     const escapedPath = escapeShellArg(track.path)
     const uploadResult = await sandbox.exec(
         `curl --fail --silent --show-error ` +
-            `--header 'Content-Type: audio/mpeg' ` +
+            `--header ${escapeShellArg(`Content-Type: ${track.contentType}`)} ` +
             `--upload-file ${escapedPath} "$YOTO_UPLOAD_URL"`,
         {env: {YOTO_UPLOAD_URL: uploadUrl}},
     )
