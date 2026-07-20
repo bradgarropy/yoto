@@ -17,6 +17,11 @@ const mockTranscodeAudio = vi.fn()
 const mockUpdateCard = vi.fn()
 
 vi.mock("cloudflare:workers", () => ({
+    env: {
+        ANALYTICS: {
+            writeDataPoint: vi.fn(),
+        },
+    },
     WorkflowEntrypoint: class {},
 }))
 
