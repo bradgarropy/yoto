@@ -112,8 +112,4 @@ function writeAnalyticsEvent<TEvent extends TelemetryEvent>(
     analytics.writeDataPoint(createAnalyticsDataPoint(event, payload))
 }
 
-export {
-    ANALYTICS_COLUMN,
-    createAnalyticsDataPoint,
-    writeAnalyticsEvent,
-}
+export {ANALYTICS_COLUMN, createAnalyticsDataPoint, writeAnalyticsEvent}
