@@ -1,22 +1,9 @@
 import {afterEach, describe, expect, it, vi} from "vitest"
 
-const {writeDataPoint} = vi.hoisted(() => ({
-    writeDataPoint: vi.fn(),
-}))
-
-vi.mock("cloudflare:workers", () => ({
-    env: {
-        ANALYTICS: {
-            writeDataPoint,
-        },
-    },
-}))
-
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 
 afterEach(() => {
     vi.restoreAllMocks()
-    writeDataPoint.mockClear()
 })
 
 describe("telemetry", () => {
@@ -39,7 +26,6 @@ describe("telemetry", () => {
             event: EVENT.AUTH.LOGIN.COMPLETED,
             level,
         })
-        expect(writeDataPoint).toHaveBeenCalledOnce()
     })
 
     it("supports events without context", () => {
@@ -53,7 +39,6 @@ describe("telemetry", () => {
             event: EVENT.AUTH.LOGIN.STARTED,
             level: "info",
         })
-        expect(writeDataPoint).toHaveBeenCalledOnce()
     })
 
     it("does not allow context to override reserved fields", () => {
@@ -78,6 +63,5 @@ describe("telemetry", () => {
             event: EVENT.AUTH.LOGIN.FAILED,
             level: "warn",
         })
-        expect(writeDataPoint).toHaveBeenCalledOnce()
     })
 })

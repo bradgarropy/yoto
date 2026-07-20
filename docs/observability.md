@@ -60,15 +60,8 @@ telemetry.info(EVENT.IMPORT.COMPLETED, {
 })
 ```
 
-Telemetry writes each event to both the structured logger and Cloudflare
-Analytics Engine. Workers Logs retain the complete event payload for
-investigation. Analytics Engine stores a stable projection of the event for
-aggregate queries and dashboards.
-
-[app/lib/analytics.server.ts](../app/lib/analytics.server.ts) defines the
-Analytics Engine column schema and serialization. Calling telemetry does not
-wait for Analytics Engine delivery; Cloudflare writes each data point in the
-background.
+Telemetry currently writes structured records through the logger. Both
+diagnostic logs and telemetry events are stored in Cloudflare Workers Logs.
 
 The [`EVENT` object](../app/lib/telemetry.server.ts) is the canonical event
 catalog. Do not maintain a duplicate event list in documentation.
@@ -178,9 +171,7 @@ without custom application instrumentation.
 Planned observability work:
 
 - Evaluate trace coverage and choose a permanent sampling rate.
-- Build useful Analytics Engine queries and dashboards.
 - Evaluate an OpenTelemetry destination when external dashboards or alerts are
   needed.
 
-The logger remains the structured logging boundary, while telemetry remains the
-single call site for product events.
+The logger should remain the structured logging boundary.

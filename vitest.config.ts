@@ -5,7 +5,6 @@ const config = defineConfig({
     plugins: [tsconfigPaths()],
     test: {
         globals: true,
-        setupFiles: ["./app/tests/setup.ts"],
     },
 })
 
