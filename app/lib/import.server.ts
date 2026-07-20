@@ -163,6 +163,8 @@ async function uploadAudio(
     )) as unknown as {uploadId: string; uploadUrl: string | null}
 
     if (uploadInfo.uploadUrl) {
+        const uploadStartedAt = Date.now()
+
         logger.info({
             message: "yoto.audio.upload.started",
             ...context,
@@ -178,6 +180,7 @@ async function uploadAudio(
             ...context,
             sha256,
             uploadId: uploadInfo.uploadId,
+            durationMs: Date.now() - uploadStartedAt,
         })
     } else {
         logger.debug({
@@ -198,6 +201,7 @@ async function waitForTranscode(
     context: AudioLogContext,
     onProgress?: () => void | Promise<void>,
 ): Promise<{key: string; duration: number; fileSize: number}> {
+    const startedAt = Date.now()
     const maxAttempts = 60
     const pollInterval = 5000
 
@@ -231,6 +235,7 @@ async function waitForTranscode(
                     transcodedSha256: transcodeStatus.transcodedSha256,
                     duration: transcodeStatus.transcodedInfo?.duration,
                     fileSize: transcodeStatus.transcodedInfo?.fileSize,
+                    durationMs: Date.now() - startedAt,
                 })
                 return {
                     key: transcodeStatus.transcodedSha256,
@@ -256,6 +261,7 @@ async function waitForTranscode(
         ...context,
         sha256,
         attempts: maxAttempts,
+        durationMs: Date.now() - startedAt,
     })
     throw new Error("Audio transcode timed out")
 }

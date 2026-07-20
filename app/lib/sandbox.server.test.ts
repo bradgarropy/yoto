@@ -4,6 +4,7 @@ import {createMockEnv} from "~/tests/mocks"
 
 const mockExec = vi.fn()
 const mockDestroy = vi.fn()
+const mockLoggerInfo = vi.fn()
 const mockGetSandbox = vi.fn<
     (
         binding: unknown,
@@ -16,6 +17,12 @@ const mockGetSandbox = vi.fn<
 
 vi.mock("@cloudflare/sandbox", () => ({
     getSandbox: (...args: [unknown, string]) => mockGetSandbox(...args),
+}))
+
+vi.mock("./logger.server", () => ({
+    logger: {
+        info: (...args: unknown[]) => mockLoggerInfo(...args),
+    },
 }))
 
 import {
@@ -41,8 +48,9 @@ const sourceTrack = {
 }
 
 const downloadedAudio = {
-    path: "/tmp/video-1.mp3",
-    filename: "video-1.mp3",
+    path: "/tmp/video-1.m4a",
+    filename: "video-1.m4a",
+    contentType: "audio/mp4",
 }
 
 const track: Track = {
@@ -70,13 +78,22 @@ describe("downloadVideo", () => {
         const result = await downloadVideo(mockEnv, sandboxId, sourceTrack)
 
         expect(result).toEqual({
-            path: "/tmp/video-1.mp3",
-            filename: "video-1.mp3",
+            path: "/tmp/video-1.m4a",
+            filename: "video-1.m4a",
+            contentType: "audio/mp4",
         })
-        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.m4a'")
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
-            expect.stringContaining("yt-dlp --no-check-certificates"),
+            expect.stringContaining(
+                "yt-dlp --no-check-certificates --format 'bestaudio[ext=m4a]'",
+            ),
+        )
+        expect(mockLoggerInfo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "youtube.audio.download.completed",
+                durationMs: expect.any(Number),
+            }),
         )
     })
 
@@ -93,7 +110,7 @@ describe("downloadVideo", () => {
         await expect(
             downloadVideo(mockEnv, sandboxId, sourceTrack),
         ).rejects.toThrow("Failed to download Test Track: download failed")
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 })
 
@@ -131,21 +148,29 @@ describe("splitAudio", () => {
 
         expect(result).toEqual([
             {
-                path: "/tmp/video-1-01.mp3",
-                filename: "video-1-01.mp3",
+                path: "/tmp/video-1-01.m4a",
+                filename: "video-1-01.m4a",
+                contentType: "audio/mp4",
             },
             {
-                path: "/tmp/video-1-02.mp3",
-                filename: "video-1-02.mp3",
+                path: "/tmp/video-1-02.m4a",
+                filename: "video-1-02.m4a",
+                contentType: "audio/mp4",
             },
         ])
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
-            "ffmpeg -v error -y -ss 0 -i '/tmp/video-1.mp3' -t 60 -map 0:a:0 -c:a copy '/tmp/video-1-01.mp3'",
+            "ffmpeg -v error -y -ss 0 -i '/tmp/video-1.m4a' -t 60 -map 0:a:0 -c:a copy '/tmp/video-1-01.m4a'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             4,
-            "ffmpeg -v error -y -ss 60 -i '/tmp/video-1.mp3' -t 120 -map 0:a:0 -c:a copy '/tmp/video-1-02.mp3'",
+            "ffmpeg -v error -y -ss 60 -i '/tmp/video-1.m4a' -t 120 -map 0:a:0 -c:a copy '/tmp/video-1-02.m4a'",
+        )
+        expect(mockLoggerInfo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "audio.split.completed",
+                durationMs: expect.any(Number),
+            }),
         )
     })
 
@@ -178,11 +203,11 @@ describe("splitAudio", () => {
 
         expect(mockExec).toHaveBeenNthCalledWith(
             5,
-            "rm -f '/tmp/video-1-01.mp3'",
+            "rm -f '/tmp/video-1-01.m4a'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             6,
-            "rm -f '/tmp/video-1-02.mp3'",
+            "rm -f '/tmp/video-1-02.m4a'",
         )
     })
 })
@@ -193,7 +218,7 @@ describe("prepareAudio", () => {
             .mockResolvedValueOnce(successfulCommand("123456\n"))
             .mockResolvedValueOnce(successfulCommand("180.5\n"))
             .mockResolvedValueOnce(
-                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.mp3\n`),
+                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.m4a\n`),
             )
 
         const result = await prepareAudio(
@@ -206,15 +231,21 @@ describe("prepareAudio", () => {
         expect(result).toEqual(track)
         expect(mockExec).toHaveBeenNthCalledWith(
             1,
-            "stat -c %s '/tmp/video-1.mp3'",
+            "stat -c %s '/tmp/video-1.m4a'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
-            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.mp3'",
+            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.m4a'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             3,
-            "sha256sum '/tmp/video-1.mp3'",
+            "sha256sum '/tmp/video-1.m4a'",
+        )
+        expect(mockLoggerInfo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "audio.prepare.completed",
+                durationMs: expect.any(Number),
+            }),
         )
     })
 
@@ -231,7 +262,7 @@ describe("prepareAudio", () => {
                 sourceTrack.title,
             ),
         ).rejects.toThrow("Failed to measure Test Track: invalid size")
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 })
 
@@ -257,29 +288,29 @@ describe("prepareTrack", () => {
             .mockResolvedValueOnce(successfulCommand("123456\n"))
             .mockResolvedValueOnce(successfulCommand("180.5\n"))
             .mockResolvedValueOnce(
-                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.mp3\n`),
+                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.m4a\n`),
             )
 
         const result = await prepareTrack(mockEnv, sandboxId, sourceTrack)
 
         expect(result).toEqual(track)
         expect(mockGetSandbox).toHaveBeenCalledWith(mockEnv.SANDBOX, sandboxId)
-        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.m4a'")
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
             expect.stringContaining("yt-dlp --no-check-certificates"),
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             3,
-            "stat -c %s '/tmp/video-1.mp3'",
+            "stat -c %s '/tmp/video-1.m4a'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             4,
-            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.mp3'",
+            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.m4a'",
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             5,
-            "sha256sum '/tmp/video-1.mp3'",
+            "sha256sum '/tmp/video-1.m4a'",
         )
     })
 
@@ -296,7 +327,7 @@ describe("prepareTrack", () => {
         await expect(
             prepareTrack(mockEnv, sandboxId, sourceTrack),
         ).rejects.toThrow("Failed to download Test Track: download failed")
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 
     it("rejects invalid file metadata and removes the file", async () => {
@@ -311,7 +342,7 @@ describe("prepareTrack", () => {
         await expect(
             prepareTrack(mockEnv, sandboxId, sourceTrack),
         ).rejects.toThrow("Failed to hash Test Track: invalid SHA-256")
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 
     it("rejects tracks longer than Yoto's limit", async () => {
@@ -327,7 +358,7 @@ describe("prepareTrack", () => {
         ).rejects.toThrow(
             "Test Track is too long for Yoto. Tracks must be 60 minutes or shorter.",
         )
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 
     it("rejects tracks larger than Yoto's limit", async () => {
@@ -343,7 +374,7 @@ describe("prepareTrack", () => {
         ).rejects.toThrow(
             "Test Track is too large for Yoto. Tracks must be 100 MB or smaller.",
         )
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 
     it("reports both limits when a track exceeds both", async () => {
@@ -359,7 +390,7 @@ describe("prepareTrack", () => {
         ).rejects.toThrow(
             "Test Track is too long and too large for Yoto. Tracks must be 60 minutes or shorter and 100 MB or smaller.",
         )
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 })
 
@@ -394,7 +425,7 @@ describe("prepareTracks", () => {
                 return successfulCommand("60\n")
             }
             if (command.startsWith("sha256sum ")) {
-                return successfulCommand(`${"a".repeat(64)}  audio.mp3\n`)
+                return successfulCommand(`${"a".repeat(64)}  audio.m4a\n`)
             }
             return successfulCommand()
         })
@@ -415,14 +446,16 @@ describe("prepareTracks", () => {
 
         expect(result).toEqual([
             {
-                path: "/tmp/video-1-01.mp3",
-                filename: "video-1-01.mp3",
+                path: "/tmp/video-1-01.m4a",
+                filename: "video-1-01.m4a",
+                contentType: "audio/mp4",
                 sha256: "a".repeat(64),
                 byteLength: 123456,
             },
             {
-                path: "/tmp/video-1-02.mp3",
-                filename: "video-1-02.mp3",
+                path: "/tmp/video-1-02.m4a",
+                filename: "video-1-02.m4a",
+                contentType: "audio/mp4",
                 sha256: "a".repeat(64),
                 byteLength: 123456,
             },
@@ -435,7 +468,7 @@ describe("prepareTracks", () => {
         expect(
             commands.filter(command => command.startsWith("ffmpeg ")).length,
         ).toBe(2)
-        expect(commands.at(-1)).toBe("rm -f '/tmp/video-1.mp3'")
+        expect(commands.at(-1)).toBe("rm -f '/tmp/video-1.m4a'")
     })
 
     it("uses the existing whole-video preparation path", async () => {
@@ -447,7 +480,7 @@ describe("prepareTracks", () => {
                 return successfulCommand("180\n")
             }
             if (command.startsWith("sha256sum ")) {
-                return successfulCommand(`${"a".repeat(64)}  audio.mp3\n`)
+                return successfulCommand(`${"a".repeat(64)}  audio.m4a\n`)
             }
             return successfulCommand()
         })
@@ -497,7 +530,7 @@ describe("prepareTracks", () => {
                 return successfulCommand("60\n")
             }
             if (command.startsWith("sha256sum ")) {
-                return successfulCommand(`${"a".repeat(64)}  audio.mp3\n`)
+                return successfulCommand(`${"a".repeat(64)}  audio.m4a\n`)
             }
             return successfulCommand()
         })
@@ -512,9 +545,9 @@ describe("prepareTracks", () => {
         ).rejects.toThrow("Failed to measure Chapter Two: invalid size")
 
         const commands = mockExec.mock.calls.map(([command]) => command)
-        expect(commands).toContain("rm -f '/tmp/video-1.mp3'")
-        expect(commands).toContain("rm -f '/tmp/video-1-01.mp3'")
-        expect(commands).toContain("rm -f '/tmp/video-1-02.mp3'")
+        expect(commands).toContain("rm -f '/tmp/video-1.m4a'")
+        expect(commands).toContain("rm -f '/tmp/video-1-01.m4a'")
+        expect(commands).toContain("rm -f '/tmp/video-1-02.m4a'")
     })
 })
 
@@ -572,6 +605,12 @@ describe("getPlaylistInfo", () => {
         expect(mockExec).toHaveBeenCalledWith(
             expect.stringContaining("--skip-download --no-playlist"),
         )
+        expect(mockLoggerInfo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "youtube.inspect.completed",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 
     it("rejects malformed video JSON", async () => {
@@ -594,7 +633,8 @@ describe("uploadTrack", () => {
         expect(mockExec).toHaveBeenCalledOnce()
         const [command, options] = mockExec.mock.calls[0]
         expect(command).toContain("curl --fail --silent --show-error")
-        expect(command).toContain("--upload-file '/tmp/video-1.mp3'")
+        expect(command).toContain("--header 'Content-Type: audio/mp4'")
+        expect(command).toContain("--upload-file '/tmp/video-1.m4a'")
         expect(command).toContain('"$YOTO_UPLOAD_URL"')
         expect(command).not.toContain(uploadUrl)
         expect(options).toEqual({env: {YOTO_UPLOAD_URL: uploadUrl}})
@@ -628,7 +668,7 @@ describe("uploadTrack", () => {
                 track,
                 "https://uploads.example.com/audio",
             ),
-        ).rejects.toThrow("Failed to upload video-1.mp3: HTTP 403")
+        ).rejects.toThrow("Failed to upload video-1.m4a: HTTP 403")
     })
 })
 
@@ -638,7 +678,7 @@ describe("removeTrack", () => {
 
         await removeTrack(mockEnv, sandboxId, track)
 
-        expect(mockExec).toHaveBeenCalledWith("rm -f '/tmp/video-1.mp3'")
+        expect(mockExec).toHaveBeenCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 })
 
