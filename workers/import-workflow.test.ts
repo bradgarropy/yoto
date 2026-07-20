@@ -330,8 +330,11 @@ describe("ImportWorkflow", () => {
 
         expect(result).toEqual({importId: cardImport.id, ...importResult})
         expect(console.warn).toHaveBeenCalledWith(
-            "Failed to destroy import sandbox",
-            expect.objectContaining({error: "Cleanup failed"}),
+            expect.objectContaining({
+                message: "import.sandbox.destroy_failed",
+                error: "Cleanup failed",
+                level: "warn",
+            }),
         )
     })
 })

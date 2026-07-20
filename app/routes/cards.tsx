@@ -27,6 +27,7 @@ import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
 import {getCardCoverUrl} from "~/lib/card-utils"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
+import {logger} from "~/lib/logger.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {authContext} from "~/middleware/auth.server"
 
@@ -110,7 +111,10 @@ export async function loader({context}: Route.LoaderArgs) {
 
         return {cards: cardsWithDetails}
     } catch (error) {
-        console.error("Failed to fetch cards:", error)
+        logger.error({
+            message: "cards.fetch_failed",
+            error,
+        })
         return {cards: []}
     }
 }
@@ -174,7 +178,10 @@ export async function action({request, context}: Route.ActionArgs) {
                 reason: "operation_failed",
                 durationMs: Date.now() - startedAt,
             })
-            console.error("Failed to create card:", error)
+            logger.error({
+                message: "card.create_failed",
+                error,
+            })
             return {
                 error:
                     error instanceof Error

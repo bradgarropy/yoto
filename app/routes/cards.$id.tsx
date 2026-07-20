@@ -44,6 +44,7 @@ import {getToken} from "~/lib/auth.server"
 import {getCardCoverUrl} from "~/lib/card-utils"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/import-utils"
+import {logger} from "~/lib/logger.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import type {CardData} from "~/lib/types"
 import {parseFormData} from "~/lib/validation.server"
@@ -143,7 +144,11 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             otherCards,
         }
     } catch (error) {
-        console.error("Failed to fetch card:", error)
+        logger.error({
+            message: "card.fetch_failed",
+            cardId,
+            error,
+        })
         throw new Response("Card not found", {status: 404})
     }
 }
@@ -1046,7 +1051,12 @@ export async function action({params, request, context}: Route.ActionArgs) {
             })
         }
 
-        console.error("Failed to perform action:", error)
+        logger.error({
+            message: "card.action_failed",
+            cardId,
+            intent,
+            error,
+        })
         return {error: "Operation failed"}
     }
 }

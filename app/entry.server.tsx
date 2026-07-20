@@ -3,6 +3,8 @@ import {renderToReadableStream} from "react-dom/server"
 import type {EntryContext} from "react-router"
 import {ServerRouter} from "react-router"
 
+import {logger} from "~/lib/logger.server"
+
 export default async function handleRequest(
     request: Request,
     responseStatusCode: number,
@@ -16,7 +18,10 @@ export default async function handleRequest(
         {
             signal: request.signal,
             onError(error: unknown) {
-                console.error(error)
+                logger.error({
+                    message: "render.failed",
+                    error,
+                })
                 responseStatusCode = 500
             },
         },

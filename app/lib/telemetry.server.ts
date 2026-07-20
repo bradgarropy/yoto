@@ -1,4 +1,4 @@
-type TelemetryLevel = "debug" | "info" | "warn" | "error"
+import {logger} from "~/lib/logger.server"
 
 const EVENT = {
     AUTH: {
@@ -184,14 +184,12 @@ type TelemetryArguments<TEvent extends TelemetryEvent> =
         : [payload: TelemetryPayloads[TEvent]]
 
 function createEvent<TEvent extends TelemetryEvent>(
-    level: TelemetryLevel,
     event: TEvent,
     payload: TelemetryPayloads[TEvent] | undefined,
 ) {
     return {
         ...payload,
         event,
-        level,
     }
 }
 
@@ -200,25 +198,25 @@ const telemetry = {
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
-        console.debug(createEvent("debug", event, payload))
+        logger.debug(createEvent(event, payload))
     },
     info<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
-        console.info(createEvent("info", event, payload))
+        logger.info(createEvent(event, payload))
     },
     warn<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
-        console.warn(createEvent("warn", event, payload))
+        logger.warn(createEvent(event, payload))
     },
     error<TEvent extends TelemetryEvent>(
         event: TEvent,
         ...[payload]: TelemetryArguments<TEvent>
     ) {
-        console.error(createEvent("error", event, payload))
+        logger.error(createEvent(event, payload))
     },
 }
 

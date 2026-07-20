@@ -17,6 +17,7 @@ import {
     updateCard,
 } from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
+import {logger} from "~/lib/logger.server"
 import {destroySandbox} from "~/lib/sandbox.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
@@ -190,7 +191,8 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     },
                     async () => {
                         await destroySandbox(this.env, sandboxId)
-                        console.info("Import sandbox destroyed", {
+                        logger.info({
+                            message: "import.sandbox.destroyed",
                             importId: cardImport.id,
                             sandboxId,
                             cardId: cardImport.cardId,
@@ -198,7 +200,8 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     },
                 )
             } catch (error) {
-                console.warn("Failed to destroy import sandbox", {
+                logger.warn({
+                    message: "import.sandbox.destroy_failed",
                     importId: cardImport.id,
                     sandboxId,
                     cardId: cardImport.cardId,
