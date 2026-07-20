@@ -44,6 +44,8 @@ import {getToken} from "~/lib/auth.server"
 import {getCardCoverUrl} from "~/lib/card-utils"
 import {cloudflareContext} from "~/lib/cloudflare-context"
 import {getNextChapterKey, stripNullValues} from "~/lib/import-utils"
+import {logger} from "~/lib/logger.server"
+import {EVENT, telemetry} from "~/lib/telemetry.server"
 import type {CardData} from "~/lib/types"
 import {parseFormData} from "~/lib/validation.server"
 import {getNumberIcons, getYotoIconUrlMap} from "~/lib/yoto-icons.server"
@@ -142,15 +144,116 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             otherCards,
         }
     } catch (error) {
-        console.error("Failed to fetch card:", error)
+        logger.error({
+            message: "card.fetch_failed",
+            cardId,
+            error,
+        })
         throw new Response("Card not found", {status: 404})
     }
 }
 
+type TrackOperation = "copy" | "delete"
+
+const TRACK_EVENT = {
+    copy: {
+        completed: EVENT.TRACK.COPY.COMPLETED,
+        failed: EVENT.TRACK.COPY.FAILED,
+    },
+    delete: {
+        completed: EVENT.TRACK.DELETE.COMPLETED,
+        failed: EVENT.TRACK.DELETE.FAILED,
+    },
+} as const
+
+const getTrackOperation = (
+    intent: FormDataEntryValue | null,
+): TrackOperation | null => {
+    if (intent === "copyTrack" || intent === "copyTracks") return "copy"
+    if (intent === "deleteTrack" || intent === "deleteTracks") return "delete"
+    return null
+}
+
+const getTrackKeys = (formData: FormData): string[] => {
+    const trackKey = formData.get("trackKey")
+    if (typeof trackKey === "string" && trackKey) return [trackKey]
+
+    const trackKeys = formData.get("trackKeys")
+    if (typeof trackKeys !== "string") return []
+
+    try {
+        const parsed = JSON.parse(trackKeys)
+        return Array.isArray(parsed)
+            ? parsed.filter(value => typeof value === "string")
+            : []
+    } catch {
+        return []
+    }
+}
+
+function createTrackOperationTelemetry({
+    cardId,
+    formData,
+    intent,
+    startedAt,
+}: {
+    cardId: string
+    formData: FormData
+    intent: FormDataEntryValue | null
+    startedAt: number
+}) {
+    const operation = getTrackOperation(intent)
+    if (!operation) return null
+
+    const trackKeys = getTrackKeys(formData)
+    const requestedCount = trackKeys.length
+    const destinationCardId = formData.get("destinationCardId")
+    const basePayload = {
+        cardId,
+        ...(typeof destinationCardId === "string" &&
+            destinationCardId && {destinationCardId}),
+        trackKeys,
+        requestedCount,
+    }
+
+    return {
+        completed(succeededCount = requestedCount) {
+            telemetry.info(TRACK_EVENT[operation].completed, {
+                ...basePayload,
+                succeededCount,
+                failedCount: requestedCount - succeededCount,
+                durationMs: Date.now() - startedAt,
+            })
+        },
+        failed(reason: string, level: "warn" | "error" = "warn") {
+            const payload = {
+                ...basePayload,
+                succeededCount: 0,
+                failedCount: requestedCount,
+                reason,
+                durationMs: Date.now() - startedAt,
+            }
+
+            if (level === "error") {
+                telemetry.error(TRACK_EVENT[operation].failed, payload)
+            } else {
+                telemetry.warn(TRACK_EVENT[operation].failed, payload)
+            }
+        },
+    }
+}
+
 export async function action({params, request, context}: Route.ActionArgs) {
+    const startedAt = Date.now()
     const cardId = params.id
     const formData = await request.formData()
     const intent = formData.get("intent")
+    const trackTelemetry = createTrackOperationTelemetry({
+        cardId,
+        formData,
+        intent,
+        startedAt,
+    })
 
     // Get env from Cloudflare context
     const {env} = context.get(cloudflareContext)
@@ -162,6 +265,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const trackKey = formData.get("trackKey") as string
 
             if (!trackKey) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track key is required"}
             }
 
@@ -174,6 +278,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const updatedChapters = card.content.chapters.filter(
                 chapter => chapter.key !== trackKey,
             )
+
+            if (updatedChapters.length === card.content.chapters.length) {
+                trackTelemetry?.failed("track_not_found")
+                return {error: "Track not found"}
+            }
 
             // Update card with remaining chapters
             const updatedCard = {
@@ -192,6 +301,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed()
             return {success: true, deleted: trackKey}
         }
 
@@ -199,6 +309,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const trackKeysJson = formData.get("trackKeys")
 
             if (typeof trackKeysJson !== "string") {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track keys are required"}
             }
 
@@ -207,12 +318,14 @@ export async function action({params, request, context}: Route.ActionArgs) {
             try {
                 trackKeys = JSON.parse(trackKeysJson)
             } catch {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Invalid track keys"}
             }
 
             const result = trackKeysSchema.safeParse(trackKeys)
 
             if (!result.success) {
+                trackTelemetry?.failed("invalid_request")
                 return {
                     error:
                         result.error.issues[0]?.message ?? "Invalid track keys",
@@ -230,6 +343,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 card.content.chapters.length - updatedChapters.length
 
             if (deletedCount === 0) {
+                trackTelemetry?.failed("tracks_not_found")
                 return {error: "Selected tracks were not found"}
             }
 
@@ -249,6 +363,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed(deletedCount)
             return {success: true, deletedCount}
         }
 
@@ -259,14 +374,17 @@ export async function action({params, request, context}: Route.ActionArgs) {
             ) as string
 
             if (!trackKey) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track key is required"}
             }
 
             if (!destinationCardId) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Destination card is required"}
             }
 
             if (destinationCardId === cardId) {
+                trackTelemetry?.failed("same_card")
                 return {error: "Cannot copy a track to the same card"}
             }
 
@@ -285,6 +403,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             )
 
             if (!chapterToCopy) {
+                trackTelemetry?.failed("track_not_found")
                 return {error: "Track not found on source card"}
             }
 
@@ -316,6 +435,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed()
             return {
                 success: true,
                 copied: true,
@@ -328,14 +448,17 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const destinationCardId = formData.get("destinationCardId")
 
             if (typeof trackKeysJson !== "string") {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Track keys are required"}
             }
 
             if (typeof destinationCardId !== "string" || !destinationCardId) {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Destination card is required"}
             }
 
             if (destinationCardId === cardId) {
+                trackTelemetry?.failed("same_card")
                 return {error: "Cannot copy tracks to the same card"}
             }
 
@@ -344,12 +467,14 @@ export async function action({params, request, context}: Route.ActionArgs) {
             try {
                 trackKeys = JSON.parse(trackKeysJson)
             } catch {
+                trackTelemetry?.failed("invalid_request")
                 return {error: "Invalid track keys"}
             }
 
             const result = trackKeysSchema.safeParse(trackKeys)
 
             if (!result.success) {
+                trackTelemetry?.failed("invalid_request")
                 return {
                     error:
                         result.error.issues[0]?.message ?? "Invalid track keys",
@@ -368,6 +493,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
             )
 
             if (chaptersToCopy.length !== selectedTrackKeys.size) {
+                trackTelemetry?.failed("tracks_not_found")
                 return {error: "One or more selected tracks were not found"}
             }
 
@@ -400,6 +526,7 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            trackTelemetry?.completed(chaptersToCopy.length)
             return {
                 success: true,
                 copied: true,
@@ -412,17 +539,32 @@ export async function action({params, request, context}: Route.ActionArgs) {
         if (intent === "deleteCard") {
             await sdk.content.deleteCard(cardId)
 
+            telemetry.info(EVENT.CARD.DELETE.COMPLETED, {
+                cardId,
+                durationMs: Date.now() - startedAt,
+            })
             return redirect("/cards")
         }
 
         if (intent === "reorderTracks") {
-            const trackKeysJson = formData.get("trackKeys") as string
+            const trackKeys = getTrackKeys(formData)
+            const telemetryPayload = {
+                cardId,
+                trackKeys,
+                trackCount: trackKeys.length,
+                durationMs: Date.now() - startedAt,
+            }
+            const result = trackKeysSchema.safeParse(trackKeys)
 
-            if (!trackKeysJson) {
+            if (!result.success) {
+                telemetry.warn(EVENT.TRACK.REORDER.FAILED, {
+                    ...telemetryPayload,
+                    reason: "invalid_request",
+                })
                 return {error: "Track keys are required"}
             }
 
-            const newOrder = JSON.parse(trackKeysJson) as string[]
+            const newOrder = result.data
 
             // Get current card
             const card = (await sdk.content.getCard(
@@ -433,6 +575,18 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const chapterMap = new Map(
                 card.content.chapters.map(chapter => [chapter.key, chapter]),
             )
+
+            if (
+                newOrder.length !== card.content.chapters.length ||
+                newOrder.some(key => !chapterMap.has(key))
+            ) {
+                telemetry.warn(EVENT.TRACK.REORDER.FAILED, {
+                    ...telemetryPayload,
+                    reason: "tracks_not_found",
+                    durationMs: Date.now() - startedAt,
+                })
+                return {error: "One or more tracks were not found"}
+            }
 
             // Reorder chapters to match the new order
             const reorderedChapters = newOrder
@@ -459,18 +613,37 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.TRACK.REORDER.COMPLETED, {
+                ...telemetryPayload,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, reordered: true}
         }
 
         if (intent === "updateCover") {
             const coverFile = formData.get("coverFile") as File
+            const coverTelemetryPayload = {
+                cardId,
+                fileSizeBytes: coverFile?.size ?? 0,
+                contentType: coverFile?.type ?? "",
+                durationMs: Date.now() - startedAt,
+            }
 
             if (!coverFile || coverFile.size === 0) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "invalid_request",
+                })
                 return {error: "Cover image file is required"}
             }
 
             const MAX_COVER_SIZE = 10 * 1024 * 1024 // 10MB
             if (coverFile.size > MAX_COVER_SIZE) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "file_too_large",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Cover image must be under 10MB"}
             }
 
@@ -481,12 +654,22 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 "image/webp",
             ]
             if (!ALLOWED_IMAGE_TYPES.includes(coverFile.type)) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "unsupported_file_type",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Cover image must be a JPEG, PNG, GIF, or WebP"}
             }
 
             const tokenResult = await getToken(request, env)
 
             if (!tokenResult) {
+                telemetry.warn(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: "authentication_required",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Authentication required to upload cover"}
             }
 
@@ -508,6 +691,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
             })
 
             if (!uploadResponse.ok) {
+                telemetry.error(EVENT.CARD.COVER.FAILED, {
+                    ...coverTelemetryPayload,
+                    reason: `upload_failed_${uploadResponse.status}`,
+                    durationMs: Date.now() - startedAt,
+                })
                 return {
                     error: `Cover upload failed: ${uploadResponse.statusText}`,
                 }
@@ -543,16 +731,31 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.CARD.COVER.COMPLETED, {
+                ...coverTelemetryPayload,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, coverUpdated: true}
         }
 
         if (intent === "updateTrackIcon") {
             const trackKey = formData.get("trackKey") as string
             const iconId = formData.get("iconId") as string
-            const iconType =
-                (formData.get("iconType") as "yoto" | "community") ?? "yoto"
+            const requestedIconType = formData.get("iconType")
+            const iconType: "yoto" | "community" =
+                requestedIconType === "community" ? "community" : "yoto"
+            const telemetryPayload = {
+                cardId,
+                trackKey: trackKey ?? "",
+                iconType,
+                durationMs: Date.now() - startedAt,
+            }
 
             if (!trackKey || !iconId) {
+                telemetry.warn(EVENT.TRACK.ICON.FAILED, {
+                    ...telemetryPayload,
+                    reason: "invalid_request",
+                })
                 return {error: "Track key and icon ID are required"}
             }
 
@@ -567,6 +770,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 const iconTokenResult = await getToken(request, env)
 
                 if (!iconTokenResult) {
+                    telemetry.warn(EVENT.TRACK.ICON.FAILED, {
+                        ...telemetryPayload,
+                        reason: "authentication_required",
+                        durationMs: Date.now() - startedAt,
+                    })
                     return {error: "Authentication required to upload icons"}
                 }
 
@@ -583,6 +791,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 )
 
                 if (!uploadResponse.ok) {
+                    telemetry.error(EVENT.TRACK.ICON.FAILED, {
+                        ...telemetryPayload,
+                        reason: `upload_failed_${uploadResponse.status}`,
+                        durationMs: Date.now() - startedAt,
+                    })
                     return {
                         error: `Icon upload failed: ${uploadResponse.statusText}`,
                     }
@@ -599,6 +812,17 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const card = (await sdk.content.getCard(
                 cardId,
             )) as unknown as CardData
+
+            if (
+                !card.content.chapters.some(chapter => chapter.key === trackKey)
+            ) {
+                telemetry.warn(EVENT.TRACK.ICON.FAILED, {
+                    ...telemetryPayload,
+                    reason: "track_not_found",
+                    durationMs: Date.now() - startedAt,
+                })
+                return {error: "Track not found"}
+            }
 
             // Find and update the chapter's icon (both chapter-level and track-level)
             const updatedChapters = card.content.chapters.map(chapter => {
@@ -641,6 +865,10 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.TRACK.ICON.COMPLETED, {
+                ...telemetryPayload,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, iconUpdated: true}
         }
 
@@ -648,6 +876,13 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const numberIcons = await getNumberIcons(request, env)
 
             if (numberIcons.size === 0) {
+                telemetry.warn(EVENT.TRACK.NUMBER.FAILED, {
+                    cardId,
+                    trackCount: 0,
+                    numberedCount: 0,
+                    reason: "icons_unavailable",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error: "Could not find number icons"}
             }
 
@@ -655,6 +890,9 @@ export async function action({params, request, context}: Route.ActionArgs) {
             const card = (await sdk.content.getCard(
                 cardId,
             )) as unknown as CardData
+            const numberedCount = card.content.chapters.filter((_, index) =>
+                numberIcons.has(index + 1),
+            ).length
 
             const updatedChapters = card.content.chapters.map(
                 (chapter, index) => {
@@ -699,6 +937,12 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.TRACK.NUMBER.COMPLETED, {
+                cardId,
+                trackCount: card.content.chapters.length,
+                numberedCount,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, tracksNumbered: true}
         }
 
@@ -707,6 +951,11 @@ export async function action({params, request, context}: Route.ActionArgs) {
 
             if (!result.success) {
                 const error = result.error.issues[0]?.message ?? "Invalid title"
+                telemetry.warn(EVENT.CARD.TITLE.FAILED, {
+                    cardId,
+                    reason: "invalid_request",
+                    durationMs: Date.now() - startedAt,
+                })
                 return {error}
             }
 
@@ -729,12 +978,85 @@ export async function action({params, request, context}: Route.ActionArgs) {
                 >[0],
             )
 
+            telemetry.info(EVENT.CARD.TITLE.COMPLETED, {
+                cardId,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, titleUpdated: true}
         }
 
         return {error: "Invalid intent"}
     } catch (error) {
-        console.error("Failed to perform action:", error)
+        trackTelemetry?.failed("operation_failed", "error")
+
+        if (intent === "reorderTracks") {
+            const trackKeys = getTrackKeys(formData)
+            telemetry.error(EVENT.TRACK.REORDER.FAILED, {
+                cardId,
+                trackKeys,
+                trackCount: trackKeys.length,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "updateTrackIcon") {
+            const trackKey = formData.get("trackKey")
+            telemetry.error(EVENT.TRACK.ICON.FAILED, {
+                cardId,
+                trackKey: typeof trackKey === "string" ? trackKey : "",
+                iconType:
+                    formData.get("iconType") === "community"
+                        ? "community"
+                        : "yoto",
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "deleteCard") {
+            telemetry.error(EVENT.CARD.DELETE.FAILED, {
+                cardId,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "updateTitle") {
+            telemetry.error(EVENT.CARD.TITLE.FAILED, {
+                cardId,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "updateCover") {
+            const coverFile = formData.get("coverFile")
+            telemetry.error(EVENT.CARD.COVER.FAILED, {
+                cardId,
+                fileSizeBytes: coverFile instanceof File ? coverFile.size : 0,
+                contentType: coverFile instanceof File ? coverFile.type : "",
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        if (intent === "numberTracks") {
+            telemetry.error(EVENT.TRACK.NUMBER.FAILED, {
+                cardId,
+                trackCount: 0,
+                numberedCount: 0,
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+        }
+
+        logger.error({
+            message: "card.action_failed",
+            cardId,
+            intent,
+            error,
+        })
         return {error: "Operation failed"}
     }
 }

@@ -59,6 +59,12 @@ npm run typecheck   # Check TypeScript types
 npm run format      # Check code formatting
 ```
 
+### Observability
+
+The application uses structured diagnostic logs and typed product telemetry.
+See [Observability](docs/observability.md) for event conventions, log levels,
+privacy rules, testing guidance, and instructions for viewing logs.
+
 ### Local Development with Containers
 
 This app uses [Cloudflare Containers](https://developers.cloudflare.com/containers/) for YouTube downloading via yt-dlp. For local development:

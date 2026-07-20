@@ -4,6 +4,7 @@ import {z} from "zod"
 
 import {FeedbackEmail} from "~/components/FeedbackEmail"
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {logger} from "~/lib/logger.server"
 import {isValidOrigin} from "~/lib/security.server"
 import {parseFormData} from "~/lib/validation.server"
 import {feedbackSchema} from "~/schemas/feedback"
@@ -62,7 +63,10 @@ export async function action({request, context}: Route.ActionArgs) {
 
         return Response.json({success: true})
     } catch (error) {
-        console.error("Failed to send feedback email:", error)
+        logger.error({
+            message: "feedback.email.send_failed",
+            error,
+        })
 
         return Response.json(
             {error: "Failed to send feedback. Please try again."},

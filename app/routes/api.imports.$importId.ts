@@ -1,5 +1,6 @@
 import {isAuthenticated} from "~/lib/auth.server"
 import {cloudflareContext} from "~/lib/cloudflare-context"
+import {logger} from "~/lib/logger.server"
 
 import type {Route} from "./+types/api.imports.$importId"
 
@@ -24,7 +25,8 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
             output: instanceStatus.output ?? null,
         })
     } catch (error) {
-        console.warn("Failed to get import workflow status", {
+        logger.warn({
+            message: "import.status.read_failed",
             importId,
             error: error instanceof Error ? error.message : String(error),
         })

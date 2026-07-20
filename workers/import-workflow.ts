@@ -17,7 +17,16 @@ import {
     updateCard,
 } from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
+import {logger} from "~/lib/logger.server"
 import {destroySandbox} from "~/lib/sandbox.server"
+import {EVENT, telemetry} from "~/lib/telemetry.server"
+import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
+
+type ImportStage =
+    | "inspect_video"
+    | "import_video"
+    | "transcode_audio"
+    | "update_card"
 
 class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     override async run(
@@ -27,12 +36,15 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         const {credential, ...cardImport} = event.payload
         const sandboxId = getImportSandboxId(cardImport)
         const progress = this.env.IMPORT_PROGRESS.getByName(cardImport.id)
-
-        console.info("Import workflow started", {
+        const telemetryContext = {
             importId: cardImport.id,
-            sandboxId,
             cardId: cardImport.cardId,
-        })
+            youtubeUrl: getCanonicalYouTubeUrl(cardImport.youtubeUrl),
+            sourceType: getYouTubeUrlType(cardImport.youtubeUrl),
+            splitByChapters: cardImport.splitByChapters,
+        }
+        const startedAt = event.timestamp.getTime()
+        let stage: ImportStage = "inspect_video"
 
         const getSdk = async () => {
             const token = await readImportCredential(credential, this.env)
@@ -43,6 +55,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         ) => progress.reportProgress(update)
 
         try {
+            stage = "inspect_video"
             const tracks = await step.do(
                 "inspect video",
                 {
@@ -58,7 +71,12 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
             const chapterSplitUnavailable =
                 cardImport.splitByChapters &&
                 tracks.every(track => !track.chapters?.length)
+            const sourceDurationSeconds = tracks.reduce(
+                (total, track) => total + (track.duration ?? 0),
+                0,
+            )
 
+            stage = "import_video"
             const importedTracks = await step.do(
                 "import video",
                 {
@@ -81,6 +99,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 },
             )
 
+            stage = "transcode_audio"
             const transcodedTracks = await step.do(
                 "transcode audio",
                 {
@@ -102,6 +121,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 },
             )
 
+            stage = "update_card"
             const result = await step.do(
                 "update card",
                 {
@@ -128,6 +148,15 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 : result
 
             await progress.reportComplete(completedResult)
+            telemetry.info(EVENT.IMPORT.COMPLETED, {
+                ...telemetryContext,
+                durationMs: Date.now() - startedAt,
+                sourceTrackCount: tracks.length,
+                sourceDurationSeconds,
+                added: completedResult.added,
+                skipped: completedResult.skipped,
+                chapterSplitUnavailable,
+            })
 
             return {
                 importId: cardImport.id,
@@ -139,6 +168,14 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     ? error.message
                     : "Import failed unexpectedly"
             await progress.reportError(message)
+            telemetry.error(EVENT.IMPORT.FAILED, {
+                ...telemetryContext,
+                stage,
+                reason: "workflow_step_failed",
+                errorName: error instanceof Error ? error.name : "UnknownError",
+                errorMessage: message,
+                durationMs: Date.now() - startedAt,
+            })
             throw error
         } finally {
             try {
@@ -154,7 +191,8 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     },
                     async () => {
                         await destroySandbox(this.env, sandboxId)
-                        console.info("Import sandbox destroyed", {
+                        logger.info({
+                            message: "import.sandbox.destroyed",
                             importId: cardImport.id,
                             sandboxId,
                             cardId: cardImport.cardId,
@@ -162,7 +200,8 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     },
                 )
             } catch (error) {
-                console.warn("Failed to destroy import sandbox", {
+                logger.warn({
+                    message: "import.sandbox.destroy_failed",
                     importId: cardImport.id,
                     sandboxId,
                     cardId: cardImport.cardId,

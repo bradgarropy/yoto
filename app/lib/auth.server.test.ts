@@ -1,5 +1,6 @@
-import {beforeEach, describe, expect, it, vi} from "vitest"
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
+import {EVENT} from "~/lib/telemetry.server"
 import {createMockEnv} from "~/tests/mocks"
 
 // Mock the auth-cookie module
@@ -54,12 +55,19 @@ const mockEnv = createMockEnv()
 
 beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
     mockSerializeAuthCookie.mockResolvedValue(
         "yoto-auth=encrypted; Path=/; HttpOnly",
     )
     mockClearAuthCookie.mockResolvedValue(
         "yoto-auth=; Max-Age=0; Path=/; HttpOnly",
     )
+})
+
+afterEach(() => {
+    vi.restoreAllMocks()
 })
 
 describe("initiateLogin", () => {
@@ -78,6 +86,10 @@ describe("initiateLogin", () => {
 
         expect(mockAuth.initiate).toHaveBeenCalledWith("offline_access")
         expect(result).toEqual(deviceCodeResult)
+        expect(console.info).toHaveBeenCalledWith({
+            event: EVENT.AUTH.LOGIN.STARTED,
+            level: "info",
+        })
     })
 
     it("should return error result when initiate fails", async () => {
@@ -90,6 +102,15 @@ describe("initiateLogin", () => {
         const result = await initiateLogin()
 
         expect(result).toEqual(errorResult)
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGIN.FAILED,
+                level: "error",
+                stage: "initiate",
+                reason: "provider_error",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 })
 
@@ -125,6 +146,13 @@ describe("completeLogin", () => {
             expiresIn: "1 hour",
             setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
         })
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGIN.COMPLETED,
+                level: "info",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 
     it("should return error when polling fails", async () => {
@@ -142,6 +170,40 @@ describe("completeLogin", () => {
 
         expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
         expect(result).toEqual({success: false, error: "Authorization expired"})
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGIN.FAILED,
+                level: "error",
+                stage: "complete",
+                reason: "provider_error",
+                durationMs: expect.any(Number),
+            }),
+        )
+    })
+
+    it("should warn when access is denied", async () => {
+        mockAuth.pollForToken.mockResolvedValue({
+            success: false,
+            error: "access_denied",
+        })
+
+        const result = await completeLogin(
+            createMockRequest(),
+            mockEnv,
+            "device-code",
+            5,
+        )
+
+        expect(result).toEqual({success: false, error: "access_denied"})
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGIN.FAILED,
+                level: "warn",
+                stage: "complete",
+                reason: "access_denied",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 
     it("should use custom timeout when provided", async () => {
@@ -174,6 +236,30 @@ describe("logout", () => {
 
         expect(mockClearAuthCookie).toHaveBeenCalledWith(mockEnv, false)
         expect(result).toBe("yoto-auth=; Max-Age=0; Path=/; HttpOnly")
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGOUT.COMPLETED,
+                level: "info",
+                durationMs: expect.any(Number),
+            }),
+        )
+    })
+
+    it("should log and rethrow when clearing the cookie fails", async () => {
+        mockClearAuthCookie.mockRejectedValue(new Error("Cookie failure"))
+
+        await expect(logout(createMockRequest(), mockEnv)).rejects.toThrow(
+            "Cookie failure",
+        )
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGOUT.FAILED,
+                level: "error",
+                reason: "unexpected_error",
+                errorName: "Error",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 })
 
@@ -249,6 +335,39 @@ describe("status", () => {
             expiresAt: newTokens.expiresAt,
             setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
         })
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.REFRESH.COMPLETED,
+                level: "info",
+                durationMs: expect.any(Number),
+            }),
+        )
+    })
+
+    it("should warn when token refresh is rejected", async () => {
+        const expiredTokens = {
+            accessToken: "expired-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date.now() - 100000,
+            tokenType: "Bearer",
+        }
+        mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
+        mockAuth.refreshToken.mockResolvedValue({
+            success: false,
+            error: "Invalid refresh token",
+        })
+
+        const result = await status(createMockRequest(), mockEnv)
+
+        expect(result).toEqual({valid: false, reason: "expired"})
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.REFRESH.FAILED,
+                level: "warn",
+                reason: "rejected",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 })
 

@@ -14,6 +14,7 @@ import {
     stripNullValues,
     type YotoChapter,
 } from "~/lib/import-utils"
+import {logger} from "~/lib/logger.server"
 import {
     getPlaylistInfo,
     prepareTracks,
@@ -121,7 +122,8 @@ async function uploadAudio(
             false,
         )) as unknown as TranscodeResult
 
-        console.info("Yoto audio transcode cache lookup", {
+        logger.debug({
+            message: "yoto.audio.transcode.cache_lookup",
             ...context,
             sha256,
             phase: existingStatus?.progress?.phase,
@@ -131,7 +133,8 @@ async function uploadAudio(
             existingStatus?.progress?.phase === "complete" &&
             existingStatus.transcodedSha256
         ) {
-            console.info("Yoto audio already transcoded", {
+            logger.info({
+                message: "yoto.audio.transcode.cache_hit",
                 ...context,
                 sha256,
                 transcodedSha256: existingStatus.transcodedSha256,
@@ -145,7 +148,8 @@ async function uploadAudio(
         }
     } catch (error) {
         // File doesn't exist yet, continue with upload
-        console.info("Yoto audio transcode cache miss", {
+        logger.debug({
+            message: "yoto.audio.transcode.cache_miss",
             ...context,
             sha256,
             error: getErrorMessage(error),
@@ -159,7 +163,8 @@ async function uploadAudio(
     )) as unknown as {uploadId: string; uploadUrl: string | null}
 
     if (uploadInfo.uploadUrl) {
-        console.info("Yoto audio upload starting", {
+        logger.info({
+            message: "yoto.audio.upload.started",
             ...context,
             sha256,
             uploadId: uploadInfo.uploadId,
@@ -168,13 +173,15 @@ async function uploadAudio(
 
         await uploadTrack(env, sandboxId, track, uploadInfo.uploadUrl)
 
-        console.info("Yoto audio upload complete", {
+        logger.info({
+            message: "yoto.audio.upload.completed",
             ...context,
             sha256,
             uploadId: uploadInfo.uploadId,
         })
     } else {
-        console.info("Yoto audio upload skipped", {
+        logger.debug({
+            message: "yoto.audio.upload.skipped",
             ...context,
             sha256,
             uploadId: uploadInfo.uploadId,
@@ -204,7 +211,8 @@ async function waitForTranscode(
                 false,
             )) as unknown as TranscodeResult
 
-            console.info("Yoto audio transcode poll", {
+            logger.debug({
+                message: "yoto.audio.transcode.polled",
                 ...context,
                 sha256,
                 attempt: attempt + 1,
@@ -216,7 +224,8 @@ async function waitForTranscode(
                 transcodeStatus?.progress?.phase === "complete" &&
                 transcodeStatus.transcodedSha256
             ) {
-                console.info("Yoto audio transcode complete", {
+                logger.info({
+                    message: "yoto.audio.transcode.completed",
                     ...context,
                     sha256,
                     transcodedSha256: transcodeStatus.transcodedSha256,
@@ -231,7 +240,8 @@ async function waitForTranscode(
             }
         } catch (error) {
             // Continue polling
-            console.warn("Yoto audio transcode poll failed", {
+            logger.warn({
+                message: "yoto.audio.transcode.poll_failed",
                 ...context,
                 sha256,
                 attempt: attempt + 1,
@@ -241,7 +251,8 @@ async function waitForTranscode(
         }
     }
 
-    console.error("Yoto audio transcode timed out", {
+    logger.error({
+        message: "yoto.audio.transcode.timed_out",
         ...context,
         sha256,
         attempts: maxAttempts,

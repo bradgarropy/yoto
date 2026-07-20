@@ -27,6 +27,8 @@ import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
 import {getCardCoverUrl} from "~/lib/card-utils"
 import {DEFAULT_CARD_COVER_URL} from "~/lib/constants"
+import {logger} from "~/lib/logger.server"
+import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {authContext} from "~/middleware/auth.server"
 
 import type {Route} from "./+types/cards"
@@ -109,12 +111,16 @@ export async function loader({context}: Route.LoaderArgs) {
 
         return {cards: cardsWithDetails}
     } catch (error) {
-        console.error("Failed to fetch cards:", error)
+        logger.error({
+            message: "cards.fetch_failed",
+            error,
+        })
         return {cards: []}
     }
 }
 
 export async function action({request, context}: Route.ActionArgs) {
+    const startedAt = Date.now()
     const formData = await request.formData()
     const intent = formData.get("intent") as string
 
@@ -122,6 +128,10 @@ export async function action({request, context}: Route.ActionArgs) {
         const cardName = formData.get("cardName") as string
 
         if (!cardName?.trim()) {
+            telemetry.warn(EVENT.CARD.CREATE.FAILED, {
+                reason: "invalid_request",
+                durationMs: Date.now() - startedAt,
+            })
             return {error: "Card name is required"}
         }
 
@@ -150,9 +160,28 @@ export async function action({request, context}: Route.ActionArgs) {
                 >[0],
             )) as YotoCard
 
+            if (!result.cardId) {
+                telemetry.error(EVENT.CARD.CREATE.FAILED, {
+                    reason: "missing_card_id",
+                    durationMs: Date.now() - startedAt,
+                })
+                return {error: "Failed to create card"}
+            }
+
+            telemetry.info(EVENT.CARD.CREATE.COMPLETED, {
+                cardId: result.cardId,
+                durationMs: Date.now() - startedAt,
+            })
             return {success: true, cardId: result.cardId}
         } catch (error) {
-            console.error("Failed to create card:", error)
+            telemetry.error(EVENT.CARD.CREATE.FAILED, {
+                reason: "operation_failed",
+                durationMs: Date.now() - startedAt,
+            })
+            logger.error({
+                message: "card.create_failed",
+                error,
+            })
             return {
                 error:
                     error instanceof Error
