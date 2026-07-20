@@ -1,4 +1,12 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
+
+vi.mock("cloudflare:workers", () => ({
+    env: {
+        ANALYTICS: {
+            writeDataPoint: vi.fn(),
+        },
+    },
+}))
 
 import {
     ANALYTICS_COLUMN,
@@ -148,8 +156,7 @@ describe("createAnalyticsDataPoint", () => {
             durationMs: 250,
         })
 
-        expect(writeDataPoint).toHaveBeenCalledOnce()
-        expect(writeDataPoint).toHaveBeenCalledWith(
+        expect(writeDataPoint).toHaveBeenCalledExactlyOnceWith(
             createAnalyticsDataPoint(EVENT.AUTH.LOGIN.COMPLETED, {
                 durationMs: 250,
             }),
