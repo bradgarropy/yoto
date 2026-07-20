@@ -4,7 +4,6 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
     SANDBOX: {} as Env["SANDBOX"],
     IMPORT_PROGRESS: {} as Env["IMPORT_PROGRESS"],
     IMPORT_WORKFLOW: {} as Env["IMPORT_WORKFLOW"],
-    ANALYTICS: {} as Env["ANALYTICS"],
     ...overrides,
 })
 

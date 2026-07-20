@@ -17,12 +17,6 @@
             "head_sampling_rate": 1,
         },
     },
-    "analytics_engine_datasets": [
-        {
-            "binding": "ANALYTICS",
-            "dataset": "yoto_events",
-        },
-    ],
     "workflows": [
         {
             "name": "yoto-import",
