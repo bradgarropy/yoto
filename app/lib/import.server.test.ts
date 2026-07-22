@@ -345,11 +345,7 @@ describe("transcodeAudio", () => {
             },
         )
 
-        const result = await transcodeAudio(
-            sdk,
-            cardImport.cardId,
-            importedTracks,
-        )
+        const result = await transcodeAudio(sdk, cardImport, importedTracks)
 
         expect(console.info).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -373,7 +369,7 @@ describe("transcodeAudio", () => {
 
 describe("updateCard", () => {
     it("adds transcoded tracks to the latest card", async () => {
-        const result = await updateCard(sdk, cardImport.cardId, [
+        const result = await updateCard(sdk, cardImport, [
             {
                 index: 0,
                 track: audioTrack,
@@ -414,7 +410,7 @@ describe("updateCard", () => {
     it("fails before updating when the card no longer exists", async () => {
         mockGetCard.mockResolvedValue(null)
 
-        await expect(updateCard(sdk, cardImport.cardId, [])).rejects.toThrow(
+        await expect(updateCard(sdk, cardImport, [])).rejects.toThrow(
             "Card not found",
         )
 

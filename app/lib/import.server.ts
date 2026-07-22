@@ -67,6 +67,7 @@ type TranscodedTrack = {
 }
 
 type AudioLogContext = {
+    importId: string
     cardId: string
     trackId: string
     trackTitle: string
@@ -114,6 +115,7 @@ async function uploadAudio(
     context: AudioLogContext,
 ): Promise<AudioUploadResult> {
     const {sha256} = track
+    const cacheLookupStartedAt = Date.now()
 
     // Check if already transcoded
     try {
@@ -127,6 +129,7 @@ async function uploadAudio(
             ...context,
             sha256,
             phase: existingStatus?.progress?.phase,
+            durationMs: Date.now() - cacheLookupStartedAt,
         })
 
         if (
@@ -138,6 +141,7 @@ async function uploadAudio(
                 ...context,
                 sha256,
                 transcodedSha256: existingStatus.transcodedSha256,
+                durationMs: Date.now() - cacheLookupStartedAt,
             })
             return {
                 alreadyTranscoded: true,
@@ -153,14 +157,26 @@ async function uploadAudio(
             ...context,
             sha256,
             error: getErrorMessage(error),
+            durationMs: Date.now() - cacheLookupStartedAt,
         })
     }
 
     // Get upload URL
+    const uploadUrlStartedAt = Date.now()
     const uploadInfo = (await sdk.media.getUploadUrlForTranscode(
         sha256,
         track.filename,
     )) as unknown as {uploadId: string; uploadUrl: string | null}
+    const uploadUrlDurationMs = Date.now() - uploadUrlStartedAt
+
+    logger.debug({
+        message: "yoto.audio.upload_url.completed",
+        ...context,
+        sha256,
+        uploadId: uploadInfo.uploadId,
+        hasUploadUrl: Boolean(uploadInfo.uploadUrl),
+        durationMs: uploadUrlDurationMs,
+    })
 
     if (uploadInfo.uploadUrl) {
         const uploadStartedAt = Date.now()
@@ -274,12 +290,22 @@ async function inspectVideo(
     cardImport: Import,
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<YouTubeVideo[]> {
+    const startedAt = Date.now()
     await onProgress?.({phase: "preparing"})
     const youtubeInfo = await getPlaylistInfo(
         env,
         getImportSandboxId(cardImport),
         cardImport.youtubeUrl,
     )
+
+    logger.info({
+        message: "import.inspect.completed",
+        importId: cardImport.id,
+        cardId: cardImport.cardId,
+        sourceCount: youtubeInfo.videos.length,
+        durationMs: Date.now() - startedAt,
+    })
+
     return youtubeInfo.videos
 }
 
@@ -290,6 +316,7 @@ async function importVideo(
     videos: YouTubeVideo[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<ImportedTrack[]> {
+    const startedAt = Date.now()
     const {cardId} = cardImport
     const sandboxId = getImportSandboxId(cardImport)
     const limit = pLimit(CONCURRENCY_LIMIT)
@@ -306,6 +333,7 @@ async function importVideo(
     const total = nextTrackIndex
 
     let downloadedCount = 0
+    const prepareStartedAt = Date.now()
     await onProgress?.({phase: "downloading", current: 1, total})
 
     const downloadResults = await Promise.allSettled(
@@ -367,7 +395,18 @@ async function importVideo(
         return result.value
     })
 
+    logger.info({
+        message: "import.audio.prepare.completed",
+        importId: cardImport.id,
+        cardId,
+        sandboxId,
+        sourceCount: videos.length,
+        trackCount: downloadedTracks.length,
+        durationMs: Date.now() - prepareStartedAt,
+    })
+
     let uploadedCount = 0
+    const uploadStartedAt = Date.now()
     await onProgress?.({phase: "uploading", current: 1, total})
 
     const uploadResults = await Promise.allSettled(
@@ -380,6 +419,7 @@ async function importVideo(
                         sandboxId,
                         preparedTrack,
                         {
+                            importId: cardImport.id,
                             cardId,
                             trackId: track.id,
                             trackTitle: track.title,
@@ -407,24 +447,51 @@ async function importVideo(
     )
     if (failedUpload) throw failedUpload.reason
 
-    return uploadResults.map(result => {
+    const importedTracks = uploadResults.map(result => {
         if (result.status !== "fulfilled") throw result.reason
         return result.value
     })
+
+    const cacheHitCount = importedTracks.filter(
+        track => track.audio.alreadyTranscoded,
+    ).length
+
+    logger.info({
+        message: "import.audio.upload.completed",
+        importId: cardImport.id,
+        cardId,
+        sandboxId,
+        trackCount: importedTracks.length,
+        cacheHitCount,
+        uploadedCount: importedTracks.length - cacheHitCount,
+        durationMs: Date.now() - uploadStartedAt,
+    })
+    logger.info({
+        message: "import.video.completed",
+        importId: cardImport.id,
+        cardId,
+        sourceCount: videos.length,
+        trackCount: importedTracks.length,
+        durationMs: Date.now() - startedAt,
+    })
+
+    return importedTracks
 }
 
 async function transcodeAudio(
     sdk: YotoSdk,
-    cardId: string,
+    cardImport: Pick<Import, "id" | "cardId">,
     importedTracks: ImportedTrack[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<TranscodedTrack[]> {
+    const startedAt = Date.now()
+    const {id: importId, cardId} = cardImport
     const limit = pLimit(CONCURRENCY_LIMIT)
     const total = importedTracks.length
     let transcodedCount = 0
     await onProgress?.({phase: "transcoding", current: 1, total})
 
-    return Promise.all(
+    const transcodedTracks = await Promise.all(
         importedTracks.map(({index, audio, track}) =>
             limit(async () => {
                 const transcoded = audio.alreadyTranscoded
@@ -434,6 +501,7 @@ async function transcodeAudio(
                           fileSize: audio.fileSize,
                       }
                     : await waitForTranscode(sdk, audio.sha256, {
+                          importId,
                           cardId,
                           trackId: track.id,
                           trackTitle: track.title,
@@ -451,19 +519,38 @@ async function transcodeAudio(
             }),
         ),
     )
+
+    const cacheHitCount = importedTracks.filter(
+        track => track.audio.alreadyTranscoded,
+    ).length
+    logger.info({
+        message: "import.audio.transcode.completed",
+        importId,
+        cardId,
+        trackCount: transcodedTracks.length,
+        cacheHitCount,
+        transcodedCount: transcodedTracks.length - cacheHitCount,
+        durationMs: Date.now() - startedAt,
+    })
+
+    return transcodedTracks
 }
 
 async function updateCard(
     sdk: YotoSdk,
-    cardId: string,
+    cardImport: Pick<Import, "id" | "cardId">,
     transcodedTracks: TranscodedTrack[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<ImportSuccess> {
+    const startedAt = Date.now()
+    const {id: importId, cardId} = cardImport
     await onProgress?.({phase: "finalizing"})
 
+    const fetchStartedAt = Date.now()
     const card = (await sdk.content.getCard(
         cardId,
     )) as unknown as YotoCard | null
+    const fetchDurationMs = Date.now() - fetchStartedAt
     if (!card) throw new Error("Card not found")
 
     const chapters: YotoChapter[] = [...(card.content?.chapters ?? [])]
@@ -494,11 +581,23 @@ async function updateCard(
         metadata: card.metadata,
     }
 
+    const updateStartedAt = Date.now()
     await sdk.content.updateCard(
         updatedCard as unknown as Parameters<typeof sdk.content.updateCard>[0],
     )
+    const updateDurationMs = Date.now() - updateStartedAt
 
     const added = transcodedTracks.length
+    logger.info({
+        message: "import.card.update.completed",
+        importId,
+        cardId,
+        trackCount: added,
+        fetchDurationMs,
+        updateDurationMs,
+        durationMs: Date.now() - startedAt,
+    })
+
     return {
         status: "success",
         message: `Added ${added} track${added !== 1 ? "s" : ""}`,

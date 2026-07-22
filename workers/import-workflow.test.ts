@@ -101,6 +101,7 @@ const createStep = () =>
 describe("ImportWorkflow", () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        vi.spyOn(console, "debug").mockImplementation(() => {})
         vi.spyOn(console, "info").mockImplementation(() => {})
         vi.spyOn(console, "warn").mockImplementation(() => {})
         vi.spyOn(console, "error").mockImplementation(() => {})
@@ -208,13 +209,19 @@ describe("ImportWorkflow", () => {
         )
         expect(mockTranscodeAudio).toHaveBeenCalledWith(
             expect.any(Object),
-            cardImport.cardId,
+            expect.objectContaining({
+                id: cardImport.id,
+                cardId: cardImport.cardId,
+            }),
             importedTracks,
             expect.any(Function),
         )
         expect(mockUpdateCard).toHaveBeenCalledWith(
             expect.any(Object),
-            cardImport.cardId,
+            expect.objectContaining({
+                id: cardImport.id,
+                cardId: cardImport.cardId,
+            }),
             transcodedTracks,
             expect.any(Function),
         )
