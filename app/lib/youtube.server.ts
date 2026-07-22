@@ -14,6 +14,7 @@ type YouTubeVideo = {
     url: string
     duration?: number
     chapters?: YouTubeChapter[]
+    infoJsonPath?: string
 }
 
 type YouTubePlaylist = {

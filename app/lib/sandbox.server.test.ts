@@ -4,6 +4,7 @@ import {createMockEnv} from "~/tests/mocks"
 
 const mockExec = vi.fn()
 const mockDestroy = vi.fn()
+const mockWriteFile = vi.fn()
 const mockLoggerInfo = vi.fn()
 const mockGetSandbox = vi.fn<
     (
@@ -12,8 +13,13 @@ const mockGetSandbox = vi.fn<
     ) => {
         destroy: typeof mockDestroy
         exec: typeof mockExec
+        writeFile: typeof mockWriteFile
     }
->(() => ({destroy: mockDestroy, exec: mockExec}))
+>(() => ({
+    destroy: mockDestroy,
+    exec: mockExec,
+    writeFile: mockWriteFile,
+}))
 
 vi.mock("@cloudflare/sandbox", () => ({
     getSandbox: (...args: [unknown, string]) => mockGetSandbox(...args),
@@ -95,6 +101,21 @@ describe("downloadVideo", () => {
                 durationMs: expect.any(Number),
             }),
         )
+    })
+
+    it("reuses saved video info when downloading audio", async () => {
+        mockExec.mockResolvedValue(successfulCommand())
+
+        await downloadVideo(mockEnv, sandboxId, {
+            ...sourceTrack,
+            infoJsonPath: "/tmp/source.info.json",
+        })
+
+        expect(mockExec).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining("--load-info-json '/tmp/source.info.json'"),
+        )
+        expect(mockExec.mock.calls[1][0]).not.toContain(sourceTrack.url)
     })
 
     it("removes a partial download when it fails", async () => {
@@ -585,6 +606,7 @@ describe("getPlaylistInfo", () => {
             {
                 ...sourceTrack,
                 duration: 180.5,
+                infoJsonPath: "/tmp/source.info.json",
                 chapters: [
                     {
                         title: "Chapter One",
@@ -604,6 +626,10 @@ describe("getPlaylistInfo", () => {
         )
         expect(mockExec).toHaveBeenCalledWith(
             expect.stringContaining("--skip-download --no-playlist"),
+        )
+        expect(mockWriteFile).toHaveBeenCalledWith(
+            "/tmp/source.info.json",
+            expect.stringContaining('"id":"video-1"'),
         )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
