@@ -178,7 +178,9 @@ async function getPlaylistInfo(
             throw new Error("No video info found")
         }
 
-        const video = parseVideoInfo(output)
+        const infoJsonPath = "/tmp/source.info.json"
+        await sandbox.writeFile(infoJsonPath, output)
+        const video = {...parseVideoInfo(output), infoJsonPath}
 
         logger.info({
             message: "youtube.inspect.completed",
@@ -208,7 +210,9 @@ async function downloadVideo(
     const path = `/tmp/${filename}`
     const contentType = "audio/mp4"
     const escapedPath = escapeShellArg(path)
-    const escapedUrl = escapeShellArg(video.url)
+    const input = video.infoJsonPath
+        ? `--load-info-json ${escapeShellArg(video.infoJsonPath)}`
+        : `--no-playlist ${escapeShellArg(video.url)}`
 
     // Remove files left behind by an interrupted attempt for the same video.
     await sandbox.exec(`rm -f ${escapedPath}`)
@@ -217,7 +221,7 @@ async function downloadVideo(
         const downloadResult = await sandbox.exec(
             `yt-dlp --no-check-certificates ` +
                 `--format 'bestaudio[ext=m4a]' ` +
-                `-o ${escapedPath} --no-playlist ${escapedUrl}`,
+                `-o ${escapedPath} ${input}`,
         )
 
         if (!downloadResult.success) {
