@@ -46,13 +46,41 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         const startedAt = event.timestamp.getTime()
         let stage: ImportStage = "inspect_video"
 
+        logger.info({
+            message: "import.workflow.started",
+            importId: cardImport.id,
+            cardId: cardImport.cardId,
+            queueDurationMs: Date.now() - startedAt,
+        })
+
         const getSdk = async () => {
+            const sdkStartedAt = Date.now()
             const token = await readImportCredential(credential, this.env)
-            return getYotoSdk(token)
+            const sdk = getYotoSdk(token)
+
+            logger.debug({
+                message: "import.sdk.created",
+                importId: cardImport.id,
+                cardId: cardImport.cardId,
+                stage,
+                durationMs: Date.now() - sdkStartedAt,
+            })
+
+            return sdk
         }
-        const reportProgress = (
+        const reportProgress = async (
             update: Parameters<typeof progress.reportProgress>[0],
-        ) => progress.reportProgress(update)
+        ) => {
+            const progressStartedAt = Date.now()
+            await progress.reportProgress(update)
+            logger.debug({
+                message: "import.progress.published",
+                importId: cardImport.id,
+                cardId: cardImport.cardId,
+                phase: update.phase,
+                durationMs: Date.now() - progressStartedAt,
+            })
+        }
 
         try {
             stage = "inspect_video"
@@ -114,7 +142,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     const sdk = await getSdk()
                     return transcodeAudio(
                         sdk,
-                        cardImport.cardId,
+                        cardImport,
                         importedTracks,
                         reportProgress,
                     )
@@ -132,7 +160,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     const sdk = await getSdk()
                     return updateCard(
                         sdk,
-                        cardImport.cardId,
+                        cardImport,
                         transcodedTracks,
                         reportProgress,
                     )
@@ -190,12 +218,14 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                         timeout: "5 minutes",
                     },
                     async () => {
+                        const cleanupStartedAt = Date.now()
                         await destroySandbox(this.env, sandboxId)
                         logger.info({
                             message: "import.sandbox.destroyed",
                             importId: cardImport.id,
                             sandboxId,
                             cardId: cardImport.cardId,
+                            durationMs: Date.now() - cleanupStartedAt,
                         })
                     },
                 )
