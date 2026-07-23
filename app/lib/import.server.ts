@@ -9,8 +9,10 @@ import {
 } from "~/lib/import"
 import {
     createChapter,
+    getImportProgressSummary,
     getNextChapterKey,
     type ImportProgress,
+    type ImportTrackProgress,
     stripNullValues,
     type YotoChapter,
 } from "~/lib/import-utils"
@@ -87,6 +89,32 @@ const TRANSCODE_POLL_INTERVAL = 5000
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
+}
+
+function createProgressReporter(
+    tracks: ImportTrackProgress[],
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
+) {
+    let reportQueue = Promise.resolve()
+
+    return (
+        cardUpdated = false,
+        phase: Extract<
+            ImportProgress["phase"],
+            "importing" | "finalizing"
+        > = "importing",
+    ) => {
+        const progress: ImportProgress = {
+            phase,
+            ...getImportProgressSummary({
+                inspected: true,
+                tracks,
+                cardUpdated,
+            }),
+        }
+        reportQueue = reportQueue.then(() => onProgress?.(progress))
+        return reportQueue
+    }
 }
 
 function createAudioTracks(
@@ -285,7 +313,14 @@ async function inspectVideo(
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
 ): Promise<YouTubeVideo[]> {
     const startedAt = Date.now()
-    await onProgress?.({phase: "preparing"})
+    await onProgress?.({
+        phase: "preparing",
+        percent: 0,
+        total: 0,
+        prepared: 0,
+        uploaded: 0,
+        ready: 0,
+    })
     const youtubeInfo = await getPlaylistInfo(
         env,
         getImportSandboxId(cardImport),
@@ -324,11 +359,19 @@ async function importVideo(
             }),
         ),
     }))
-    const total = nextTrackIndex
+    const trackProgress = sourcePlans
+        .flatMap(({tracks}) => tracks)
+        .sort((first, second) => first.index - second.index)
+        .map(({track}) => ({
+            duration: track.duration,
+            prepared: false,
+            uploaded: false,
+            ready: false,
+        }))
+    const reportProgress = createProgressReporter(trackProgress, onProgress)
 
-    let downloadedCount = 0
     const prepareStartedAt = Date.now()
-    await onProgress?.({phase: "downloading", current: 1, total})
+    await reportProgress()
 
     const downloadResults = await Promise.allSettled(
         sourcePlans.map(({video, tracks}) =>
@@ -350,14 +393,10 @@ async function importVideo(
                     )
                 }
 
-                downloadedCount += preparedTracks.length
-                if (downloadedCount < total) {
-                    await onProgress?.({
-                        phase: "downloading",
-                        current: downloadedCount + 1,
-                        total,
-                    })
-                }
+                tracks.forEach(({index}) => {
+                    trackProgress[index].prepared = true
+                })
+                await reportProgress()
                 return preparedTracks.map((preparedTrack, index) => ({
                     ...tracks[index],
                     preparedTrack,
@@ -399,9 +438,7 @@ async function importVideo(
         durationMs: Date.now() - prepareStartedAt,
     })
 
-    let uploadedCount = 0
     const uploadStartedAt = Date.now()
-    await onProgress?.({phase: "uploading", current: 1, total})
 
     const uploadResults = await Promise.allSettled(
         downloadedTracks.map(({index, preparedTrack, track}) =>
@@ -419,14 +456,11 @@ async function importVideo(
                             trackTitle: track.title,
                         },
                     )
-                    uploadedCount++
-                    if (uploadedCount < total) {
-                        await onProgress?.({
-                            phase: "uploading",
-                            current: uploadedCount + 1,
-                            total,
-                        })
+                    trackProgress[index].uploaded = true
+                    if (audio.alreadyTranscoded) {
+                        trackProgress[index].ready = true
                     }
+                    await reportProgress()
                     return {index, audio, track}
                 } finally {
                     await removeTrack(env, sandboxId, preparedTrack)
@@ -482,20 +516,20 @@ async function transcodeAudio(
     const {id: importId, cardId} = cardImport
     const limit = pLimit(CONCURRENCY_LIMIT)
     const total = importedTracks.length
-    let transcodedCount = 0
-    await onProgress?.({phase: "transcoding", current: 1, total})
     const transcodedTracks: (TranscodedTrack | undefined)[] = Array(total)
+    const trackProgress = importedTracks.map(({audio, track}) => ({
+        duration: track.duration,
+        prepared: true,
+        uploaded: true,
+        ready: audio.alreadyTranscoded,
+    }))
+    const reportProgress = createProgressReporter(trackProgress, onProgress)
+    await reportProgress()
     let pending: PendingTranscode[] = []
 
-    const reportCompletedTrack = async () => {
-        transcodedCount++
-        if (transcodedCount < total) {
-            await onProgress?.({
-                phase: "transcoding",
-                current: transcodedCount + 1,
-                total,
-            })
-        }
+    const reportCompletedTrack = async (position: number) => {
+        trackProgress[position].ready = true
+        await reportProgress()
     }
 
     for (const [position, importedTrack] of importedTracks.entries()) {
@@ -510,7 +544,6 @@ async function transcodeAudio(
                     fileSize: audio.fileSize,
                 },
             }
-            await reportCompletedTrack()
             continue
         }
 
@@ -569,7 +602,7 @@ async function transcodeAudio(
                 track,
                 audio: result,
             }
-            await reportCompletedTrack()
+            await reportCompletedTrack(pendingTranscode.position)
         }
     }
 
@@ -618,7 +651,14 @@ async function updateCard(
 ): Promise<ImportSuccess> {
     const startedAt = Date.now()
     const {id: importId, cardId} = cardImport
-    await onProgress?.({phase: "finalizing"})
+    const trackProgress = transcodedTracks.map(({track}) => ({
+        duration: track.duration,
+        prepared: true,
+        uploaded: true,
+        ready: true,
+    }))
+    const reportProgress = createProgressReporter(trackProgress, onProgress)
+    await reportProgress(false, "finalizing")
 
     const fetchStartedAt = Date.now()
     const card = (await sdk.content.getCard(
@@ -660,6 +700,7 @@ async function updateCard(
         updatedCard as unknown as Parameters<typeof sdk.content.updateCard>[0],
     )
     const updateDurationMs = Date.now() - updateStartedAt
+    await reportProgress(true, "finalizing")
 
     const added = transcodedTracks.length
     logger.info({

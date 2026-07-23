@@ -30,28 +30,15 @@ type ImportState =
     | {status: "error"; error: string}
 
 const getProgressMessage = (progress: ImportProgress | null): string => {
-    if (!progress) return "Preparing..."
-
-    switch (progress.phase) {
-        case "preparing":
-            return "Preparing..."
-        case "downloading":
-            return progress.current && progress.total
-                ? `Downloading... (${progress.current}/${progress.total})`
-                : "Downloading..."
-        case "uploading":
-            return progress.current && progress.total
-                ? `Uploading... (${progress.current}/${progress.total})`
-                : "Uploading..."
-        case "transcoding":
-            return progress.current && progress.total
-                ? `Transcoding... (${progress.current}/${progress.total})`
-                : "Transcoding..."
-        case "finalizing":
-            return "Finalizing..."
-        default:
-            return "Processing..."
+    if (!progress || progress.phase === "preparing") {
+        return "Preparing import..."
     }
+
+    if (progress.phase === "finalizing") {
+        return "Finalizing..."
+    }
+
+    return `Importing ${progress.total} ${progress.total === 1 ? "track" : "tracks"}...`
 }
 
 const AddTracksDialog = ({
@@ -115,9 +102,11 @@ const AddTracksDialog = ({
                         status: "importing",
                         progress: {
                             phase: data.phase,
-                            current: data.current,
+                            percent: data.percent,
                             total: data.total,
-                            title: data.title,
+                            prepared: data.prepared,
+                            uploaded: data.uploaded,
+                            ready: data.ready,
                         },
                     })
                 } else if (data.type === "complete") {

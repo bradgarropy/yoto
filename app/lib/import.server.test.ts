@@ -166,7 +166,14 @@ describe("inspectVideo", () => {
 
         const result = await inspectVideo(mockEnv, cardImport, onProgress)
 
-        expect(onProgress).toHaveBeenCalledWith({phase: "preparing"})
+        expect(onProgress).toHaveBeenCalledWith({
+            phase: "preparing",
+            percent: 0,
+            total: 0,
+            prepared: 0,
+            uploaded: 0,
+            ready: 0,
+        })
         expect(mockGetPlaylistInfo).toHaveBeenCalledWith(
             mockEnv,
             sandboxId,
@@ -427,19 +434,41 @@ describe("transcodeAudio", () => {
 
 describe("updateCard", () => {
     it("adds transcoded tracks to the latest card", async () => {
-        const result = await updateCard(sdk, cardImport, [
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    key: "transcoded-sha",
-                    duration: 180,
-                    fileSize: 100000,
+        const onProgress = vi.fn()
+        const result = await updateCard(
+            sdk,
+            cardImport,
+            [
+                {
+                    index: 0,
+                    track: audioTrack,
+                    audio: {
+                        key: "transcoded-sha",
+                        duration: 180,
+                        fileSize: 100000,
+                    },
                 },
-            },
-        ])
+            ],
+            onProgress,
+        )
 
         expect(mockGetCard).toHaveBeenCalledWith(cardImport.cardId)
+        expect(onProgress).toHaveBeenNthCalledWith(1, {
+            phase: "finalizing",
+            percent: 95,
+            total: 1,
+            prepared: 1,
+            uploaded: 1,
+            ready: 1,
+        })
+        expect(onProgress).toHaveBeenNthCalledWith(2, {
+            phase: "finalizing",
+            percent: 100,
+            total: 1,
+            prepared: 1,
+            uploaded: 1,
+            ready: 1,
+        })
         expect(mockUpdateCard).toHaveBeenCalledWith(
             expect.objectContaining({
                 cardId: cardImport.cardId,
