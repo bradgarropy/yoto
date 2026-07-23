@@ -94,7 +94,7 @@ beforeEach(() => {
         const importId = request.headers.get("X-Import-Id")
         return new Response(
             `id: ${importId}\ndata: ${JSON.stringify({type: "started", importId})}\n\n` +
-                `id: ${importId}\ndata: ${JSON.stringify({type: "progress", phase: "transcoding", current: 1, total: 1})}\n\n` +
+                `id: ${importId}\ndata: ${JSON.stringify({type: "progress", phase: "importing", percent: 65, total: 1, prepared: 1, uploaded: 1, ready: 0})}\n\n` +
                 `id: ${importId}\ndata: ${JSON.stringify({type: "complete", success: true, message: "Added 1 track", added: 1, skipped: 0})}\n\n`,
         )
     })
@@ -140,9 +140,12 @@ describe("api/import/:cardId loader", () => {
         })
         expect(events[1]).toEqual({
             type: "progress",
-            phase: "transcoding",
-            current: 1,
+            phase: "importing",
+            percent: 65,
             total: 1,
+            prepared: 1,
+            uploaded: 1,
+            ready: 0,
         })
         expect(events.at(-1)).toEqual({
             type: "complete",

@@ -2,133 +2,160 @@ import {describe, expect, it} from "vitest"
 
 import {
     createChapter,
+    getImportProgressSummary,
     getNextChapterKey,
     getProgressPercent,
     stripNullValues,
 } from "./import-utils"
+
+describe("getImportProgressSummary", () => {
+    it("should report inspection progress before track work begins", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        duration: 180,
+                        prepared: false,
+                        uploaded: false,
+                        ready: false,
+                    },
+                ],
+                cardUpdated: false,
+            }),
+        ).toEqual({
+            percent: 5,
+            total: 1,
+            prepared: 0,
+            uploaded: 0,
+            ready: 0,
+        })
+    })
+
+    it("should weight completed work by track duration", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        duration: 60,
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                    {
+                        duration: 180,
+                        prepared: false,
+                        uploaded: false,
+                        ready: false,
+                    },
+                ],
+                cardUpdated: false,
+            }),
+        ).toEqual({
+            percent: 28,
+            total: 2,
+            prepared: 1,
+            uploaded: 1,
+            ready: 1,
+        })
+    })
+
+    it("should use the average known duration for tracks without metadata", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        duration: 60,
+                        prepared: true,
+                        uploaded: false,
+                        ready: false,
+                    },
+                    {
+                        prepared: false,
+                        uploaded: false,
+                        ready: false,
+                    },
+                ],
+                cardUpdated: false,
+            }).percent,
+        ).toBe(20)
+    })
+
+    it("should report 95% when every track is ready", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                    {
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                ],
+                cardUpdated: false,
+            }),
+        ).toEqual({
+            percent: 95,
+            total: 2,
+            prepared: 2,
+            uploaded: 2,
+            ready: 2,
+        })
+    })
+
+    it("should report 100% after the card is updated", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                ],
+                cardUpdated: true,
+            }).percent,
+        ).toBe(100)
+    })
+})
 
 describe("getProgressPercent", () => {
     it("should return 0 when progress is null", () => {
         expect(getProgressPercent(null)).toBe(0)
     })
 
-    it("should return 0 for preparing phase", () => {
-        expect(getProgressPercent({phase: "preparing"})).toBe(0)
+    it("should return the reported percentage", () => {
+        expect(
+            getProgressPercent({
+                phase: "importing",
+                percent: 64,
+                total: 3,
+                prepared: 3,
+                uploaded: 2,
+                ready: 1,
+            }),
+        ).toBe(64)
     })
 
-    it("should return 95 for finalizing phase", () => {
-        expect(getProgressPercent({phase: "finalizing"})).toBe(95)
-    })
-
-    it("should return phase start for phases without counts", () => {
-        expect(getProgressPercent({phase: "downloading"})).toBe(5)
-        expect(getProgressPercent({phase: "uploading"})).toBe(35)
-        expect(getProgressPercent({phase: "transcoding"})).toBe(65)
-    })
-
-    it("should calculate progress for downloading phase (5-35%)", () => {
-        // current is 1-indexed (track currently in progress)
-        // Formula: phaseStart + ((current - 1) / total) * phaseSize
-        // downloading 1/2: 5 + ((1-1)/2) * 30 = 5 + 0 = 5%
+    it("should return finalizing progress", () => {
         expect(
-            getProgressPercent({phase: "downloading", current: 1, total: 2}),
-        ).toBe(5)
-        // downloading 2/2: 5 + ((2-1)/2) * 30 = 5 + 15 = 20%
-        expect(
-            getProgressPercent({phase: "downloading", current: 2, total: 2}),
-        ).toBe(20)
-    })
-
-    it("should calculate progress for uploading phase (35-65%)", () => {
-        // uploading 1/2: 35 + ((1-1)/2) * 30 = 35 + 0 = 35%
-        expect(
-            getProgressPercent({phase: "uploading", current: 1, total: 2}),
-        ).toBe(35)
-        // uploading 2/2: 35 + ((2-1)/2) * 30 = 35 + 15 = 50%
-        expect(
-            getProgressPercent({phase: "uploading", current: 2, total: 2}),
-        ).toBe(50)
-    })
-
-    it("should calculate progress for transcoding phase (65-95%)", () => {
-        // transcoding 1/2: 65 + ((1-1)/2) * 30 = 65 + 0 = 65%
-        expect(
-            getProgressPercent({phase: "transcoding", current: 1, total: 2}),
-        ).toBe(65)
-        // transcoding 2/2: 65 + ((2-1)/2) * 30 = 65 + 15 = 80%
-        expect(
-            getProgressPercent({phase: "transcoding", current: 2, total: 2}),
-        ).toBe(80)
-    })
-
-    it("should cap progress at 95%", () => {
-        // Even with high values, should not exceed 95 (finalizing is 95%)
-        expect(
-            getProgressPercent({phase: "uploading", current: 10, total: 2}),
+            getProgressPercent({
+                phase: "finalizing",
+                percent: 95,
+                total: 1,
+                prepared: 1,
+                uploaded: 1,
+                ready: 1,
+            }),
         ).toBe(95)
-    })
-
-    it("should handle single track imports", () => {
-        // Single track: current=1, total=1
-        // downloading 1/1: 5 + ((1-1)/1) * 30 = 5%
-        expect(
-            getProgressPercent({phase: "downloading", current: 1, total: 1}),
-        ).toBe(5)
-        // uploading 1/1: 35 + ((1-1)/1) * 30 = 35%
-        expect(
-            getProgressPercent({phase: "uploading", current: 1, total: 1}),
-        ).toBe(35)
-        // transcoding 1/1: 65 + ((1-1)/1) * 30 = 65%
-        expect(
-            getProgressPercent({phase: "transcoding", current: 1, total: 1}),
-        ).toBe(65)
-    })
-
-    it("should handle multi-track imports with progress through phases", () => {
-        // 3 tracks - current indicates which track is in progress (1-indexed)
-        // Formula: phaseStart + ((current - 1) / total) * phaseSize
-
-        // Download phase (5-35%)
-        // downloading 1/3: 5 + ((1-1)/3) * 30 = 5 + 0 = 5%
-        expect(
-            getProgressPercent({phase: "downloading", current: 1, total: 3}),
-        ).toBe(5)
-        // downloading 2/3: 5 + ((2-1)/3) * 30 = 5 + 10 = 15%
-        expect(
-            getProgressPercent({phase: "downloading", current: 2, total: 3}),
-        ).toBe(15)
-        // downloading 3/3: 5 + ((3-1)/3) * 30 = 5 + 20 = 25%
-        expect(
-            getProgressPercent({phase: "downloading", current: 3, total: 3}),
-        ).toBe(25)
-
-        // Upload phase (35-65%)
-        // uploading 1/3: 35 + ((1-1)/3) * 30 = 35 + 0 = 35%
-        expect(
-            getProgressPercent({phase: "uploading", current: 1, total: 3}),
-        ).toBe(35)
-        // uploading 2/3: 35 + ((2-1)/3) * 30 = 35 + 10 = 45%
-        expect(
-            getProgressPercent({phase: "uploading", current: 2, total: 3}),
-        ).toBe(45)
-        // uploading 3/3: 35 + ((3-1)/3) * 30 = 35 + 20 = 55%
-        expect(
-            getProgressPercent({phase: "uploading", current: 3, total: 3}),
-        ).toBe(55)
-
-        // Transcode phase (65-95%)
-        // transcoding 1/3: 65 + ((1-1)/3) * 30 = 65 + 0 = 65%
-        expect(
-            getProgressPercent({phase: "transcoding", current: 1, total: 3}),
-        ).toBe(65)
-        // transcoding 2/3: 65 + ((2-1)/3) * 30 = 65 + 10 = 75%
-        expect(
-            getProgressPercent({phase: "transcoding", current: 2, total: 3}),
-        ).toBe(75)
-        // transcoding 3/3: 65 + ((3-1)/3) * 30 = 65 + 20 = 85%
-        expect(
-            getProgressPercent({phase: "transcoding", current: 3, total: 3}),
-        ).toBe(85)
     })
 })
 

@@ -43,9 +43,12 @@ describe("ImportProgress", () => {
     it("persists reported progress", async () => {
         const {progress, put} = createProgress()
         const update: ImportProgressState = {
-            phase: "downloading",
-            current: 2,
+            phase: "importing",
+            percent: 45,
             total: 3,
+            prepared: 3,
+            uploaded: 1,
+            ready: 0,
         }
 
         await progress.reportProgress(update)
@@ -71,15 +74,21 @@ describe("ImportProgress", () => {
         })
 
         await progress.reportProgress({
-            phase: "transcoding",
-            current: 1,
+            phase: "importing",
+            percent: 65,
             total: 1,
+            prepared: 1,
+            uploaded: 1,
+            ready: 0,
         })
         await expect(readEvent(reader)).resolves.toEqual({
             type: "progress",
-            phase: "transcoding",
-            current: 1,
+            phase: "importing",
+            percent: 65,
             total: 1,
+            prepared: 1,
+            uploaded: 1,
+            ready: 0,
         })
 
         await progress.reportComplete({
@@ -109,9 +118,12 @@ describe("ImportProgress", () => {
         const {get, progress} = createProgress()
         get.mockResolvedValue({
             type: "progress",
-            phase: "uploading",
-            current: 2,
+            phase: "importing",
+            percent: 45,
             total: 3,
+            prepared: 3,
+            uploaded: 1,
+            ready: 0,
         })
 
         const response = await progress.fetch(
@@ -124,9 +136,12 @@ describe("ImportProgress", () => {
         await readEvent(reader)
         await expect(readEvent(reader)).resolves.toEqual({
             type: "progress",
-            phase: "uploading",
-            current: 2,
+            phase: "importing",
+            percent: 45,
             total: 3,
+            prepared: 3,
+            uploaded: 1,
+            ready: 0,
         })
         await reader.cancel()
     })
