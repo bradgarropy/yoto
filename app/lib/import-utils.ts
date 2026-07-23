@@ -11,6 +11,97 @@ export type ImportProgress = {
     title?: string
 }
 
+export type ImportTrackProgress = {
+    duration?: number
+    prepared: boolean
+    uploaded: boolean
+    ready: boolean
+}
+
+export type ImportProgressSummary = {
+    percent: number
+    total: number
+    prepared: number
+    uploaded: number
+    ready: number
+}
+
+const IMPORT_PROGRESS_WEIGHT = {
+    INSPECTION: 5,
+    PREPARATION: 30,
+    UPLOAD: 25,
+    TRANSCODE: 35,
+    CARD_UPDATE: 5,
+} as const
+
+function getTrackWeights(tracks: ImportTrackProgress[]): number[] {
+    if (tracks.length === 0) return []
+
+    const knownDurations = tracks.flatMap(track =>
+        track.duration !== undefined &&
+        Number.isFinite(track.duration) &&
+        track.duration > 0
+            ? [track.duration]
+            : [],
+    )
+    const fallbackDuration =
+        knownDurations.length > 0
+            ? knownDurations.reduce((total, duration) => total + duration, 0) /
+              knownDurations.length
+            : 1
+    const durations = tracks.map(track =>
+        track.duration !== undefined &&
+        Number.isFinite(track.duration) &&
+        track.duration > 0
+            ? track.duration
+            : fallbackDuration,
+    )
+    const totalDuration = durations.reduce(
+        (total, duration) => total + duration,
+        0,
+    )
+
+    return durations.map(duration => duration / totalDuration)
+}
+
+export function getImportProgressSummary({
+    inspected,
+    tracks,
+    cardUpdated,
+}: {
+    inspected: boolean
+    tracks: ImportTrackProgress[]
+    cardUpdated: boolean
+}): ImportProgressSummary {
+    const weights = getTrackWeights(tracks)
+    let percent = inspected ? IMPORT_PROGRESS_WEIGHT.INSPECTION : 0
+
+    tracks.forEach((track, index) => {
+        const weight = weights[index]
+        if (track.prepared) {
+            percent += IMPORT_PROGRESS_WEIGHT.PREPARATION * weight
+        }
+        if (track.uploaded) {
+            percent += IMPORT_PROGRESS_WEIGHT.UPLOAD * weight
+        }
+        if (track.ready) {
+            percent += IMPORT_PROGRESS_WEIGHT.TRANSCODE * weight
+        }
+    })
+
+    if (cardUpdated) {
+        percent += IMPORT_PROGRESS_WEIGHT.CARD_UPDATE
+    }
+
+    return {
+        percent: Math.min(Math.round(percent), 100),
+        total: tracks.length,
+        prepared: tracks.filter(track => track.prepared).length,
+        uploaded: tracks.filter(track => track.uploaded).length,
+        ready: tracks.filter(track => track.ready).length,
+    }
+}
+
 /**
  * Calculate the progress percentage for an import operation.
  *

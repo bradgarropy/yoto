@@ -2,10 +2,130 @@ import {describe, expect, it} from "vitest"
 
 import {
     createChapter,
+    getImportProgressSummary,
     getNextChapterKey,
     getProgressPercent,
     stripNullValues,
 } from "./import-utils"
+
+describe("getImportProgressSummary", () => {
+    it("should report inspection progress before track work begins", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        duration: 180,
+                        prepared: false,
+                        uploaded: false,
+                        ready: false,
+                    },
+                ],
+                cardUpdated: false,
+            }),
+        ).toEqual({
+            percent: 5,
+            total: 1,
+            prepared: 0,
+            uploaded: 0,
+            ready: 0,
+        })
+    })
+
+    it("should weight completed work by track duration", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        duration: 60,
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                    {
+                        duration: 180,
+                        prepared: false,
+                        uploaded: false,
+                        ready: false,
+                    },
+                ],
+                cardUpdated: false,
+            }),
+        ).toEqual({
+            percent: 28,
+            total: 2,
+            prepared: 1,
+            uploaded: 1,
+            ready: 1,
+        })
+    })
+
+    it("should use the average known duration for tracks without metadata", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        duration: 60,
+                        prepared: true,
+                        uploaded: false,
+                        ready: false,
+                    },
+                    {
+                        prepared: false,
+                        uploaded: false,
+                        ready: false,
+                    },
+                ],
+                cardUpdated: false,
+            }).percent,
+        ).toBe(20)
+    })
+
+    it("should report 95% when every track is ready", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                    {
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                ],
+                cardUpdated: false,
+            }),
+        ).toEqual({
+            percent: 95,
+            total: 2,
+            prepared: 2,
+            uploaded: 2,
+            ready: 2,
+        })
+    })
+
+    it("should report 100% after the card is updated", () => {
+        expect(
+            getImportProgressSummary({
+                inspected: true,
+                tracks: [
+                    {
+                        prepared: true,
+                        uploaded: true,
+                        ready: true,
+                    },
+                ],
+                cardUpdated: true,
+            }).percent,
+        ).toBe(100)
+    })
+})
 
 describe("getProgressPercent", () => {
     it("should return 0 when progress is null", () => {
