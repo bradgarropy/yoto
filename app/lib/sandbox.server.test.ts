@@ -71,6 +71,18 @@ const successfulCommand = (stdout = "") => ({
     stderr: "",
 })
 
+const preparedAudioRow = ({
+    index = 0,
+    size = "123456",
+    duration = "180.5",
+    hash = "a".repeat(64),
+}: {
+    index?: number
+    size?: string
+    duration?: string
+    hash?: string
+} = {}) => `${index}\t${size}\t${duration}\t${hash}\n`
+
 beforeEach(() => {
     vi.clearAllMocks()
 })
@@ -235,12 +247,7 @@ describe("splitAudio", () => {
 
 describe("prepareAudio", () => {
     it("validates and hashes downloaded audio", async () => {
-        mockExec
-            .mockResolvedValueOnce(successfulCommand("123456\n"))
-            .mockResolvedValueOnce(successfulCommand("180.5\n"))
-            .mockResolvedValueOnce(
-                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.m4a\n`),
-            )
+        mockExec.mockResolvedValueOnce(successfulCommand(preparedAudioRow()))
 
         const result = await prepareAudio(
             mockEnv,
@@ -250,21 +257,16 @@ describe("prepareAudio", () => {
         )
 
         expect(result).toEqual(track)
-        expect(mockExec).toHaveBeenNthCalledWith(
-            1,
-            "stat -c %s '/tmp/video-1.m4a'",
-        )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            2,
-            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.m4a'",
-        )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            3,
-            "sha256sum '/tmp/video-1.m4a'",
+        expect(mockExec).toHaveBeenCalledTimes(1)
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringMatching(
+                /stat.+ffprobe.+sha256sum.+\/tmp\/video-1\.m4a/s,
+            ),
         )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
                 message: "audio.prepare.completed",
+                trackCount: 1,
                 durationMs: expect.any(Number),
             }),
         )
@@ -272,7 +274,9 @@ describe("prepareAudio", () => {
 
     it("removes downloaded audio when validation fails", async () => {
         mockExec
-            .mockResolvedValueOnce(successfulCommand("invalid\n"))
+            .mockResolvedValueOnce(
+                successfulCommand(preparedAudioRow({size: "invalid"})),
+            )
             .mockResolvedValueOnce(successfulCommand())
 
         await expect(
@@ -283,6 +287,27 @@ describe("prepareAudio", () => {
                 sourceTrack.title,
             ),
         ).rejects.toThrow("Failed to measure Test Track: invalid size")
+        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
+    })
+
+    it("identifies the track when a metadata command fails", async () => {
+        mockExec
+            .mockResolvedValueOnce({
+                success: false,
+                stdout: "",
+                stderr:
+                    "stat failed\n" + "__YOTO_PREPARE_ERROR__\t0\tmeasure\n",
+            })
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            prepareAudio(
+                mockEnv,
+                sandboxId,
+                downloadedAudio,
+                sourceTrack.title,
+            ),
+        ).rejects.toThrow("Failed to measure Test Track: stat failed")
         expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
     })
 })
@@ -306,11 +331,7 @@ describe("prepareTrack", () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand("123456\n"))
-            .mockResolvedValueOnce(successfulCommand("180.5\n"))
-            .mockResolvedValueOnce(
-                successfulCommand(`${"a".repeat(64)}  /tmp/video-1.m4a\n`),
-            )
+            .mockResolvedValueOnce(successfulCommand(preparedAudioRow()))
 
         const result = await prepareTrack(mockEnv, sandboxId, sourceTrack)
 
@@ -323,15 +344,9 @@ describe("prepareTrack", () => {
         )
         expect(mockExec).toHaveBeenNthCalledWith(
             3,
-            "stat -c %s '/tmp/video-1.m4a'",
-        )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            4,
-            "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '/tmp/video-1.m4a'",
-        )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            5,
-            "sha256sum '/tmp/video-1.m4a'",
+            expect.stringMatching(
+                /stat.+ffprobe.+sha256sum.+\/tmp\/video-1\.m4a/s,
+            ),
         )
     })
 
@@ -355,9 +370,9 @@ describe("prepareTrack", () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand("123456\n"))
-            .mockResolvedValueOnce(successfulCommand("180.5\n"))
-            .mockResolvedValueOnce(successfulCommand("not-a-hash\n"))
+            .mockResolvedValueOnce(
+                successfulCommand(preparedAudioRow({hash: "not-a-hash"})),
+            )
             .mockResolvedValueOnce(successfulCommand())
 
         await expect(
@@ -370,8 +385,14 @@ describe("prepareTrack", () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand("99999999\n"))
-            .mockResolvedValueOnce(successfulCommand("3600.1\n"))
+            .mockResolvedValueOnce(
+                successfulCommand(
+                    preparedAudioRow({
+                        size: "99999999",
+                        duration: "3600.1",
+                    }),
+                ),
+            )
             .mockResolvedValueOnce(successfulCommand())
 
         await expect(
@@ -386,8 +407,14 @@ describe("prepareTrack", () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand("100000001\n"))
-            .mockResolvedValueOnce(successfulCommand("3600\n"))
+            .mockResolvedValueOnce(
+                successfulCommand(
+                    preparedAudioRow({
+                        size: "100000001",
+                        duration: "3600",
+                    }),
+                ),
+            )
             .mockResolvedValueOnce(successfulCommand())
 
         await expect(
@@ -402,8 +429,14 @@ describe("prepareTrack", () => {
         mockExec
             .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand("100000001\n"))
-            .mockResolvedValueOnce(successfulCommand("3600.1\n"))
+            .mockResolvedValueOnce(
+                successfulCommand(
+                    preparedAudioRow({
+                        size: "100000001",
+                        duration: "3600.1",
+                    }),
+                ),
+            )
             .mockResolvedValueOnce(successfulCommand())
 
         await expect(
@@ -439,14 +472,11 @@ describe("prepareTracks", () => {
 
     it("downloads once and prepares each chapter in order", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("stat ")) {
-                return successfulCommand("123456\n")
-            }
-            if (command.startsWith("ffprobe ")) {
-                return successfulCommand("60\n")
-            }
-            if (command.startsWith("sha256sum ")) {
-                return successfulCommand(`${"a".repeat(64)}  audio.m4a\n`)
+            if (command.startsWith("set -e")) {
+                return successfulCommand(
+                    preparedAudioRow({index: 0, duration: "60"}) +
+                        preparedAudioRow({index: 1, duration: "120"}),
+                )
             }
             return successfulCommand()
         })
@@ -489,19 +519,19 @@ describe("prepareTracks", () => {
         expect(
             commands.filter(command => command.startsWith("ffmpeg ")).length,
         ).toBe(2)
+        expect(
+            commands.filter(command => command.startsWith("set -e")).length,
+        ).toBe(1)
+        expect(commands.find(command => command.startsWith("set -e"))).toMatch(
+            /video-1-01\.m4a.+video-1-02\.m4a/s,
+        )
         expect(commands.at(-1)).toBe("rm -f '/tmp/video-1.m4a'")
     })
 
     it("uses the existing whole-video preparation path", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("stat ")) {
-                return successfulCommand("123456\n")
-            }
-            if (command.startsWith("ffprobe ")) {
-                return successfulCommand("180\n")
-            }
-            if (command.startsWith("sha256sum ")) {
-                return successfulCommand(`${"a".repeat(64)}  audio.m4a\n`)
+            if (command.startsWith("set -e")) {
+                return successfulCommand(preparedAudioRow({duration: "180"}))
             }
             return successfulCommand()
         })
@@ -541,17 +571,15 @@ describe("prepareTracks", () => {
 
     it("removes the source and chapter files when preparation fails", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("stat ") && command.includes("video-1-02")) {
-                return successfulCommand("invalid\n")
-            }
-            if (command.startsWith("stat ")) {
-                return successfulCommand("123456\n")
-            }
-            if (command.startsWith("ffprobe ")) {
-                return successfulCommand("60\n")
-            }
-            if (command.startsWith("sha256sum ")) {
-                return successfulCommand(`${"a".repeat(64)}  audio.m4a\n`)
+            if (command.startsWith("set -e")) {
+                return successfulCommand(
+                    preparedAudioRow({index: 0, duration: "60"}) +
+                        preparedAudioRow({
+                            index: 1,
+                            size: "invalid",
+                            duration: "120",
+                        }),
+                )
             }
             return successfulCommand()
         })
@@ -564,6 +592,31 @@ describe("prepareTracks", () => {
                 chapterTracks,
             ),
         ).rejects.toThrow("Failed to measure Chapter Two: invalid size")
+
+        const commands = mockExec.mock.calls.map(([command]) => command)
+        expect(commands).toContain("rm -f '/tmp/video-1.m4a'")
+        expect(commands).toContain("rm -f '/tmp/video-1-01.m4a'")
+        expect(commands).toContain("rm -f '/tmp/video-1-02.m4a'")
+    })
+
+    it("removes every file when batch metadata is incomplete", async () => {
+        mockExec.mockImplementation((command: string) => {
+            if (command.startsWith("set -e")) {
+                return successfulCommand(
+                    preparedAudioRow({index: 0, duration: "60"}),
+                )
+            }
+            return successfulCommand()
+        })
+
+        await expect(
+            prepareTracks(
+                mockEnv,
+                sandboxId,
+                {...sourceTrack, duration: 180},
+                chapterTracks,
+            ),
+        ).rejects.toThrow("Failed to prepare audio: incomplete metadata")
 
         const commands = mockExec.mock.calls.map(([command]) => command)
         expect(commands).toContain("rm -f '/tmp/video-1.m4a'")

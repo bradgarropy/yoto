@@ -23,8 +23,14 @@ type Track = DownloadedAudio & {
     byteLength: number
 }
 
+type AudioToPrepare = {
+    audio: DownloadedAudio
+    title: string
+}
+
 const MAX_TRACK_BYTES = 100_000_000
 const MAX_TRACK_DURATION_SECONDS = 60 * 60
+const PREPARE_ERROR_MARKER = "__YOTO_PREPARE_ERROR__"
 
 // Validate that a URL is a legitimate YouTube URL
 function isYoutubeUrl(url: string): boolean {
@@ -322,6 +328,154 @@ async function splitAudio(
     }
 }
 
+function validatePreparedAudio(
+    {audio, title}: AudioToPrepare,
+    size: string | undefined,
+    duration: string | undefined,
+    hash: string | undefined,
+): Track {
+    const byteLength = Number.parseInt(size ?? "", 10)
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+        throw new Error(`Failed to measure ${title}: invalid size`)
+    }
+
+    const durationSeconds = Number.parseFloat(duration ?? "")
+    if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
+        throw new Error(`Failed to measure ${title}: invalid duration`)
+    }
+
+    const isTooLarge = byteLength > MAX_TRACK_BYTES
+    const isTooLong = durationSeconds > MAX_TRACK_DURATION_SECONDS
+
+    if (isTooLarge && isTooLong) {
+        throw new Error(
+            `${title} is too long and too large for Yoto. ` +
+                `Tracks must be 60 minutes or shorter and 100 MB or smaller.`,
+        )
+    }
+
+    if (isTooLong) {
+        throw new Error(
+            `${title} is too long for Yoto. ` +
+                `Tracks must be 60 minutes or shorter.`,
+        )
+    }
+
+    if (isTooLarge) {
+        throw new Error(
+            `${title} is too large for Yoto. ` +
+                `Tracks must be 100 MB or smaller.`,
+        )
+    }
+
+    if (!hash || !/^[a-f0-9]{64}$/.test(hash)) {
+        throw new Error(`Failed to hash ${title}: invalid SHA-256`)
+    }
+
+    return {...audio, sha256: hash, byteLength}
+}
+
+function getPrepareCommand(audio: DownloadedAudio, index: number): string {
+    const escapedPath = escapeShellArg(audio.path)
+
+    return (
+        `size_${index}=$(stat -c %s ${escapedPath}) || ` +
+        `{ printf '${PREPARE_ERROR_MARKER}\\t${index}\\tmeasure\\n' >&2; exit 1; }\n` +
+        `duration_${index}=$(ffprobe -v error ` +
+        `-show_entries format=duration ` +
+        `-of default=noprint_wrappers=1:nokey=1 ${escapedPath}) || ` +
+        `{ printf '${PREPARE_ERROR_MARKER}\\t${index}\\tmeasure\\n' >&2; exit 1; }\n` +
+        `hash_${index}=$(sha256sum ${escapedPath}) || ` +
+        `{ printf '${PREPARE_ERROR_MARKER}\\t${index}\\thash\\n' >&2; exit 1; }\n` +
+        `printf '${index}\\t%s\\t%s\\t%s\\n' ` +
+        `"$size_${index}" "$duration_${index}" "\${hash_${index}%% *}"`
+    )
+}
+
+function getPrepareCommandError(
+    inputs: AudioToPrepare[],
+    stderr: string,
+): Error {
+    const marker = new RegExp(
+        `${PREPARE_ERROR_MARKER}\\t(\\d+)\\t(measure|hash)`,
+    ).exec(stderr)
+
+    if (!marker) {
+        return new Error(`Failed to prepare audio: ${stderr}`)
+    }
+
+    const input = inputs[Number.parseInt(marker[1], 10)]
+    if (!input) {
+        return new Error(`Failed to prepare audio: ${stderr}`)
+    }
+
+    const detail = stderr.replace(marker[0], "").trim()
+    const operation = marker[2] === "hash" ? "hash" : "measure"
+    return new Error(
+        `Failed to ${operation} ${input.title}: ${detail || "command failed"}`,
+    )
+}
+
+async function prepareAudioBatch(
+    env: Env,
+    sandboxId: string,
+    inputs: AudioToPrepare[],
+): Promise<Track[]> {
+    if (inputs.length === 0) return []
+
+    const startedAt = Date.now()
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
+
+    try {
+        const result = await sandbox.exec(
+            [
+                "set -e",
+                ...inputs.map(({audio}, index) =>
+                    getPrepareCommand(audio, index),
+                ),
+            ].join("\n"),
+        )
+        if (!result.success) {
+            throw getPrepareCommandError(inputs, result.stderr)
+        }
+
+        const rows = result.stdout.trim().split("\n").filter(Boolean)
+        if (rows.length !== inputs.length) {
+            throw new Error("Failed to prepare audio: incomplete metadata")
+        }
+
+        const tracks = rows.map((row, index) => {
+            const [rowIndex, size, duration, hash, ...extra] = row.split("\t")
+            if (
+                rowIndex !== String(index) ||
+                extra.length > 0 ||
+                size === undefined ||
+                duration === undefined ||
+                hash === undefined
+            ) {
+                throw new Error("Failed to prepare audio: invalid metadata")
+            }
+
+            return validatePreparedAudio(inputs[index], size, duration, hash)
+        })
+
+        logger.info({
+            message: "audio.prepare.completed",
+            sandboxId,
+            trackCount: tracks.length,
+            bytes: tracks.reduce((total, track) => total + track.byteLength, 0),
+            durationMs: Date.now() - startedAt,
+        })
+
+        return tracks
+    } catch (error) {
+        await Promise.allSettled(
+            inputs.map(({audio}) => removeTrack(env, sandboxId, audio)),
+        )
+        throw error
+    }
+}
+
 // Validate and hash downloaded audio for direct upload
 async function prepareAudio(
     env: Env,
@@ -329,84 +483,8 @@ async function prepareAudio(
     audio: DownloadedAudio,
     title: string,
 ): Promise<Track> {
-    const startedAt = Date.now()
-    const sandbox = getSandbox(env.SANDBOX, sandboxId)
-    const escapedPath = escapeShellArg(audio.path)
-
-    try {
-        const sizeResult = await sandbox.exec(`stat -c %s ${escapedPath}`)
-        if (!sizeResult.success) {
-            throw new Error(`Failed to measure ${title}: ${sizeResult.stderr}`)
-        }
-
-        const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
-        if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
-            throw new Error(`Failed to measure ${title}: invalid size`)
-        }
-
-        const durationResult = await sandbox.exec(
-            `ffprobe -v error -show_entries format=duration ` +
-                `-of default=noprint_wrappers=1:nokey=1 ${escapedPath}`,
-        )
-        if (!durationResult.success) {
-            throw new Error(
-                `Failed to measure ${title}: ${durationResult.stderr}`,
-            )
-        }
-
-        const durationSeconds = Number.parseFloat(durationResult.stdout.trim())
-        if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
-            throw new Error(`Failed to measure ${title}: invalid duration`)
-        }
-
-        const isTooLarge = byteLength > MAX_TRACK_BYTES
-        const isTooLong = durationSeconds > MAX_TRACK_DURATION_SECONDS
-
-        if (isTooLarge && isTooLong) {
-            throw new Error(
-                `${title} is too long and too large for Yoto. ` +
-                    `Tracks must be 60 minutes or shorter and 100 MB or smaller.`,
-            )
-        }
-
-        if (isTooLong) {
-            throw new Error(
-                `${title} is too long for Yoto. ` +
-                    `Tracks must be 60 minutes or shorter.`,
-            )
-        }
-
-        if (isTooLarge) {
-            throw new Error(
-                `${title} is too large for Yoto. ` +
-                    `Tracks must be 100 MB or smaller.`,
-            )
-        }
-
-        const hashResult = await sandbox.exec(`sha256sum ${escapedPath}`)
-        if (!hashResult.success) {
-            throw new Error(`Failed to hash ${title}: ${hashResult.stderr}`)
-        }
-
-        const sha256 = hashResult.stdout.trim().split(/\s+/)[0]
-        if (!/^[a-f0-9]{64}$/.test(sha256)) {
-            throw new Error(`Failed to hash ${title}: invalid SHA-256`)
-        }
-
-        logger.info({
-            message: "audio.prepare.completed",
-            sandboxId,
-            filename: audio.filename,
-            bytes: byteLength,
-            durationSeconds,
-            durationMs: Date.now() - startedAt,
-        })
-
-        return {...audio, sha256, byteLength}
-    } catch (error) {
-        await sandbox.exec(`rm -f ${escapedPath}`)
-        throw error
-    }
+    const [track] = await prepareAudioBatch(env, sandboxId, [{audio, title}])
+    return track
 }
 
 // Download a track, hash it, and leave it in the sandbox for direct upload
@@ -466,12 +544,14 @@ async function prepareTracks(
         source = await downloadVideo(env, sandboxId, video)
         chapterAudio = await splitAudio(env, sandboxId, source, tracks)
 
-        const preparedTracks: Track[] = []
-        for (const [index, audio] of chapterAudio.entries()) {
-            preparedTracks.push(
-                await prepareAudio(env, sandboxId, audio, tracks[index].title),
-            )
-        }
+        const preparedTracks = await prepareAudioBatch(
+            env,
+            sandboxId,
+            chapterAudio.map((audio, index) => ({
+                audio,
+                title: tracks[index].title,
+            })),
+        )
 
         await removeTrack(env, sandboxId, source)
         return preparedTracks
