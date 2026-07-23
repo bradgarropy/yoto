@@ -322,7 +322,7 @@ describe("importVideo", () => {
 })
 
 describe("transcodeAudio", () => {
-    it("waits for uploaded audio to finish transcoding", async () => {
+    it("checks uploaded audio immediately", async () => {
         const importedTracks: ImportedTrack[] = [
             {
                 index: 0,
@@ -338,12 +338,12 @@ describe("transcodeAudio", () => {
             transcodedSha256: "transcoded-sha",
             transcodedInfo: {duration: 180, fileSize: 100000},
         })
-        vi.spyOn(globalThis, "setTimeout").mockImplementation(
-            (callback: TimerHandler) => {
+        const setTimeoutSpy = vi
+            .spyOn(globalThis, "setTimeout")
+            .mockImplementation((callback: TimerHandler) => {
                 if (typeof callback === "function") callback()
                 return 0 as unknown as ReturnType<typeof setTimeout>
-            },
-        )
+            })
 
         const result = await transcodeAudio(sdk, cardImport, importedTracks)
 
@@ -353,6 +353,8 @@ describe("transcodeAudio", () => {
                 durationMs: expect.any(Number),
             }),
         )
+        expect(mockGetTranscodedUpload).toHaveBeenCalledTimes(1)
+        expect(setTimeoutSpy).not.toHaveBeenCalled()
         expect(result).toEqual([
             {
                 index: 0,
@@ -364,6 +366,62 @@ describe("transcodeAudio", () => {
                 },
             },
         ])
+    })
+
+    it("polls every pending track before waiting for the next round", async () => {
+        const importedTracks: ImportedTrack[] = Array.from(
+            {length: 6},
+            (_, index) => ({
+                index,
+                track: {
+                    ...audioTrack,
+                    id: `video-${index}`,
+                    title: `Track ${index}`,
+                },
+                audio: {
+                    alreadyTranscoded: false,
+                    sha256: `sha-${index}`,
+                },
+            }),
+        )
+        const pollCounts = new Map<string, number>()
+        let activePolls = 0
+        let maxActivePolls = 0
+
+        mockGetTranscodedUpload.mockImplementation(async (sha256: string) => {
+            activePolls++
+            maxActivePolls = Math.max(maxActivePolls, activePolls)
+            await Promise.resolve()
+            activePolls--
+
+            const pollCount = (pollCounts.get(sha256) ?? 0) + 1
+            pollCounts.set(sha256, pollCount)
+            return pollCount === 1
+                ? {progress: {phase: "transcoding"}}
+                : {
+                      progress: {phase: "complete"},
+                      transcodedSha256: `transcoded-${sha256}`,
+                      transcodedInfo: {duration: 180, fileSize: 100000},
+                  }
+        })
+
+        const callsBeforeWait: number[] = []
+        vi.spyOn(globalThis, "setTimeout").mockImplementation(
+            (callback: TimerHandler) => {
+                callsBeforeWait.push(mockGetTranscodedUpload.mock.calls.length)
+                if (typeof callback === "function") callback()
+                return 0 as unknown as ReturnType<typeof setTimeout>
+            },
+        )
+
+        const result = await transcodeAudio(sdk, cardImport, importedTracks)
+
+        expect(callsBeforeWait[0]).toBe(6)
+        expect(mockGetTranscodedUpload).toHaveBeenCalledTimes(12)
+        expect(maxActivePolls).toBe(5)
+        expect(result.map(track => track.track.id)).toEqual(
+            importedTracks.map(track => track.track.id),
+        )
     })
 })
 

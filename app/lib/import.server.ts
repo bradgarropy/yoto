@@ -73,6 +73,18 @@ type AudioLogContext = {
     trackTitle: string
 }
 
+type PendingTranscode = {
+    position: number
+    importedTrack: ImportedTrack & {
+        audio: Extract<AudioUploadResult, {alreadyTranscoded: false}>
+    }
+    startedAt: number
+}
+
+const CONCURRENCY_LIMIT = 5
+const TRANSCODE_MAX_ATTEMPTS = 60
+const TRANSCODE_POLL_INTERVAL = 5000
+
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
 }
@@ -210,80 +222,62 @@ async function uploadAudio(
     return {alreadyTranscoded: false, sha256}
 }
 
-// Poll for transcode completion
-async function waitForTranscode(
+// Check a transcode once so polling can be scheduled fairly across all tracks
+async function pollTranscode(
     sdk: YotoSdk,
     sha256: string,
     context: AudioLogContext,
-    onProgress?: () => void | Promise<void>,
-): Promise<{key: string; duration: number; fileSize: number}> {
-    const startedAt = Date.now()
-    const maxAttempts = 60
-    const pollInterval = 5000
+    attempt: number,
+    startedAt: number,
+): Promise<{key: string; duration: number; fileSize: number} | null> {
+    try {
+        const transcodeStatus = (await sdk.media.getTranscodedUpload(
+            sha256,
+            false,
+        )) as unknown as TranscodeResult
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval))
-        await onProgress?.()
+        logger.debug({
+            message: "yoto.audio.transcode.polled",
+            ...context,
+            sha256,
+            attempt,
+            maxAttempts: TRANSCODE_MAX_ATTEMPTS,
+            phase: transcodeStatus?.progress?.phase,
+        })
 
-        try {
-            const transcodeStatus = (await sdk.media.getTranscodedUpload(
-                sha256,
-                false,
-            )) as unknown as TranscodeResult
-
-            logger.debug({
-                message: "yoto.audio.transcode.polled",
-                ...context,
-                sha256,
-                attempt: attempt + 1,
-                maxAttempts,
-                phase: transcodeStatus?.progress?.phase,
-            })
-
-            if (
-                transcodeStatus?.progress?.phase === "complete" &&
-                transcodeStatus.transcodedSha256
-            ) {
-                logger.info({
-                    message: "yoto.audio.transcode.completed",
-                    ...context,
-                    sha256,
-                    transcodedSha256: transcodeStatus.transcodedSha256,
-                    duration: transcodeStatus.transcodedInfo?.duration,
-                    fileSize: transcodeStatus.transcodedInfo?.fileSize,
-                    durationMs: Date.now() - startedAt,
-                })
-                return {
-                    key: transcodeStatus.transcodedSha256,
-                    duration: transcodeStatus.transcodedInfo?.duration ?? 0,
-                    fileSize: transcodeStatus.transcodedInfo?.fileSize ?? 0,
-                }
-            }
-        } catch (error) {
-            // Continue polling
-            logger.warn({
-                message: "yoto.audio.transcode.poll_failed",
-                ...context,
-                sha256,
-                attempt: attempt + 1,
-                maxAttempts,
-                error: getErrorMessage(error),
-            })
+        if (
+            transcodeStatus?.progress?.phase !== "complete" ||
+            !transcodeStatus.transcodedSha256
+        ) {
+            return null
         }
+
+        logger.info({
+            message: "yoto.audio.transcode.completed",
+            ...context,
+            sha256,
+            transcodedSha256: transcodeStatus.transcodedSha256,
+            duration: transcodeStatus.transcodedInfo?.duration,
+            fileSize: transcodeStatus.transcodedInfo?.fileSize,
+            durationMs: Date.now() - startedAt,
+        })
+        return {
+            key: transcodeStatus.transcodedSha256,
+            duration: transcodeStatus.transcodedInfo?.duration ?? 0,
+            fileSize: transcodeStatus.transcodedInfo?.fileSize ?? 0,
+        }
+    } catch (error) {
+        logger.warn({
+            message: "yoto.audio.transcode.poll_failed",
+            ...context,
+            sha256,
+            attempt,
+            maxAttempts: TRANSCODE_MAX_ATTEMPTS,
+            error: getErrorMessage(error),
+        })
+        return null
     }
-
-    logger.error({
-        message: "yoto.audio.transcode.timed_out",
-        ...context,
-        sha256,
-        attempts: maxAttempts,
-        durationMs: Date.now() - startedAt,
-    })
-    throw new Error("Audio transcode timed out")
 }
-
-// Concurrency limit for parallel operations
-const CONCURRENCY_LIMIT = 5
 
 async function inspectVideo(
     env: Env,
@@ -490,35 +484,115 @@ async function transcodeAudio(
     const total = importedTracks.length
     let transcodedCount = 0
     await onProgress?.({phase: "transcoding", current: 1, total})
+    const transcodedTracks: (TranscodedTrack | undefined)[] = Array(total)
+    let pending: PendingTranscode[] = []
 
-    const transcodedTracks = await Promise.all(
-        importedTracks.map(({index, audio, track}) =>
-            limit(async () => {
-                const transcoded = audio.alreadyTranscoded
-                    ? {
-                          key: audio.key,
-                          duration: audio.duration,
-                          fileSize: audio.fileSize,
-                      }
-                    : await waitForTranscode(sdk, audio.sha256, {
-                          importId,
-                          cardId,
-                          trackId: track.id,
-                          trackTitle: track.title,
-                      })
+    const reportCompletedTrack = async () => {
+        transcodedCount++
+        if (transcodedCount < total) {
+            await onProgress?.({
+                phase: "transcoding",
+                current: transcodedCount + 1,
+                total,
+            })
+        }
+    }
 
-                transcodedCount++
-                if (transcodedCount < total) {
-                    await onProgress?.({
-                        phase: "transcoding",
-                        current: transcodedCount + 1,
-                        total,
-                    })
-                }
-                return {index, audio: transcoded, track}
-            }),
-        ),
-    )
+    for (const [position, importedTrack] of importedTracks.entries()) {
+        const {index, audio, track} = importedTrack
+        if (audio.alreadyTranscoded) {
+            transcodedTracks[position] = {
+                index,
+                track,
+                audio: {
+                    key: audio.key,
+                    duration: audio.duration,
+                    fileSize: audio.fileSize,
+                },
+            }
+            await reportCompletedTrack()
+            continue
+        }
+
+        pending.push({
+            position,
+            importedTrack: {
+                ...importedTrack,
+                audio,
+            },
+            startedAt: Date.now(),
+        })
+    }
+
+    for (
+        let attempt = 1;
+        attempt <= TRANSCODE_MAX_ATTEMPTS && pending.length > 0;
+        attempt++
+    ) {
+        if (attempt > 1) {
+            await new Promise(resolve =>
+                setTimeout(resolve, TRANSCODE_POLL_INTERVAL),
+            )
+        }
+
+        const pollResults = await Promise.all(
+            pending.map(pendingTranscode =>
+                limit(async () => {
+                    const {audio, track} = pendingTranscode.importedTrack
+                    const result = await pollTranscode(
+                        sdk,
+                        audio.sha256,
+                        {
+                            importId,
+                            cardId,
+                            trackId: track.id,
+                            trackTitle: track.title,
+                        },
+                        attempt,
+                        pendingTranscode.startedAt,
+                    )
+                    return {pendingTranscode, result}
+                }),
+            ),
+        )
+
+        pending = []
+        for (const {pendingTranscode, result} of pollResults) {
+            if (!result) {
+                pending.push(pendingTranscode)
+                continue
+            }
+
+            const {index, track} = pendingTranscode.importedTrack
+            transcodedTracks[pendingTranscode.position] = {
+                index,
+                track,
+                audio: result,
+            }
+            await reportCompletedTrack()
+        }
+    }
+
+    if (pending.length > 0) {
+        for (const {importedTrack, startedAt: trackStartedAt} of pending) {
+            logger.error({
+                message: "yoto.audio.transcode.timed_out",
+                importId,
+                cardId,
+                trackId: importedTrack.track.id,
+                trackTitle: importedTrack.track.title,
+                sha256: importedTrack.audio.sha256,
+                attempts: TRANSCODE_MAX_ATTEMPTS,
+                durationMs: Date.now() - trackStartedAt,
+            })
+        }
+        throw new Error("Audio transcode timed out")
+    }
+
+    const completedTracks = transcodedTracks.map(track => {
+        if (!track) throw new Error("Audio transcode result missing")
+        return track
+    })
 
     const cacheHitCount = importedTracks.filter(
         track => track.audio.alreadyTranscoded,
@@ -527,13 +601,13 @@ async function transcodeAudio(
         message: "import.audio.transcode.completed",
         importId,
         cardId,
-        trackCount: transcodedTracks.length,
+        trackCount: completedTracks.length,
         cacheHitCount,
-        transcodedCount: transcodedTracks.length - cacheHitCount,
+        transcodedCount: completedTracks.length - cacheHitCount,
         durationMs: Date.now() - startedAt,
     })
 
-    return transcodedTracks
+    return completedTracks
 }
 
 async function updateCard(
