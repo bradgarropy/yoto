@@ -1,5 +1,5 @@
 import type {YotoSdk} from "@yotoplay/yoto-sdk"
-import pLimit from "p-limit"
+import pLimit, {type LimitFunction} from "p-limit"
 
 import {
     type AudioTrack,
@@ -73,14 +73,6 @@ type AudioLogContext = {
     cardId: string
     trackId: string
     trackTitle: string
-}
-
-type PendingTranscode = {
-    position: number
-    importedTrack: ImportedTrack & {
-        audio: Extract<AudioUploadResult, {alreadyTranscoded: false}>
-    }
-    startedAt: number
 }
 
 const CONCURRENCY_LIMIT = 5
@@ -307,6 +299,59 @@ async function pollTranscode(
     }
 }
 
+async function transcodeTrack(
+    sdk: YotoSdk,
+    cardImport: Pick<Import, "id" | "cardId">,
+    importedTrack: ImportedTrack,
+    pollLimit: LimitFunction,
+): Promise<TranscodedTrack> {
+    const {audio, index, track} = importedTrack
+
+    if (audio.alreadyTranscoded) {
+        return {
+            index,
+            track,
+            audio: {
+                key: audio.key,
+                duration: audio.duration,
+                fileSize: audio.fileSize,
+            },
+        }
+    }
+
+    const {id: importId, cardId} = cardImport
+    const startedAt = Date.now()
+    const context = {
+        importId,
+        cardId,
+        trackId: track.id,
+        trackTitle: track.title,
+    }
+
+    for (let attempt = 1; attempt <= TRANSCODE_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 1) {
+            await new Promise(resolve =>
+                setTimeout(resolve, TRANSCODE_POLL_INTERVAL),
+            )
+        }
+
+        const result = await pollLimit(() =>
+            pollTranscode(sdk, audio.sha256, context, attempt, startedAt),
+        )
+
+        if (result) return {index, track, audio: result}
+    }
+
+    logger.error({
+        message: "yoto.audio.transcode.timed_out",
+        ...context,
+        sha256: audio.sha256,
+        attempts: TRANSCODE_MAX_ATTEMPTS,
+        durationMs: Date.now() - startedAt,
+    })
+    throw new Error("Audio transcode timed out")
+}
+
 async function inspectVideo(
     env: Env,
     cardImport: Import,
@@ -514,9 +559,7 @@ async function transcodeAudio(
 ): Promise<TranscodedTrack[]> {
     const startedAt = Date.now()
     const {id: importId, cardId} = cardImport
-    const limit = pLimit(CONCURRENCY_LIMIT)
-    const total = importedTracks.length
-    const transcodedTracks: (TranscodedTrack | undefined)[] = Array(total)
+    const pollLimit = pLimit(CONCURRENCY_LIMIT)
     const trackProgress = importedTracks.map(({audio, track}) => ({
         duration: track.duration,
         prepared: true,
@@ -525,106 +568,32 @@ async function transcodeAudio(
     }))
     const reportProgress = createProgressReporter(trackProgress, onProgress)
     await reportProgress()
-    let pending: PendingTranscode[] = []
-
-    const reportCompletedTrack = async (position: number) => {
-        trackProgress[position].ready = true
-        await reportProgress()
-    }
-
-    for (const [position, importedTrack] of importedTracks.entries()) {
-        const {index, audio, track} = importedTrack
-        if (audio.alreadyTranscoded) {
-            transcodedTracks[position] = {
-                index,
-                track,
-                audio: {
-                    key: audio.key,
-                    duration: audio.duration,
-                    fileSize: audio.fileSize,
-                },
-            }
-            continue
-        }
-
-        pending.push({
-            position,
-            importedTrack: {
-                ...importedTrack,
-                audio,
-            },
-            startedAt: Date.now(),
-        })
-    }
-
-    for (
-        let attempt = 1;
-        attempt <= TRANSCODE_MAX_ATTEMPTS && pending.length > 0;
-        attempt++
-    ) {
-        if (attempt > 1) {
-            await new Promise(resolve =>
-                setTimeout(resolve, TRANSCODE_POLL_INTERVAL),
+    const transcodeResults = await Promise.allSettled(
+        importedTracks.map(async (importedTrack, position) => {
+            const transcodedTrack = await transcodeTrack(
+                sdk,
+                cardImport,
+                importedTrack,
+                pollLimit,
             )
-        }
 
-        const pollResults = await Promise.all(
-            pending.map(pendingTranscode =>
-                limit(async () => {
-                    const {audio, track} = pendingTranscode.importedTrack
-                    const result = await pollTranscode(
-                        sdk,
-                        audio.sha256,
-                        {
-                            importId,
-                            cardId,
-                            trackId: track.id,
-                            trackTitle: track.title,
-                        },
-                        attempt,
-                        pendingTranscode.startedAt,
-                    )
-                    return {pendingTranscode, result}
-                }),
-            ),
-        )
-
-        pending = []
-        for (const {pendingTranscode, result} of pollResults) {
-            if (!result) {
-                pending.push(pendingTranscode)
-                continue
+            if (!importedTrack.audio.alreadyTranscoded) {
+                trackProgress[position].ready = true
+                await reportProgress()
             }
 
-            const {index, track} = pendingTranscode.importedTrack
-            transcodedTracks[pendingTranscode.position] = {
-                index,
-                track,
-                audio: result,
-            }
-            await reportCompletedTrack(pendingTranscode.position)
-        }
+            return transcodedTrack
+        }),
+    )
+    const failedTranscode = transcodeResults.find(
+        result => result.status === "rejected",
+    )
+    if (failedTranscode?.status === "rejected") {
+        throw failedTranscode.reason
     }
-
-    if (pending.length > 0) {
-        for (const {importedTrack, startedAt: trackStartedAt} of pending) {
-            logger.error({
-                message: "yoto.audio.transcode.timed_out",
-                importId,
-                cardId,
-                trackId: importedTrack.track.id,
-                trackTitle: importedTrack.track.title,
-                sha256: importedTrack.audio.sha256,
-                attempts: TRANSCODE_MAX_ATTEMPTS,
-                durationMs: Date.now() - trackStartedAt,
-            })
-        }
-        throw new Error("Audio transcode timed out")
-    }
-
-    const completedTracks = transcodedTracks.map(track => {
-        if (!track) throw new Error("Audio transcode result missing")
-        return track
+    const completedTracks = transcodeResults.map(result => {
+        if (result.status === "rejected") throw result.reason
+        return result.value
     })
 
     const cacheHitCount = importedTracks.filter(

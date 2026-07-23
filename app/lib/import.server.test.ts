@@ -330,6 +330,36 @@ describe("importVideo", () => {
 })
 
 describe("transcodeAudio", () => {
+    it("returns cached audio without polling Yoto", async () => {
+        const importedTracks: ImportedTrack[] = [
+            {
+                index: 0,
+                track: audioTrack,
+                audio: {
+                    alreadyTranscoded: true,
+                    key: "cached-key",
+                    duration: 180,
+                    fileSize: 100000,
+                },
+            },
+        ]
+
+        const result = await transcodeAudio(sdk, cardImport, importedTracks)
+
+        expect(mockGetTranscodedUpload).not.toHaveBeenCalled()
+        expect(result).toEqual([
+            {
+                index: 0,
+                track: audioTrack,
+                audio: {
+                    key: "cached-key",
+                    duration: 180,
+                    fileSize: 100000,
+                },
+            },
+        ])
+    })
+
     it("checks uploaded audio immediately", async () => {
         const importedTracks: ImportedTrack[] = [
             {
@@ -376,7 +406,7 @@ describe("transcodeAudio", () => {
         ])
     })
 
-    it("polls every pending track before waiting for the next round", async () => {
+    it("limits concurrent polling while preserving track order", async () => {
         const importedTracks: ImportedTrack[] = Array.from(
             {length: 6},
             (_, index) => ({
@@ -413,10 +443,8 @@ describe("transcodeAudio", () => {
                   }
         })
 
-        const callsBeforeWait: number[] = []
         vi.spyOn(globalThis, "setTimeout").mockImplementation(
             (callback: TimerHandler) => {
-                callsBeforeWait.push(mockGetTranscodedUpload.mock.calls.length)
                 if (typeof callback === "function") callback()
                 return 0 as unknown as ReturnType<typeof setTimeout>
             },
@@ -424,9 +452,9 @@ describe("transcodeAudio", () => {
 
         const result = await transcodeAudio(sdk, cardImport, importedTracks)
 
-        expect(callsBeforeWait[0]).toBe(6)
         expect(mockGetTranscodedUpload).toHaveBeenCalledTimes(12)
         expect(maxActivePolls).toBe(5)
+        expect([...pollCounts.values()]).toEqual(Array(6).fill(2))
         expect(result.map(track => track.track.id)).toEqual(
             importedTracks.map(track => track.track.id),
         )
