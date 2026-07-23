@@ -31,6 +31,7 @@ type AudioToPrepare = {
 const MAX_TRACK_BYTES = 100_000_000
 const MAX_TRACK_DURATION_SECONDS = 60 * 60
 const PREPARE_ERROR_MARKER = "__YOTO_PREPARE_ERROR__"
+const SPLIT_ERROR_MARKER = "__YOTO_SPLIT_ERROR__"
 
 // Validate that a URL is a legitimate YouTube URL
 function isYoutubeUrl(url: string): boolean {
@@ -291,23 +292,39 @@ async function splitAudio(
 
     const sandbox = getSandbox(env.SANDBOX, sandboxId)
     const escapedSourcePath = escapeShellArg(source.path)
+    const escapedOutputPaths = segments.map(segment =>
+        escapeShellArg(segment.audio.path),
+    )
+    const cleanupCommand = `rm -f ${escapedOutputPaths.join(" ")}`
 
     try {
-        for (const segment of segments) {
-            const escapedOutputPath = escapeShellArg(segment.audio.path)
-            await sandbox.exec(`rm -f ${escapedOutputPath}`)
-
-            const splitResult = await sandbox.exec(
+        const splitCommands = segments.map(
+            (segment, index) =>
                 `ffmpeg -v error -y ` +
-                    `-ss ${segment.startTime} -i ${escapedSourcePath} ` +
-                    `-t ${segment.duration} -map 0:a:0 -c:a copy ` +
-                    `${escapedOutputPath}`,
+                `-ss ${segment.startTime} -i ${escapedSourcePath} ` +
+                `-t ${segment.duration} -map 0:a:0 -c:a copy ` +
+                `${escapedOutputPaths[index]} || ` +
+                `{ printf '${SPLIT_ERROR_MARKER}\\t${index}\\n' >&2; exit 1; }`,
+        )
+        const splitResult = await sandbox.exec(
+            ["set -e", cleanupCommand, ...splitCommands].join("\n"),
+        )
+        if (!splitResult.success) {
+            const marker = new RegExp(`${SPLIT_ERROR_MARKER}\\t(\\d+)`).exec(
+                splitResult.stderr,
             )
-            if (!splitResult.success) {
-                throw new Error(
-                    `Failed to split ${segment.title}: ${splitResult.stderr}`,
-                )
-            }
+            const segment = marker
+                ? segments[Number.parseInt(marker[1], 10)]
+                : undefined
+            const detail = marker
+                ? splitResult.stderr.replace(marker[0], "").trim()
+                : splitResult.stderr
+
+            throw new Error(
+                segment
+                    ? `Failed to split ${segment.title}: ${detail || "command failed"}`
+                    : `Failed to split audio: ${detail}`,
+            )
         }
 
         logger.info({
@@ -320,10 +337,7 @@ async function splitAudio(
 
         return segments.map(segment => segment.audio)
     } catch (error) {
-        for (const segment of segments) {
-            const escapedOutputPath = escapeShellArg(segment.audio.path)
-            await sandbox.exec(`rm -f ${escapedOutputPath}`)
-        }
+        await sandbox.exec(cleanupCommand)
         throw error
     }
 }
