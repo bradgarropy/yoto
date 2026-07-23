@@ -20,6 +20,7 @@ import {
     type ImportedTrack,
     importVideo,
     inspectVideo,
+    processAudio,
     transcodeAudio,
     updateCard,
 } from "./import.server"
@@ -429,6 +430,37 @@ describe("transcodeAudio", () => {
         expect(result.map(track => track.track.id)).toEqual(
             importedTracks.map(track => track.track.id),
         )
+    })
+})
+
+describe("processAudio", () => {
+    it("imports and resolves every track before returning", async () => {
+        mockGetTranscodedUpload.mockResolvedValue({
+            progress: {phase: "complete"},
+            transcodedSha256: "transcoded-sha",
+            transcodedInfo: {duration: 180, fileSize: 100000},
+        })
+
+        const result = await processAudio(
+            sdk,
+            mockEnv,
+            cardImport,
+            video.videos,
+        )
+
+        expect(mockPrepareTracks).toHaveBeenCalledOnce()
+        expect(mockUploadTrack).not.toHaveBeenCalled()
+        expect(result).toEqual([
+            {
+                index: 0,
+                track: audioTrack,
+                audio: {
+                    key: "transcoded-sha",
+                    duration: 180,
+                    fileSize: 100000,
+                },
+            },
+        ])
     })
 })
 

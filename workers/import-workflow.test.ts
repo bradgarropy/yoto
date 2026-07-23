@@ -7,13 +7,12 @@ import {createMockEnv} from "~/tests/mocks"
 const mockDestroySandbox = vi.fn()
 const mockGetProgress = vi.fn()
 const mockGetYotoSdk = vi.fn()
-const mockImportVideo = vi.fn()
 const mockInspectVideo = vi.fn()
+const mockProcessAudio = vi.fn()
 const mockReadImportCredential = vi.fn()
 const mockReportComplete = vi.fn()
 const mockReportError = vi.fn()
 const mockReportProgress = vi.fn()
-const mockTranscodeAudio = vi.fn()
 const mockUpdateCard = vi.fn()
 
 vi.mock("cloudflare:workers", () => ({
@@ -30,9 +29,8 @@ vi.mock("~/lib/import-credential.server", () => ({
 }))
 
 vi.mock("~/lib/import.server", () => ({
-    importVideo: (...args: unknown[]) => mockImportVideo(...args),
     inspectVideo: (...args: unknown[]) => mockInspectVideo(...args),
-    transcodeAudio: (...args: unknown[]) => mockTranscodeAudio(...args),
+    processAudio: (...args: unknown[]) => mockProcessAudio(...args),
     updateCard: (...args: unknown[]) => mockUpdateCard(...args),
 }))
 
@@ -55,13 +53,6 @@ const inspectedTracks = [
         title: "Test Video",
         url: cardImport.youtubeUrl,
         duration: 180,
-    },
-]
-const importedTracks = [
-    {
-        index: 0,
-        track: inspectedTracks[0],
-        audio: {alreadyTranscoded: false as const, sha256: "audio-sha"},
     },
 ]
 const transcodedTracks = [
@@ -113,10 +104,9 @@ describe("ImportWorkflow", () => {
             reportProgress: mockReportProgress,
         })
         mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
-        mockImportVideo.mockResolvedValue(importedTracks)
         mockInspectVideo.mockResolvedValue(inspectedTracks)
+        mockProcessAudio.mockResolvedValue(transcodedTracks)
         mockReadImportCredential.mockResolvedValue("access-token")
-        mockTranscodeAudio.mockResolvedValue(transcodedTracks)
         mockUpdateCard.mockResolvedValue(importResult)
     })
 
@@ -144,7 +134,7 @@ describe("ImportWorkflow", () => {
         )
         expect(step.do).toHaveBeenNthCalledWith(
             2,
-            "import video",
+            "process audio",
             {
                 retries: {
                     limit: 3,
@@ -157,19 +147,6 @@ describe("ImportWorkflow", () => {
         )
         expect(step.do).toHaveBeenNthCalledWith(
             3,
-            "transcode audio",
-            {
-                retries: {
-                    limit: 3,
-                    delay: "10 seconds",
-                    backoff: "exponential",
-                },
-                timeout: "30 minutes",
-            },
-            expect.any(Function),
-        )
-        expect(step.do).toHaveBeenNthCalledWith(
-            4,
             "update card",
             {
                 retries: {limit: 0, delay: 0},
@@ -178,7 +155,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            5,
+            4,
             "cleanup sandbox",
             {
                 retries: {
@@ -200,20 +177,14 @@ describe("ImportWorkflow", () => {
             },
             expect.any(Function),
         )
-        expect(mockImportVideo).toHaveBeenCalledWith(
+        expect(mockProcessAudio).toHaveBeenCalledWith(
             expect.any(Object),
-            expect.any(Object),
-            expect.objectContaining({id: cardImport.id}),
-            inspectedTracks,
-            expect.any(Function),
-        )
-        expect(mockTranscodeAudio).toHaveBeenCalledWith(
             expect.any(Object),
             expect.objectContaining({
                 id: cardImport.id,
                 cardId: cardImport.cardId,
             }),
-            importedTracks,
+            inspectedTracks,
             expect.any(Function),
         )
         expect(mockUpdateCard).toHaveBeenCalledWith(
@@ -225,7 +196,7 @@ describe("ImportWorkflow", () => {
             transcodedTracks,
             expect.any(Function),
         )
-        expect(mockReadImportCredential).toHaveBeenCalledTimes(3)
+        expect(mockReadImportCredential).toHaveBeenCalledTimes(2)
         expect(mockReportComplete).toHaveBeenCalledWith(importResult)
         expect(mockReportError).not.toHaveBeenCalled()
         expect(console.info).toHaveBeenCalledWith(
@@ -302,7 +273,7 @@ describe("ImportWorkflow", () => {
             ),
         ).rejects.toThrow("Containers unavailable")
 
-        expect(mockImportVideo).not.toHaveBeenCalled()
+        expect(mockProcessAudio).not.toHaveBeenCalled()
         expect(mockReportError).toHaveBeenCalledWith("Containers unavailable")
         expect(console.error).toHaveBeenCalledWith(
             expect.objectContaining({

@@ -643,6 +643,23 @@ async function transcodeAudio(
     return completedTracks
 }
 
+async function processAudio(
+    sdk: YotoSdk,
+    env: Env,
+    cardImport: Import,
+    videos: YouTubeVideo[],
+    onProgress?: (progress: ImportProgress) => void | Promise<void>,
+): Promise<TranscodedTrack[]> {
+    const importedTracks = await importVideo(
+        sdk,
+        env,
+        cardImport,
+        videos,
+        onProgress,
+    )
+    return transcodeAudio(sdk, cardImport, importedTracks, onProgress)
+}
+
 async function updateCard(
     sdk: YotoSdk,
     cardImport: Pick<Import, "id" | "cardId">,
@@ -725,6 +742,7 @@ export {
     createAudioTracks,
     importVideo,
     inspectVideo,
+    processAudio,
     transcodeAudio,
     updateCard,
 }
