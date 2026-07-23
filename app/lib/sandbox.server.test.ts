@@ -191,13 +191,11 @@ describe("splitAudio", () => {
                 contentType: "audio/mp4",
             },
         ])
-        expect(mockExec).toHaveBeenNthCalledWith(
-            2,
-            "ffmpeg -v error -y -ss 0 -i '/tmp/video-1.m4a' -t 60 -map 0:a:0 -c:a copy '/tmp/video-1-01.m4a'",
-        )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            4,
-            "ffmpeg -v error -y -ss 60 -i '/tmp/video-1.m4a' -t 120 -map 0:a:0 -c:a copy '/tmp/video-1-02.m4a'",
+        expect(mockExec).toHaveBeenCalledTimes(1)
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringMatching(
+                /rm -f '\/tmp\/video-1-01\.m4a' '\/tmp\/video-1-02\.m4a'.+ffmpeg.+-ss 0.+video-1-01\.m4a.+ffmpeg.+-ss 60.+video-1-02\.m4a/s,
+            ),
         )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -219,15 +217,11 @@ describe("splitAudio", () => {
 
     it("removes chapter files when splitting fails", async () => {
         mockExec
-            .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand())
-            .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce({
                 success: false,
                 stdout: "",
-                stderr: "split failed",
+                stderr: "split failed\n" + "__YOTO_SPLIT_ERROR__\t1\n",
             })
-            .mockResolvedValueOnce(successfulCommand())
             .mockResolvedValueOnce(successfulCommand())
 
         await expect(
@@ -235,12 +229,8 @@ describe("splitAudio", () => {
         ).rejects.toThrow("Failed to split Chapter Two: split failed")
 
         expect(mockExec).toHaveBeenNthCalledWith(
-            5,
-            "rm -f '/tmp/video-1-01.m4a'",
-        )
-        expect(mockExec).toHaveBeenNthCalledWith(
-            6,
-            "rm -f '/tmp/video-1-02.m4a'",
+            2,
+            "rm -f '/tmp/video-1-01.m4a' '/tmp/video-1-02.m4a'",
         )
     })
 })
@@ -516,13 +506,14 @@ describe("prepareTracks", () => {
         expect(
             commands.filter(command => command.includes("yt-dlp")).length,
         ).toBe(1)
+        const splitCommand = commands.find(command =>
+            command.includes("ffmpeg"),
+        )
+        expect(splitCommand?.match(/ffmpeg/g)).toHaveLength(2)
         expect(
-            commands.filter(command => command.startsWith("ffmpeg ")).length,
-        ).toBe(2)
-        expect(
-            commands.filter(command => command.startsWith("set -e")).length,
+            commands.filter(command => command.includes("stat -c")).length,
         ).toBe(1)
-        expect(commands.find(command => command.startsWith("set -e"))).toMatch(
+        expect(commands.find(command => command.includes("stat -c"))).toMatch(
             /video-1-01\.m4a.+video-1-02\.m4a/s,
         )
         expect(commands.at(-1)).toBe("rm -f '/tmp/video-1.m4a'")
