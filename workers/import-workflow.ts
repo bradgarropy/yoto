@@ -10,23 +10,14 @@ import {
     type ImportWorkflowParams,
     type ImportWorkflowResult,
 } from "~/lib/import"
-import {
-    importVideo,
-    inspectVideo,
-    transcodeAudio,
-    updateCard,
-} from "~/lib/import.server"
+import {inspectVideo, processAudio, updateCard} from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
 import {logger} from "~/lib/logger.server"
 import {destroySandbox} from "~/lib/sandbox.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
 
-type ImportStage =
-    | "inspect_video"
-    | "import_video"
-    | "transcode_audio"
-    | "update_card"
+type ImportStage = "inspect_video" | "process_audio" | "update_card"
 
 class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     override async run(
@@ -104,9 +95,9 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 0,
             )
 
-            stage = "import_video"
-            const importedTracks = await step.do(
-                "import video",
+            stage = "process_audio"
+            const transcodedTracks = await step.do(
+                "process audio",
                 {
                     retries: {
                         limit: 3,
@@ -117,33 +108,11 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 },
                 async () => {
                     const sdk = await getSdk()
-                    return importVideo(
+                    return processAudio(
                         sdk,
                         this.env,
                         cardImport,
                         tracks,
-                        reportProgress,
-                    )
-                },
-            )
-
-            stage = "transcode_audio"
-            const transcodedTracks = await step.do(
-                "transcode audio",
-                {
-                    retries: {
-                        limit: 3,
-                        delay: "10 seconds",
-                        backoff: "exponential",
-                    },
-                    timeout: "30 minutes",
-                },
-                async () => {
-                    const sdk = await getSdk()
-                    return transcodeAudio(
-                        sdk,
-                        cardImport,
-                        importedTracks,
                         reportProgress,
                     )
                 },

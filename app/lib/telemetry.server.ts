@@ -150,8 +150,7 @@ type TelemetryPayloads = {
         stage:
             | "create_workflow"
             | "inspect_video"
-            | "import_video"
-            | "transcode_audio"
+            | "process_audio"
             | "update_card"
         reason: string
         errorName: string
