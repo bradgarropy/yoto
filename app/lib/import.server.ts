@@ -62,6 +62,15 @@ type ImportedTrack = {
     audio: AudioUploadResult
 }
 
+type PlannedTrack = {
+    index: number
+    track: AudioTrack
+}
+
+type PreparedTrack = PlannedTrack & {
+    preparedTrack: Track
+}
+
 type TranscodedTrack = {
     index: number
     track: AudioTrack
@@ -383,17 +392,84 @@ async function inspectVideo(
     return youtubeInfo.videos
 }
 
-async function importVideo(
+async function prepareSourceTracks(
+    env: Env,
+    sandboxId: string,
+    video: YouTubeVideo,
+    tracks: PlannedTrack[],
+): Promise<PreparedTrack[]> {
+    const preparedTracks = await prepareTracks(
+        env,
+        sandboxId,
+        video,
+        tracks.map(({track}) => track),
+    )
+
+    if (preparedTracks.length !== tracks.length) {
+        await Promise.allSettled(
+            preparedTracks.map(track => removeTrack(env, sandboxId, track)),
+        )
+        throw new Error(`Failed to prepare every track for ${video.title}`)
+    }
+
+    return preparedTracks.map((preparedTrack, index) => ({
+        ...tracks[index],
+        preparedTrack,
+    }))
+}
+
+async function processPreparedTrack(
+    sdk: YotoSdk,
+    env: Env,
+    sandboxId: string,
+    cardImport: Pick<Import, "id" | "cardId">,
+    preparedTrack: PreparedTrack,
+    uploadLimit: LimitFunction,
+    pollLimit: LimitFunction,
+    onUploaded: (alreadyTranscoded: boolean) => void | Promise<void>,
+    onReady: () => void | Promise<void>,
+): Promise<TranscodedTrack> {
+    const {index, preparedTrack: audioFile, track} = preparedTrack
+    let audio: AudioUploadResult
+
+    try {
+        audio = await uploadLimit(() =>
+            uploadAudio(sdk, env, sandboxId, audioFile, {
+                importId: cardImport.id,
+                cardId: cardImport.cardId,
+                trackId: track.id,
+                trackTitle: track.title,
+            }),
+        )
+    } finally {
+        await removeTrack(env, sandboxId, audioFile)
+    }
+
+    await onUploaded(audio.alreadyTranscoded)
+    const transcodedTrack = await transcodeTrack(
+        sdk,
+        cardImport,
+        {index, track, audio},
+        pollLimit,
+    )
+
+    if (!audio.alreadyTranscoded) await onReady()
+    return transcodedTrack
+}
+
+async function processAudio(
     sdk: YotoSdk,
     env: Env,
     cardImport: Import,
     videos: YouTubeVideo[],
     onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<ImportedTrack[]> {
+): Promise<TranscodedTrack[]> {
     const startedAt = Date.now()
-    const {cardId} = cardImport
+    const {id: importId, cardId} = cardImport
     const sandboxId = getImportSandboxId(cardImport)
-    const limit = pLimit(CONCURRENCY_LIMIT)
+    const prepareLimit = pLimit(CONCURRENCY_LIMIT)
+    const uploadLimit = pLimit(CONCURRENCY_LIMIT)
+    const pollLimit = pLimit(CONCURRENCY_LIMIT)
     let nextTrackIndex = 0
     const sourcePlans = videos.map(video => ({
         video,
@@ -414,219 +490,114 @@ async function importVideo(
             ready: false,
         }))
     const reportProgress = createProgressReporter(trackProgress, onProgress)
-
-    const prepareStartedAt = Date.now()
     await reportProgress()
 
-    const downloadResults = await Promise.allSettled(
-        sourcePlans.map(({video, tracks}) =>
-            limit(async () => {
-                const preparedTracks = await prepareTracks(
-                    env,
-                    sandboxId,
-                    video,
-                    tracks.map(({track}) => track),
-                )
-                if (preparedTracks.length !== tracks.length) {
-                    await Promise.allSettled(
-                        preparedTracks.map(track =>
-                            removeTrack(env, sandboxId, track),
-                        ),
-                    )
-                    throw new Error(
-                        `Failed to prepare every track for ${video.title}`,
-                    )
-                }
-
-                tracks.forEach(({index}) => {
-                    trackProgress[index].prepared = true
-                })
-                await reportProgress()
-                return preparedTracks.map((preparedTrack, index) => ({
-                    ...tracks[index],
-                    preparedTrack,
-                }))
-            }),
-        ),
+    let cacheHitCount = 0
+    const preparationStartedAt = Date.now()
+    const preparationPromises = sourcePlans.map(({video, tracks}) =>
+        prepareLimit(async () => {
+            const preparedTracks = await prepareSourceTracks(
+                env,
+                sandboxId,
+                video,
+                tracks,
+            )
+            tracks.forEach(({index}) => {
+                trackProgress[index].prepared = true
+            })
+            await reportProgress()
+            return preparedTracks
+        }),
+    )
+    const preparationSummary = Promise.allSettled(preparationPromises).then(
+        results => {
+            logger.info({
+                message: "import.audio.prepare.completed",
+                importId,
+                cardId,
+                sandboxId,
+                sourceCount: videos.length,
+                trackCount: results.reduce(
+                    (total, result) =>
+                        total +
+                        (result.status === "fulfilled"
+                            ? result.value.length
+                            : 0),
+                    0,
+                ),
+                failedSourceCount: results.filter(
+                    result => result.status === "rejected",
+                ).length,
+                durationMs: Date.now() - preparationStartedAt,
+            })
+        },
     )
 
-    const failedDownload = downloadResults.find(
-        (result): result is PromiseRejectedResult =>
-            result.status === "rejected",
-    )
+    const pipelineResults = await Promise.allSettled(
+        preparationPromises.map(async preparedSource => {
+            const preparedTracks = await preparedSource
 
-    if (failedDownload) {
-        await Promise.allSettled(
-            downloadResults.flatMap(result =>
-                result.status === "fulfilled"
-                    ? result.value.map(({preparedTrack}) =>
-                          removeTrack(env, sandboxId, preparedTrack),
-                      )
-                    : [],
-            ),
-        )
-        throw failedDownload.reason
-    }
-
-    const downloadedTracks = downloadResults.flatMap(result => {
-        if (result.status !== "fulfilled") throw result.reason
-        return result.value
-    })
-
-    logger.info({
-        message: "import.audio.prepare.completed",
-        importId: cardImport.id,
-        cardId,
-        sandboxId,
-        sourceCount: videos.length,
-        trackCount: downloadedTracks.length,
-        durationMs: Date.now() - prepareStartedAt,
-    })
-
-    const uploadStartedAt = Date.now()
-
-    const uploadResults = await Promise.allSettled(
-        downloadedTracks.map(({index, preparedTrack, track}) =>
-            limit(async () => {
-                try {
-                    const audio = await uploadAudio(
+            return Promise.allSettled(
+                preparedTracks.map(preparedTrack =>
+                    processPreparedTrack(
                         sdk,
                         env,
                         sandboxId,
+                        cardImport,
                         preparedTrack,
-                        {
-                            importId: cardImport.id,
-                            cardId,
-                            trackId: track.id,
-                            trackTitle: track.title,
+                        uploadLimit,
+                        pollLimit,
+                        async alreadyTranscoded => {
+                            const {index} = preparedTrack
+                            trackProgress[index].uploaded = true
+                            trackProgress[index].ready = alreadyTranscoded
+                            if (alreadyTranscoded) cacheHitCount++
+                            await reportProgress()
                         },
-                    )
-                    trackProgress[index].uploaded = true
-                    if (audio.alreadyTranscoded) {
-                        trackProgress[index].ready = true
-                    }
-                    await reportProgress()
-                    return {index, audio, track}
-                } finally {
-                    await removeTrack(env, sandboxId, preparedTrack)
-                }
-            }),
-        ),
-    )
-
-    const failedUpload = uploadResults.find(
-        (result): result is PromiseRejectedResult =>
-            result.status === "rejected",
-    )
-    if (failedUpload) throw failedUpload.reason
-
-    const importedTracks = uploadResults.map(result => {
-        if (result.status !== "fulfilled") throw result.reason
-        return result.value
-    })
-
-    const cacheHitCount = importedTracks.filter(
-        track => track.audio.alreadyTranscoded,
-    ).length
-
-    logger.info({
-        message: "import.audio.upload.completed",
-        importId: cardImport.id,
-        cardId,
-        sandboxId,
-        trackCount: importedTracks.length,
-        cacheHitCount,
-        uploadedCount: importedTracks.length - cacheHitCount,
-        durationMs: Date.now() - uploadStartedAt,
-    })
-    logger.info({
-        message: "import.video.completed",
-        importId: cardImport.id,
-        cardId,
-        sourceCount: videos.length,
-        trackCount: importedTracks.length,
-        durationMs: Date.now() - startedAt,
-    })
-
-    return importedTracks
-}
-
-async function transcodeAudio(
-    sdk: YotoSdk,
-    cardImport: Pick<Import, "id" | "cardId">,
-    importedTracks: ImportedTrack[],
-    onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<TranscodedTrack[]> {
-    const startedAt = Date.now()
-    const {id: importId, cardId} = cardImport
-    const pollLimit = pLimit(CONCURRENCY_LIMIT)
-    const trackProgress = importedTracks.map(({audio, track}) => ({
-        duration: track.duration,
-        prepared: true,
-        uploaded: true,
-        ready: audio.alreadyTranscoded,
-    }))
-    const reportProgress = createProgressReporter(trackProgress, onProgress)
-    await reportProgress()
-    const transcodeResults = await Promise.allSettled(
-        importedTracks.map(async (importedTrack, position) => {
-            const transcodedTrack = await transcodeTrack(
-                sdk,
-                cardImport,
-                importedTrack,
-                pollLimit,
+                        async () => {
+                            trackProgress[preparedTrack.index].ready = true
+                            await reportProgress()
+                        },
+                    ),
+                ),
             )
-
-            if (!importedTrack.audio.alreadyTranscoded) {
-                trackProgress[position].ready = true
-                await reportProgress()
-            }
-
-            return transcodedTrack
         }),
     )
-    const failedTranscode = transcodeResults.find(
+    await preparationSummary
+
+    const failedPipeline = pipelineResults.find(
         result => result.status === "rejected",
     )
-    if (failedTranscode?.status === "rejected") {
-        throw failedTranscode.reason
+    if (failedPipeline?.status === "rejected") {
+        throw failedPipeline.reason
     }
-    const completedTracks = transcodeResults.map(result => {
+    const trackResults = pipelineResults.flatMap(result => {
+        if (result.status === "rejected") throw result.reason
+        return result.value
+    })
+    const failedTrack = trackResults.find(
+        result => result.status === "rejected",
+    )
+    if (failedTrack?.status === "rejected") throw failedTrack.reason
+
+    const transcodedTracks = trackResults.map(result => {
         if (result.status === "rejected") throw result.reason
         return result.value
     })
 
-    const cacheHitCount = importedTracks.filter(
-        track => track.audio.alreadyTranscoded,
-    ).length
     logger.info({
-        message: "import.audio.transcode.completed",
+        message: "import.audio.pipeline.completed",
         importId,
         cardId,
-        trackCount: completedTracks.length,
+        sandboxId,
+        sourceCount: videos.length,
+        trackCount: transcodedTracks.length,
         cacheHitCount,
-        transcodedCount: completedTracks.length - cacheHitCount,
+        uploadedCount: transcodedTracks.length - cacheHitCount,
         durationMs: Date.now() - startedAt,
     })
 
-    return completedTracks
-}
-
-async function processAudio(
-    sdk: YotoSdk,
-    env: Env,
-    cardImport: Import,
-    videos: YouTubeVideo[],
-    onProgress?: (progress: ImportProgress) => void | Promise<void>,
-): Promise<TranscodedTrack[]> {
-    const importedTracks = await importVideo(
-        sdk,
-        env,
-        cardImport,
-        videos,
-        onProgress,
-    )
-    return transcodeAudio(sdk, cardImport, importedTracks, onProgress)
+    return transcodedTracks
 }
 
 async function updateCard(
@@ -707,12 +678,5 @@ async function updateCard(
     }
 }
 
-export {
-    createAudioTracks,
-    importVideo,
-    inspectVideo,
-    processAudio,
-    transcodeAudio,
-    updateCard,
-}
-export type {ImportedTrack, TranscodedTrack}
+export {createAudioTracks, inspectVideo, processAudio, updateCard}
+export type {TranscodedTrack}

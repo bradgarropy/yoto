@@ -17,11 +17,8 @@ vi.mock("./sandbox.server", () => ({
 
 import {
     createAudioTracks,
-    type ImportedTrack,
-    importVideo,
     inspectVideo,
     processAudio,
-    transcodeAudio,
     updateCard,
 } from "./import.server"
 
@@ -185,15 +182,61 @@ describe("inspectVideo", () => {
     })
 })
 
-describe("importVideo", () => {
-    it("downloads, uploads, and removes prepared audio", async () => {
-        mockGetTranscodedUpload.mockRejectedValueOnce(new Error("Not found"))
+describe("processAudio", () => {
+    it("reuses cached audio without uploading or polling", async () => {
+        mockGetTranscodedUpload.mockResolvedValue({
+            progress: {phase: "complete"},
+            transcodedSha256: "transcoded-sha",
+            transcodedInfo: {duration: 180, fileSize: 100000},
+        })
+
+        const result = await processAudio(
+            sdk,
+            mockEnv,
+            cardImport,
+            video.videos,
+        )
+
+        expect(mockPrepareTracks).toHaveBeenCalledOnce()
+        expect(mockUploadTrack).not.toHaveBeenCalled()
+        expect(mockGetTranscodedUpload).toHaveBeenCalledOnce()
+        expect(mockRemoveTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+        )
+        expect(result).toEqual([
+            {
+                index: 0,
+                track: audioTrack,
+                audio: {
+                    key: "transcoded-sha",
+                    duration: 180,
+                    fileSize: 100000,
+                },
+            },
+        ])
+    })
+
+    it("uploads, transcodes, and removes prepared audio", async () => {
+        mockGetTranscodedUpload
+            .mockRejectedValueOnce(new Error("Not found"))
+            .mockResolvedValueOnce({
+                progress: {phase: "complete"},
+                transcodedSha256: "transcoded-sha",
+                transcodedInfo: {duration: 180, fileSize: 100000},
+            })
         mockGetUploadUrlForTranscode.mockResolvedValue({
             uploadId: preparedTrack.sha256,
             uploadUrl: "https://uploads.example.com/audio",
         })
 
-        const result = await importVideo(sdk, mockEnv, cardImport, video.videos)
+        const result = await processAudio(
+            sdk,
+            mockEnv,
+            cardImport,
+            video.videos,
+        )
 
         expect(mockUploadTrack).toHaveBeenCalledWith(
             mockEnv,
@@ -206,45 +249,77 @@ describe("importVideo", () => {
             sandboxId,
             preparedTrack,
         )
-        expect(console.info).toHaveBeenCalledWith(
-            expect.objectContaining({
-                message: "yoto.audio.upload.completed",
-                durationMs: expect.any(Number),
-            }),
-        )
-        expect(result).toEqual([
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    alreadyTranscoded: false,
-                    sha256: preparedTrack.sha256,
-                },
-            },
-        ])
-    })
-
-    it("uses cached Yoto audio without uploading it again", async () => {
-        mockGetTranscodedUpload.mockResolvedValue({
-            progress: {phase: "complete"},
-            transcodedSha256: "transcoded-sha",
-            transcodedInfo: {duration: 180, fileSize: 100000},
-        })
-
-        const result = await importVideo(sdk, mockEnv, cardImport, video.videos)
-
-        expect(mockGetUploadUrlForTranscode).not.toHaveBeenCalled()
-        expect(mockUploadTrack).not.toHaveBeenCalled()
-        expect(mockRemoveTrack).toHaveBeenCalledOnce()
         expect(result[0].audio).toEqual({
-            alreadyTranscoded: true,
             key: "transcoded-sha",
             duration: 180,
             fileSize: 100000,
         })
     })
 
-    it("prepares and uploads each chapter from one source video", async () => {
+    it("pipelines a prepared source while another source is downloading", async () => {
+        const secondVideo = {
+            id: "video-2",
+            title: "Second Track",
+            url: "https://www.youtube.com/watch?v=video-2",
+            duration: 120,
+        }
+        const secondPreparedTrack = {
+            ...preparedTrack,
+            path: "/tmp/video-2.m4a",
+            filename: "video-2.m4a",
+            sha256: "b".repeat(64),
+        }
+        let resolveSecondPreparation:
+            | ((tracks: (typeof secondPreparedTrack)[]) => void)
+            | undefined
+        const secondPreparation = new Promise<(typeof secondPreparedTrack)[]>(
+            resolve => {
+                resolveSecondPreparation = resolve
+            },
+        )
+        mockPrepareTracks
+            .mockResolvedValueOnce([preparedTrack])
+            .mockReturnValueOnce(secondPreparation)
+        const transcodeCalls = new Map<string, number>()
+        mockGetTranscodedUpload.mockImplementation((sha256: string) => {
+            const calls = (transcodeCalls.get(sha256) ?? 0) + 1
+            transcodeCalls.set(sha256, calls)
+            if (calls === 1) return Promise.reject(new Error("Not found"))
+            return Promise.resolve({
+                progress: {phase: "complete"},
+                transcodedSha256: `transcoded-${sha256}`,
+                transcodedInfo: {duration: 180, fileSize: 100000},
+            })
+        })
+        mockGetUploadUrlForTranscode.mockImplementation((sha256: string) => ({
+            uploadId: sha256,
+            uploadUrl: `https://uploads.example.com/${sha256}`,
+        }))
+
+        const resultPromise = processAudio(sdk, mockEnv, cardImport, [
+            sourceTrack,
+            secondVideo,
+        ])
+
+        await vi.waitFor(() => expect(mockUploadTrack).toHaveBeenCalledOnce())
+        expect(mockUploadTrack).toHaveBeenCalledWith(
+            mockEnv,
+            sandboxId,
+            preparedTrack,
+            expect.any(String),
+        )
+
+        resolveSecondPreparation?.([secondPreparedTrack])
+        const result = await resultPromise
+
+        expect(mockUploadTrack).toHaveBeenCalledTimes(2)
+        expect(result.map(track => track.track.id)).toEqual([
+            sourceTrack.id,
+            secondVideo.id,
+        ])
+    })
+
+    it("prepares one source once and preserves chapter order", async () => {
         const videoWithChapters = {
             ...sourceTrack,
             chapters: [
@@ -261,13 +336,23 @@ describe("importVideo", () => {
             byteLength: 123456,
         }))
         mockPrepareTracks.mockResolvedValueOnce(preparedChapters)
-        mockGetTranscodedUpload.mockRejectedValue(new Error("Not found"))
+        const transcodeCalls = new Map<string, number>()
+        mockGetTranscodedUpload.mockImplementation((sha256: string) => {
+            const calls = (transcodeCalls.get(sha256) ?? 0) + 1
+            transcodeCalls.set(sha256, calls)
+            if (calls === 1) return Promise.reject(new Error("Not found"))
+            return Promise.resolve({
+                progress: {phase: "complete"},
+                transcodedSha256: `transcoded-${sha256}`,
+                transcodedInfo: {duration: 180, fileSize: 100000},
+            })
+        })
         mockGetUploadUrlForTranscode.mockImplementation((sha256: string) => ({
             uploadId: sha256,
             uploadUrl: `https://uploads.example.com/${sha256}`,
         }))
 
-        const result = await importVideo(
+        const result = await processAudio(
             sdk,
             mockEnv,
             {...cardImport, splitByChapters: true},
@@ -281,10 +366,7 @@ describe("importVideo", () => {
             chapterTracks,
         )
         expect(mockUploadTrack).toHaveBeenCalledTimes(2)
-        expect(result.map(({index, track}) => ({index, track}))).toEqual([
-            {index: 0, track: chapterTracks[0]},
-            {index: 1, track: chapterTracks[1]},
-        ])
+        expect(result.map(track => track.track)).toEqual(chapterTracks)
     })
 
     it("removes prepared audio when upload fails", async () => {
@@ -296,7 +378,7 @@ describe("importVideo", () => {
         mockUploadTrack.mockRejectedValueOnce(new Error("Upload failed"))
 
         await expect(
-            importVideo(sdk, mockEnv, cardImport, video.videos),
+            processAudio(sdk, mockEnv, cardImport, video.videos),
         ).rejects.toThrow("Upload failed")
 
         expect(mockRemoveTrack).toHaveBeenCalledWith(
@@ -306,135 +388,42 @@ describe("importVideo", () => {
         )
     })
 
-    it("removes successful downloads when another download fails", async () => {
-        const secondTrack = {
-            id: "video-2",
-            title: "Failed Track",
-            url: "https://www.youtube.com/watch?v=video-2",
-        }
-        mockPrepareTracks
-            .mockResolvedValueOnce([preparedTrack])
-            .mockRejectedValueOnce(new Error("Download failed"))
-
-        await expect(
-            importVideo(sdk, mockEnv, cardImport, [sourceTrack, secondTrack]),
-        ).rejects.toThrow("Download failed")
-
-        expect(mockRemoveTrack).toHaveBeenCalledWith(
-            mockEnv,
-            sandboxId,
-            preparedTrack,
+    it("limits concurrent Yoto polling while preserving source order", async () => {
+        const videos = Array.from({length: 6}, (_, index) => ({
+            id: `video-${index}`,
+            title: `Track ${index}`,
+            url: `https://www.youtube.com/watch?v=video-${index}`,
+            duration: 180,
+        }))
+        mockPrepareTracks.mockImplementation(
+            async (_env, _sandboxId, source) => [
+                {
+                    ...preparedTrack,
+                    path: `/tmp/${source.id}.m4a`,
+                    filename: `${source.id}.m4a`,
+                    sha256: `sha-${source.id}`,
+                },
+            ],
         )
-        expect(mockUploadTrack).not.toHaveBeenCalled()
-    })
-})
-
-describe("transcodeAudio", () => {
-    it("returns cached audio without polling Yoto", async () => {
-        const importedTracks: ImportedTrack[] = [
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    alreadyTranscoded: true,
-                    key: "cached-key",
-                    duration: 180,
-                    fileSize: 100000,
-                },
-            },
-        ]
-
-        const result = await transcodeAudio(sdk, cardImport, importedTracks)
-
-        expect(mockGetTranscodedUpload).not.toHaveBeenCalled()
-        expect(result).toEqual([
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    key: "cached-key",
-                    duration: 180,
-                    fileSize: 100000,
-                },
-            },
-        ])
-    })
-
-    it("checks uploaded audio immediately", async () => {
-        const importedTracks: ImportedTrack[] = [
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    alreadyTranscoded: false,
-                    sha256: preparedTrack.sha256,
-                },
-            },
-        ]
-        mockGetTranscodedUpload.mockResolvedValue({
-            progress: {phase: "complete"},
-            transcodedSha256: "transcoded-sha",
-            transcodedInfo: {duration: 180, fileSize: 100000},
-        })
-        const setTimeoutSpy = vi
-            .spyOn(globalThis, "setTimeout")
-            .mockImplementation((callback: TimerHandler) => {
-                if (typeof callback === "function") callback()
-                return 0 as unknown as ReturnType<typeof setTimeout>
-            })
-
-        const result = await transcodeAudio(sdk, cardImport, importedTracks)
-
-        expect(console.info).toHaveBeenCalledWith(
-            expect.objectContaining({
-                message: "yoto.audio.transcode.completed",
-                durationMs: expect.any(Number),
-            }),
-        )
-        expect(mockGetTranscodedUpload).toHaveBeenCalledTimes(1)
-        expect(setTimeoutSpy).not.toHaveBeenCalled()
-        expect(result).toEqual([
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    key: "transcoded-sha",
-                    duration: 180,
-                    fileSize: 100000,
-                },
-            },
-        ])
-    })
-
-    it("limits concurrent polling while preserving track order", async () => {
-        const importedTracks: ImportedTrack[] = Array.from(
-            {length: 6},
-            (_, index) => ({
-                index,
-                track: {
-                    ...audioTrack,
-                    id: `video-${index}`,
-                    title: `Track ${index}`,
-                },
-                audio: {
-                    alreadyTranscoded: false,
-                    sha256: `sha-${index}`,
-                },
-            }),
-        )
-        const pollCounts = new Map<string, number>()
+        mockGetUploadUrlForTranscode.mockImplementation((sha256: string) => ({
+            uploadId: sha256,
+            uploadUrl: null,
+        }))
+        const requestCounts = new Map<string, number>()
         let activePolls = 0
         let maxActivePolls = 0
-
+        const realSetTimeout = globalThis.setTimeout
         mockGetTranscodedUpload.mockImplementation(async (sha256: string) => {
+            const count = (requestCounts.get(sha256) ?? 0) + 1
+            requestCounts.set(sha256, count)
+            if (count === 1) throw new Error("Not found")
+
             activePolls++
             maxActivePolls = Math.max(maxActivePolls, activePolls)
-            await Promise.resolve()
+            await new Promise(resolve => realSetTimeout(resolve, 0))
             activePolls--
 
-            const pollCount = (pollCounts.get(sha256) ?? 0) + 1
-            pollCounts.set(sha256, pollCount)
-            return pollCount === 1
+            return count === 2
                 ? {progress: {phase: "transcoding"}}
                 : {
                       progress: {phase: "complete"},
@@ -442,7 +431,6 @@ describe("transcodeAudio", () => {
                       transcodedInfo: {duration: 180, fileSize: 100000},
                   }
         })
-
         vi.spyOn(globalThis, "setTimeout").mockImplementation(
             (callback: TimerHandler) => {
                 if (typeof callback === "function") callback()
@@ -450,45 +438,13 @@ describe("transcodeAudio", () => {
             },
         )
 
-        const result = await transcodeAudio(sdk, cardImport, importedTracks)
+        const result = await processAudio(sdk, mockEnv, cardImport, videos)
 
-        expect(mockGetTranscodedUpload).toHaveBeenCalledTimes(12)
         expect(maxActivePolls).toBe(5)
-        expect([...pollCounts.values()]).toEqual(Array(6).fill(2))
+        expect([...requestCounts.values()]).toEqual(Array(6).fill(3))
         expect(result.map(track => track.track.id)).toEqual(
-            importedTracks.map(track => track.track.id),
+            videos.map(video => video.id),
         )
-    })
-})
-
-describe("processAudio", () => {
-    it("imports and resolves every track before returning", async () => {
-        mockGetTranscodedUpload.mockResolvedValue({
-            progress: {phase: "complete"},
-            transcodedSha256: "transcoded-sha",
-            transcodedInfo: {duration: 180, fileSize: 100000},
-        })
-
-        const result = await processAudio(
-            sdk,
-            mockEnv,
-            cardImport,
-            video.videos,
-        )
-
-        expect(mockPrepareTracks).toHaveBeenCalledOnce()
-        expect(mockUploadTrack).not.toHaveBeenCalled()
-        expect(result).toEqual([
-            {
-                index: 0,
-                track: audioTrack,
-                audio: {
-                    key: "transcoded-sha",
-                    duration: 180,
-                    fileSize: 100000,
-                },
-            },
-        ])
     })
 })
 
