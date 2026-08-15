@@ -4,7 +4,6 @@ import {createMockEnv} from "~/tests/mocks"
 
 const mockExec = vi.fn()
 const mockDestroy = vi.fn()
-const mockWriteFile = vi.fn()
 const mockLoggerInfo = vi.fn()
 const mockGetSandbox = vi.fn<
     (
@@ -13,12 +12,10 @@ const mockGetSandbox = vi.fn<
     ) => {
         destroy: typeof mockDestroy
         exec: typeof mockExec
-        writeFile: typeof mockWriteFile
     }
 >(() => ({
     destroy: mockDestroy,
     exec: mockExec,
-    writeFile: mockWriteFile,
 }))
 
 vi.mock("@cloudflare/sandbox", () => ({
@@ -100,7 +97,10 @@ describe("downloadVideo", () => {
             filename: "video-1.m4a",
             contentType: "audio/mp4",
         })
-        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.m4a'")
+        expect(mockExec).toHaveBeenNthCalledWith(
+            1,
+            "rm -f '/tmp/video-1.m4a' '/tmp/video-1.m4a'.part",
+        )
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
             expect.stringContaining(
@@ -113,21 +113,6 @@ describe("downloadVideo", () => {
                 durationMs: expect.any(Number),
             }),
         )
-    })
-
-    it("reuses saved video info when downloading audio", async () => {
-        mockExec.mockResolvedValue(successfulCommand())
-
-        await downloadVideo(mockEnv, sandboxId, {
-            ...sourceTrack,
-            infoJsonPath: "/tmp/source.info.json",
-        })
-
-        expect(mockExec).toHaveBeenNthCalledWith(
-            2,
-            expect.stringContaining("--load-info-json '/tmp/source.info.json'"),
-        )
-        expect(mockExec.mock.calls[1][0]).not.toContain(sourceTrack.url)
     })
 
     it("removes a partial download when it fails", async () => {
@@ -143,7 +128,9 @@ describe("downloadVideo", () => {
         await expect(
             downloadVideo(mockEnv, sandboxId, sourceTrack),
         ).rejects.toThrow("Failed to download Test Track: download failed")
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
+        expect(mockExec).toHaveBeenLastCalledWith(
+            "rm -f '/tmp/video-1.m4a' '/tmp/video-1.m4a'.part",
+        )
     })
 })
 
@@ -327,7 +314,10 @@ describe("prepareTrack", () => {
 
         expect(result).toEqual(track)
         expect(mockGetSandbox).toHaveBeenCalledWith(mockEnv.SANDBOX, sandboxId)
-        expect(mockExec).toHaveBeenNthCalledWith(1, "rm -f '/tmp/video-1.m4a'")
+        expect(mockExec).toHaveBeenNthCalledWith(
+            1,
+            "rm -f '/tmp/video-1.m4a' '/tmp/video-1.m4a'.part",
+        )
         expect(mockExec).toHaveBeenNthCalledWith(
             2,
             expect.stringContaining("yt-dlp --no-check-certificates"),
@@ -353,7 +343,9 @@ describe("prepareTrack", () => {
         await expect(
             prepareTrack(mockEnv, sandboxId, sourceTrack),
         ).rejects.toThrow("Failed to download Test Track: download failed")
-        expect(mockExec).toHaveBeenLastCalledWith("rm -f '/tmp/video-1.m4a'")
+        expect(mockExec).toHaveBeenLastCalledWith(
+            "rm -f '/tmp/video-1.m4a' '/tmp/video-1.m4a'.part",
+        )
     })
 
     it("rejects invalid file metadata and removes the file", async () => {
@@ -650,7 +642,6 @@ describe("getPlaylistInfo", () => {
             {
                 ...sourceTrack,
                 duration: 180.5,
-                infoJsonPath: "/tmp/source.info.json",
                 chapters: [
                     {
                         title: "Chapter One",
@@ -670,10 +661,6 @@ describe("getPlaylistInfo", () => {
         )
         expect(mockExec).toHaveBeenCalledWith(
             expect.stringContaining("--skip-download --no-playlist"),
-        )
-        expect(mockWriteFile).toHaveBeenCalledWith(
-            "/tmp/source.info.json",
-            expect.stringContaining('"id":"video-1"'),
         )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({

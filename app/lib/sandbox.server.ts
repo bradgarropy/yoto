@@ -185,9 +185,7 @@ async function getPlaylistInfo(
             throw new Error("No video info found")
         }
 
-        const infoJsonPath = "/tmp/source.info.json"
-        await sandbox.writeFile(infoJsonPath, output)
-        const video = {...parseVideoInfo(output), infoJsonPath}
+        const video = parseVideoInfo(output)
 
         logger.info({
             message: "youtube.inspect.completed",
@@ -217,12 +215,13 @@ async function downloadVideo(
     const path = `/tmp/${filename}`
     const contentType = "audio/mp4"
     const escapedPath = escapeShellArg(path)
-    const input = video.infoJsonPath
-        ? `--load-info-json ${escapeShellArg(video.infoJsonPath)}`
-        : `--no-playlist ${escapeShellArg(video.url)}`
+    const input = `--no-playlist ${escapeShellArg(video.url)}`
 
     // Remove files left behind by an interrupted attempt for the same video.
-    await sandbox.exec(`rm -f ${escapedPath}`)
+    const removePartialDownload = () =>
+        sandbox.exec(`rm -f ${escapedPath} ${escapedPath}.part`)
+
+    await removePartialDownload()
 
     try {
         const downloadResult = await sandbox.exec(
@@ -247,7 +246,7 @@ async function downloadVideo(
 
         return {path, filename, contentType}
     } catch (error) {
-        await sandbox.exec(`rm -f ${escapedPath}`)
+        await removePartialDownload()
         throw error
     }
 }
