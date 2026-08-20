@@ -8,7 +8,7 @@ EXPOSE 3000
 # Install yt-dlp with EJS support, deno, and ffmpeg
 RUN apt-get update && \
     apt-get install -y --no-install-recommends xz-utils unzip ca-certificates && \
-    python3 -m pip install --no-cache-dir "yt-dlp[default]" && \
+    python3 -m pip install --no-cache-dir --pre "yt-dlp[default]" && \
     curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip && \
     unzip -o /tmp/deno.zip -d /usr/local/bin/ && \
     rm /tmp/deno.zip && \
