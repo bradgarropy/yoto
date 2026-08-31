@@ -3,7 +3,11 @@ import {cloudflareContext} from "~/lib/cloudflare-context"
 import type {Import} from "~/lib/import"
 import {createImportCredential} from "~/lib/import-credential.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
-import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
+import {
+    getCanonicalYouTubeUrl,
+    getYouTubeUrlType,
+    isYouTubeMix,
+} from "~/lib/youtube"
 import {importSearchParamsSchema} from "~/schemas/import"
 
 import type {Route} from "./+types/api.import.$cardId"
@@ -37,6 +41,13 @@ export async function loader({params, request, context}: Route.LoaderArgs) {
     }
 
     const {url: youtubeUrl, splitByChapters} = searchParams.data
+
+    if (isYouTubeMix(youtubeUrl)) {
+        return Response.json(
+            {error: "YouTube Mixes are not supported."},
+            {status: 400},
+        )
+    }
 
     const existingImportId = request.headers.get("Last-Event-ID")
     if (existingImportId) {

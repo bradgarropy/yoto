@@ -1,5 +1,14 @@
 type YouTubeUrlType = "video" | "playlist" | "unknown"
 
+const isYouTubeMix = (value: string): boolean => {
+    try {
+        const url = new URL(value)
+        return url.searchParams.get("list")?.startsWith("RD") ?? false
+    } catch {
+        return false
+    }
+}
+
 const getYouTubeUrlType = (value: string): YouTubeUrlType => {
     try {
         const url = new URL(value)
@@ -58,5 +67,5 @@ const getCanonicalYouTubeUrl = (value: string): string => {
     }
 }
 
-export {getCanonicalYouTubeUrl, getYouTubeUrlType}
+export {getCanonicalYouTubeUrl, getYouTubeUrlType, isYouTubeMix}
 export type {YouTubeUrlType}

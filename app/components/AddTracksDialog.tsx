@@ -15,7 +15,7 @@ import {Input} from "~/components/ui/input"
 import {Label} from "~/components/ui/label"
 import {Progress} from "~/components/ui/progress"
 import {getProgressPercent, type ImportProgress} from "~/lib/import-utils"
-import {getYouTubeUrlType} from "~/lib/youtube"
+import {getYouTubeUrlType, isYouTubeMix} from "~/lib/youtube"
 
 type ImportState =
     | {status: "idle"}
@@ -74,6 +74,14 @@ const AddTracksDialog = ({
 
     const startImport = useCallback(() => {
         if (!youtubeUrl.trim()) return
+
+        if (isYouTubeMix(youtubeUrl)) {
+            setImportState({
+                status: "error",
+                error: "YouTube Mixes are not supported.",
+            })
+            return
+        }
 
         // Clean up any existing connection
         if (eventSourceRef.current) {

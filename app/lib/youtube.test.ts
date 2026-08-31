@@ -1,6 +1,29 @@
 import {describe, expect, it} from "vitest"
 
-import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "./youtube"
+import {
+    getCanonicalYouTubeUrl,
+    getYouTubeUrlType,
+    isYouTubeMix,
+} from "./youtube"
+
+describe("isYouTubeMix", () => {
+    it.each([
+        "https://www.youtube.com/watch?v=abc123&list=RDabc123&start_radio=1",
+        "https://www.youtube.com/watch?v=abc123&list=RDabc123",
+        "https://www.youtube.com/playlist?list=RDabc123",
+    ])("identifies a YouTube Mix URL: %s", url => {
+        expect(isYouTubeMix(url)).toBe(true)
+    })
+
+    it.each([
+        "https://www.youtube.com/playlist?list=PL123",
+        "https://www.youtube.com/watch?v=abc123&list=PL123&start_radio=1",
+        "https://www.youtube.com/watch?v=abc123",
+        "not a URL",
+    ])("does not identify a non-Mix URL: %s", url => {
+        expect(isYouTubeMix(url)).toBe(false)
+    })
+})
 
 describe("getYouTubeUrlType", () => {
     it.each([
