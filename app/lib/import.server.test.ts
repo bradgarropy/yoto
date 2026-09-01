@@ -584,4 +584,39 @@ describe("updateCard", () => {
 
         expect(mockUpdateCard).not.toHaveBeenCalled()
     })
+
+    it("rechecks capacity against the latest card before updating", async () => {
+        mockGetCard.mockResolvedValue({
+            cardId: cardImport.cardId,
+            title: "Test Card",
+            content: {
+                activity: "http://yoto.io/activities/playAudio",
+                chapters: Array.from({length: 100}, () => ({})),
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        })
+
+        await expect(
+            updateCard(sdk, cardImport, [
+                {
+                    index: 0,
+                    track: audioTrack,
+                    audio: {
+                        key: "transcoded-sha",
+                        duration: 180,
+                        fileSize: 100000,
+                    },
+                },
+            ]),
+        ).rejects.toMatchObject({
+            name: "CardCapacityError",
+            existingTrackCount: 100,
+            incomingTrackCount: 1,
+        })
+
+        expect(mockUpdateCard).not.toHaveBeenCalled()
+    })
 })

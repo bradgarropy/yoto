@@ -680,6 +680,8 @@ async function updateCard(
     if (!card) throw new Error("Card not found")
 
     const chapters: YotoChapter[] = [...(card.content?.chapters ?? [])]
+    assertCardCapacity(chapters.length, transcodedTracks.length)
+
     const orderedTracks = [...transcodedTracks].sort(
         (first, second) => first.index - second.index,
     )
