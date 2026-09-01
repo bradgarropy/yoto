@@ -11,6 +11,7 @@ import {
     type ImportWorkflowResult,
 } from "~/lib/import"
 import {
+    CardCapacityError,
     checkCardCapacity,
     inspectVideo,
     processAudio,
@@ -187,14 +188,27 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     ? error.message
                     : "Import failed unexpectedly"
             await progress.reportError(message)
-            telemetry.error(EVENT.IMPORT.FAILED, {
+            const failureContext = {
                 ...telemetryContext,
                 stage,
-                reason: "workflow_step_failed",
                 errorName: error instanceof Error ? error.name : "UnknownError",
                 errorMessage: message,
                 durationMs: Date.now() - startedAt,
-            })
+            }
+
+            if (error instanceof CardCapacityError) {
+                telemetry.warn(EVENT.IMPORT.FAILED, {
+                    ...failureContext,
+                    reason: "card_capacity_exceeded",
+                    existingTrackCount: error.existingTrackCount,
+                    incomingTrackCount: error.incomingTrackCount,
+                })
+            } else {
+                telemetry.error(EVENT.IMPORT.FAILED, {
+                    ...failureContext,
+                    reason: "workflow_step_failed",
+                })
+            }
             throw error
         } finally {
             try {

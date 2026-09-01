@@ -16,6 +16,21 @@ const mockReportError = vi.fn()
 const mockReportProgress = vi.fn()
 const mockUpdateCard = vi.fn()
 
+const {MockCardCapacityError} = vi.hoisted(() => ({
+    MockCardCapacityError: class extends Error {
+        override readonly name = "CardCapacityError"
+
+        constructor(
+            readonly existingTrackCount: number,
+            readonly incomingTrackCount: number,
+        ) {
+            super(
+                `This import would exceed Yoto's 100-track card limit. This card has ${existingTrackCount} tracks and the import contains ${incomingTrackCount} track.`,
+            )
+        }
+    },
+}))
+
 vi.mock("cloudflare:workers", () => ({
     WorkflowEntrypoint: class {},
 }))
@@ -30,6 +45,7 @@ vi.mock("~/lib/import-credential.server", () => ({
 }))
 
 vi.mock("~/lib/import.server", () => ({
+    CardCapacityError: MockCardCapacityError,
     checkCardCapacity: (...args: unknown[]) => mockCheckCardCapacity(...args),
     inspectVideo: (...args: unknown[]) => mockInspectVideo(...args),
     processAudio: (...args: unknown[]) => mockProcessAudio(...args),
@@ -318,10 +334,7 @@ describe("ImportWorkflow", () => {
     })
 
     it("stops before processing audio when the card is full", async () => {
-        const capacityError = new Error(
-            "This import would exceed Yoto's 100-track card limit. This card has 100 tracks and the import contains 1 track.",
-        )
-        capacityError.name = "CardCapacityError"
+        const capacityError = new MockCardCapacityError(100, 1)
         mockCheckCardCapacity.mockRejectedValue(capacityError)
 
         await expect(
@@ -338,6 +351,17 @@ describe("ImportWorkflow", () => {
             "This import would exceed Yoto's 100-track card limit. This card has 100 tracks and the import contains 1 track.",
         )
         expect(mockDestroySandbox).toHaveBeenCalled()
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.IMPORT.FAILED,
+                level: "warn",
+                stage: "check_card_capacity",
+                reason: "card_capacity_exceeded",
+                errorName: "CardCapacityError",
+                existingTrackCount: 100,
+                incomingTrackCount: 1,
+            }),
+        )
     })
 
     it("does not turn successful imports into failures when cleanup fails", async () => {
