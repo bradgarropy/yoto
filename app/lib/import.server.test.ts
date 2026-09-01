@@ -18,6 +18,7 @@ vi.mock("./sandbox.server", () => ({
 import {
     assertCardCapacity,
     CardCapacityError,
+    checkCardCapacity,
     createAudioTracks,
     inspectVideo,
     processAudio,
@@ -183,6 +184,42 @@ describe("createAudioTracks", () => {
                 duration: sourceTrack.duration,
             },
         ])
+    })
+})
+
+describe("checkCardCapacity", () => {
+    it("uses the expanded chapter count", async () => {
+        mockGetCard.mockResolvedValue({
+            content: {chapters: Array.from({length: 99}, () => ({}))},
+        })
+
+        await expect(
+            checkCardCapacity(sdk, {...cardImport, splitByChapters: true}, [
+                {
+                    ...sourceTrack,
+                    chapters: [
+                        {title: "Chapter One", startTime: 0, endTime: 60},
+                        {
+                            title: "Chapter Two",
+                            startTime: 60,
+                            endTime: 180,
+                        },
+                    ],
+                },
+            ]),
+        ).rejects.toMatchObject({
+            name: "CardCapacityError",
+            existingTrackCount: 99,
+            incomingTrackCount: 2,
+        })
+    })
+
+    it("fails when the card no longer exists", async () => {
+        mockGetCard.mockResolvedValue(null)
+
+        await expect(
+            checkCardCapacity(sdk, cardImport, [sourceTrack]),
+        ).rejects.toThrow("Card not found")
     })
 })
 

@@ -419,6 +419,34 @@ async function inspectVideo(
     return youtubeInfo.videos
 }
 
+async function checkCardCapacity(
+    sdk: YotoSdk,
+    cardImport: Pick<Import, "cardId" | "splitByChapters">,
+    videos: YouTubeVideo[],
+): Promise<void> {
+    const startedAt = Date.now()
+    const card = (await sdk.content.getCard(
+        cardImport.cardId,
+    )) as unknown as YotoCard | null
+    if (!card) throw new Error("Card not found")
+
+    const existingTrackCount = card.content?.chapters?.length ?? 0
+    const incomingTrackCount = createAudioTracks(
+        videos,
+        cardImport.splitByChapters,
+    ).length
+
+    assertCardCapacity(existingTrackCount, incomingTrackCount)
+
+    logger.info({
+        message: "import.card.capacity.checked",
+        cardId: cardImport.cardId,
+        existingTrackCount,
+        incomingTrackCount,
+        durationMs: Date.now() - startedAt,
+    })
+}
+
 async function prepareSourceTracks(
     env: Env,
     sandboxId: string,
@@ -707,6 +735,7 @@ async function updateCard(
 
 export {
     assertCardCapacity,
+    checkCardCapacity,
     createAudioTracks,
     inspectVideo,
     processAudio,

@@ -10,14 +10,23 @@ import {
     type ImportWorkflowParams,
     type ImportWorkflowResult,
 } from "~/lib/import"
-import {inspectVideo, processAudio, updateCard} from "~/lib/import.server"
+import {
+    checkCardCapacity,
+    inspectVideo,
+    processAudio,
+    updateCard,
+} from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
 import {logger} from "~/lib/logger.server"
 import {destroySandbox} from "~/lib/sandbox.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
 
-type ImportStage = "inspect_video" | "process_audio" | "update_card"
+type ImportStage =
+    | "inspect_video"
+    | "check_card_capacity"
+    | "process_audio"
+    | "update_card"
 
 class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     override async run(
@@ -93,6 +102,19 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
             const sourceDurationSeconds = tracks.reduce(
                 (total, track) => total + (track.duration ?? 0),
                 0,
+            )
+
+            stage = "check_card_capacity"
+            await step.do(
+                "check card capacity",
+                {
+                    retries: {limit: 0, delay: 0},
+                    timeout: "1 minute",
+                },
+                async () => {
+                    const sdk = await getSdk()
+                    await checkCardCapacity(sdk, cardImport, tracks)
+                },
             )
 
             stage = "process_audio"
