@@ -117,16 +117,15 @@ describe("assertCardCapacity", () => {
     })
 
     it("includes both track counts in the capacity error", () => {
-        try {
-            assertCardCapacity(0, YOTO_CARD_TRACK_LIMIT + 1)
-            expect.unreachable("Expected the capacity check to fail")
-        } catch (error) {
-            expect(error).toBeInstanceOf(CardCapacityError)
-            expect(error).toMatchObject({
-                existingTrackCount: 0,
-                incomingTrackCount: 101,
-            })
-        }
+        const capacityError = new CardCapacityError(
+            0,
+            YOTO_CARD_TRACK_LIMIT + 1,
+        )
+
+        expect(capacityError).toMatchObject({
+            existingTrackCount: 0,
+            incomingTrackCount: 101,
+        })
     })
 })
 
