@@ -5,6 +5,7 @@ import {EVENT} from "~/lib/telemetry.server"
 import {createMockEnv} from "~/tests/mocks"
 
 const mockDestroySandbox = vi.fn()
+const mockCheckCardCapacity = vi.fn()
 const mockGetProgress = vi.fn()
 const mockGetYotoSdk = vi.fn()
 const mockInspectVideo = vi.fn()
@@ -14,6 +15,21 @@ const mockReportComplete = vi.fn()
 const mockReportError = vi.fn()
 const mockReportProgress = vi.fn()
 const mockUpdateCard = vi.fn()
+
+const {MockCardCapacityError} = vi.hoisted(() => ({
+    MockCardCapacityError: class extends Error {
+        override readonly name = "CardCapacityError"
+
+        constructor(
+            readonly existingTrackCount: number,
+            readonly incomingTrackCount: number,
+        ) {
+            super(
+                `This import would exceed Yoto's 100-track card limit. This card has ${existingTrackCount} tracks and the import contains ${incomingTrackCount} track.`,
+            )
+        }
+    },
+}))
 
 vi.mock("cloudflare:workers", () => ({
     WorkflowEntrypoint: class {},
@@ -29,6 +45,8 @@ vi.mock("~/lib/import-credential.server", () => ({
 }))
 
 vi.mock("~/lib/import.server", () => ({
+    CardCapacityError: MockCardCapacityError,
+    checkCardCapacity: (...args: unknown[]) => mockCheckCardCapacity(...args),
     inspectVideo: (...args: unknown[]) => mockInspectVideo(...args),
     processAudio: (...args: unknown[]) => mockProcessAudio(...args),
     updateCard: (...args: unknown[]) => mockUpdateCard(...args),
@@ -98,6 +116,7 @@ describe("ImportWorkflow", () => {
         vi.spyOn(console, "error").mockImplementation(() => {})
 
         mockDestroySandbox.mockResolvedValue(undefined)
+        mockCheckCardCapacity.mockResolvedValue(undefined)
         mockGetProgress.mockReturnValue({
             reportComplete: mockReportComplete,
             reportError: mockReportError,
@@ -134,6 +153,15 @@ describe("ImportWorkflow", () => {
         )
         expect(step.do).toHaveBeenNthCalledWith(
             2,
+            "check card capacity",
+            {
+                retries: {limit: 0, delay: 0},
+                timeout: "1 minute",
+            },
+            expect.any(Function),
+        )
+        expect(step.do).toHaveBeenNthCalledWith(
+            3,
             "process audio",
             {
                 retries: {
@@ -146,7 +174,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            3,
+            4,
             "update card",
             {
                 retries: {limit: 0, delay: 0},
@@ -155,7 +183,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            4,
+            5,
             "cleanup sandbox",
             {
                 retries: {
@@ -187,6 +215,14 @@ describe("ImportWorkflow", () => {
             inspectedTracks,
             expect.any(Function),
         )
+        expect(mockCheckCardCapacity).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.objectContaining({
+                id: cardImport.id,
+                cardId: cardImport.cardId,
+            }),
+            inspectedTracks,
+        )
         expect(mockUpdateCard).toHaveBeenCalledWith(
             expect.any(Object),
             expect.objectContaining({
@@ -196,7 +232,7 @@ describe("ImportWorkflow", () => {
             transcodedTracks,
             expect.any(Function),
         )
-        expect(mockReadImportCredential).toHaveBeenCalledTimes(2)
+        expect(mockReadImportCredential).toHaveBeenCalledTimes(3)
         expect(mockReportComplete).toHaveBeenCalledWith(importResult)
         expect(mockReportError).not.toHaveBeenCalled()
         expect(console.info).toHaveBeenCalledWith(
@@ -294,6 +330,37 @@ describe("ImportWorkflow", () => {
         expect(mockDestroySandbox).toHaveBeenCalledWith(
             expect.any(Object),
             `import-${cardImport.id}`,
+        )
+    })
+
+    it("stops before processing audio when the card is full", async () => {
+        const capacityError = new MockCardCapacityError(100, 1)
+        mockCheckCardCapacity.mockRejectedValue(capacityError)
+
+        await expect(
+            ImportWorkflow.prototype.run.call(
+                createWorkflow(),
+                createEvent(),
+                createStep(),
+            ),
+        ).rejects.toThrow("100-track card limit")
+
+        expect(mockProcessAudio).not.toHaveBeenCalled()
+        expect(mockUpdateCard).not.toHaveBeenCalled()
+        expect(mockReportError).toHaveBeenCalledWith(
+            "This import would exceed Yoto's 100-track card limit. This card has 100 tracks and the import contains 1 track.",
+        )
+        expect(mockDestroySandbox).toHaveBeenCalled()
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.IMPORT.FAILED,
+                level: "warn",
+                stage: "check_card_capacity",
+                reason: "card_capacity_exceeded",
+                errorName: "CardCapacityError",
+                existingTrackCount: 100,
+                incomingTrackCount: 1,
+            }),
         )
     })
 

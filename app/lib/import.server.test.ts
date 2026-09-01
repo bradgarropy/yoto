@@ -16,10 +16,14 @@ vi.mock("./sandbox.server", () => ({
 }))
 
 import {
+    assertCardCapacity,
+    CardCapacityError,
+    checkCardCapacity,
     createAudioTracks,
     inspectVideo,
     processAudio,
     updateCard,
+    YOTO_CARD_TRACK_LIMIT,
 } from "./import.server"
 
 const mockEnv = createMockEnv()
@@ -101,6 +105,30 @@ afterEach(() => {
     vi.restoreAllMocks()
 })
 
+describe("assertCardCapacity", () => {
+    it("allows imports that fill the card exactly", () => {
+        expect(() => assertCardCapacity(58, 42)).not.toThrow()
+    })
+
+    it("rejects imports that exceed the card limit", () => {
+        expect(() => assertCardCapacity(58, 43)).toThrow(
+            "This import would exceed Yoto's 100-track card limit. This card has 58 tracks and the import contains 43 tracks.",
+        )
+    })
+
+    it("includes both track counts in the capacity error", () => {
+        const capacityError = new CardCapacityError(
+            0,
+            YOTO_CARD_TRACK_LIMIT + 1,
+        )
+
+        expect(capacityError).toMatchObject({
+            existingTrackCount: 0,
+            incomingTrackCount: 101,
+        })
+    })
+})
+
 describe("createAudioTracks", () => {
     const videoWithChapters = {
         ...sourceTrack,
@@ -155,6 +183,42 @@ describe("createAudioTracks", () => {
                 duration: sourceTrack.duration,
             },
         ])
+    })
+})
+
+describe("checkCardCapacity", () => {
+    it("uses the expanded chapter count", async () => {
+        mockGetCard.mockResolvedValue({
+            content: {chapters: Array.from({length: 99}, () => ({}))},
+        })
+
+        await expect(
+            checkCardCapacity(sdk, {...cardImport, splitByChapters: true}, [
+                {
+                    ...sourceTrack,
+                    chapters: [
+                        {title: "Chapter One", startTime: 0, endTime: 60},
+                        {
+                            title: "Chapter Two",
+                            startTime: 60,
+                            endTime: 180,
+                        },
+                    ],
+                },
+            ]),
+        ).rejects.toMatchObject({
+            name: "CardCapacityError",
+            existingTrackCount: 99,
+            incomingTrackCount: 2,
+        })
+    })
+
+    it("fails when the card no longer exists", async () => {
+        mockGetCard.mockResolvedValue(null)
+
+        await expect(
+            checkCardCapacity(sdk, cardImport, [sourceTrack]),
+        ).rejects.toThrow("Card not found")
     })
 })
 
@@ -516,6 +580,41 @@ describe("updateCard", () => {
         await expect(updateCard(sdk, cardImport, [])).rejects.toThrow(
             "Card not found",
         )
+
+        expect(mockUpdateCard).not.toHaveBeenCalled()
+    })
+
+    it("rechecks capacity against the latest card before updating", async () => {
+        mockGetCard.mockResolvedValue({
+            cardId: cardImport.cardId,
+            title: "Test Card",
+            content: {
+                activity: "http://yoto.io/activities/playAudio",
+                chapters: Array.from({length: 100}, () => ({})),
+                restricted: false,
+                config: {onlineOnly: false},
+                version: "1",
+            },
+            metadata: {},
+        })
+
+        await expect(
+            updateCard(sdk, cardImport, [
+                {
+                    index: 0,
+                    track: audioTrack,
+                    audio: {
+                        key: "transcoded-sha",
+                        duration: 180,
+                        fileSize: 100000,
+                    },
+                },
+            ]),
+        ).rejects.toMatchObject({
+            name: "CardCapacityError",
+            existingTrackCount: 100,
+            incomingTrackCount: 1,
+        })
 
         expect(mockUpdateCard).not.toHaveBeenCalled()
     })

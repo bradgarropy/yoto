@@ -88,6 +88,27 @@ type ImportPayload = {
     splitByChapters: boolean
 }
 
+type ImportFailurePayload = ImportPayload & {
+    stage:
+        | "create_workflow"
+        | "inspect_video"
+        | "check_card_capacity"
+        | "process_audio"
+        | "update_card"
+    errorName: string
+    errorMessage?: string
+    durationMs?: number
+} & (
+        | {
+              reason: "card_capacity_exceeded"
+              existingTrackCount: number
+              incomingTrackCount: number
+          }
+        | {
+              reason: "workflow_creation_failed" | "workflow_step_failed"
+          }
+    )
+
 type TrackOperationPayload = DurationPayload & {
     cardId: string
     destinationCardId?: string
@@ -146,17 +167,7 @@ type TelemetryPayloads = {
             skipped: number
             chapterSplitUnavailable: boolean
         }
-    [EVENT.IMPORT.FAILED]: ImportPayload & {
-        stage:
-            | "create_workflow"
-            | "inspect_video"
-            | "process_audio"
-            | "update_card"
-        reason: string
-        errorName: string
-        errorMessage?: string
-        durationMs?: number
-    }
+    [EVENT.IMPORT.FAILED]: ImportFailurePayload
     [EVENT.CARD.CREATE.COMPLETED]: CardCreatePayload
     [EVENT.CARD.CREATE.FAILED]: DurationPayload & {reason: string}
     [EVENT.CARD.DELETE.COMPLETED]: CardMutationPayload

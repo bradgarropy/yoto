@@ -87,6 +87,33 @@ type AudioLogContext = {
 const CONCURRENCY_LIMIT = 5
 const TRANSCODE_MAX_ATTEMPTS = 60
 const TRANSCODE_POLL_INTERVAL = 5000
+const YOTO_CARD_TRACK_LIMIT = 100
+
+class CardCapacityError extends Error {
+    override readonly name = "CardCapacityError"
+
+    constructor(
+        readonly existingTrackCount: number,
+        readonly incomingTrackCount: number,
+    ) {
+        const formatTracks = (count: number) =>
+            `${count} track${count === 1 ? "" : "s"}`
+
+        super(
+            `This import would exceed Yoto's ${YOTO_CARD_TRACK_LIMIT}-track card limit. ` +
+                `This card has ${formatTracks(existingTrackCount)} and the import contains ${formatTracks(incomingTrackCount)}.`,
+        )
+    }
+}
+
+function assertCardCapacity(
+    existingTrackCount: number,
+    incomingTrackCount: number,
+): void {
+    if (existingTrackCount + incomingTrackCount > YOTO_CARD_TRACK_LIMIT) {
+        throw new CardCapacityError(existingTrackCount, incomingTrackCount)
+    }
+}
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
@@ -392,6 +419,34 @@ async function inspectVideo(
     return youtubeInfo.videos
 }
 
+async function checkCardCapacity(
+    sdk: YotoSdk,
+    cardImport: Pick<Import, "cardId" | "splitByChapters">,
+    videos: YouTubeVideo[],
+): Promise<void> {
+    const startedAt = Date.now()
+    const card = (await sdk.content.getCard(
+        cardImport.cardId,
+    )) as unknown as YotoCard | null
+    if (!card) throw new Error("Card not found")
+
+    const existingTrackCount = card.content?.chapters?.length ?? 0
+    const incomingTrackCount = createAudioTracks(
+        videos,
+        cardImport.splitByChapters,
+    ).length
+
+    assertCardCapacity(existingTrackCount, incomingTrackCount)
+
+    logger.info({
+        message: "import.card.capacity.checked",
+        cardId: cardImport.cardId,
+        existingTrackCount,
+        incomingTrackCount,
+        durationMs: Date.now() - startedAt,
+    })
+}
+
 async function prepareSourceTracks(
     env: Env,
     sandboxId: string,
@@ -625,6 +680,8 @@ async function updateCard(
     if (!card) throw new Error("Card not found")
 
     const chapters: YotoChapter[] = [...(card.content?.chapters ?? [])]
+    assertCardCapacity(chapters.length, transcodedTracks.length)
+
     const orderedTracks = [...transcodedTracks].sort(
         (first, second) => first.index - second.index,
     )
@@ -678,5 +735,14 @@ async function updateCard(
     }
 }
 
-export {createAudioTracks, inspectVideo, processAudio, updateCard}
+export {
+    assertCardCapacity,
+    checkCardCapacity,
+    createAudioTracks,
+    inspectVideo,
+    processAudio,
+    updateCard,
+    YOTO_CARD_TRACK_LIMIT,
+}
+export {CardCapacityError}
 export type {TranscodedTrack}

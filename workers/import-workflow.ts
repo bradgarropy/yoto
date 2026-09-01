@@ -10,14 +10,24 @@ import {
     type ImportWorkflowParams,
     type ImportWorkflowResult,
 } from "~/lib/import"
-import {inspectVideo, processAudio, updateCard} from "~/lib/import.server"
+import {
+    CardCapacityError,
+    checkCardCapacity,
+    inspectVideo,
+    processAudio,
+    updateCard,
+} from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
 import {logger} from "~/lib/logger.server"
 import {destroySandbox} from "~/lib/sandbox.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
 
-type ImportStage = "inspect_video" | "process_audio" | "update_card"
+type ImportStage =
+    | "inspect_video"
+    | "check_card_capacity"
+    | "process_audio"
+    | "update_card"
 
 class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
     override async run(
@@ -95,6 +105,19 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                 0,
             )
 
+            stage = "check_card_capacity"
+            await step.do(
+                "check card capacity",
+                {
+                    retries: {limit: 0, delay: 0},
+                    timeout: "1 minute",
+                },
+                async () => {
+                    const sdk = await getSdk()
+                    await checkCardCapacity(sdk, cardImport, tracks)
+                },
+            )
+
             stage = "process_audio"
             const transcodedTracks = await step.do(
                 "process audio",
@@ -165,14 +188,27 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
                     ? error.message
                     : "Import failed unexpectedly"
             await progress.reportError(message)
-            telemetry.error(EVENT.IMPORT.FAILED, {
+            const failureContext = {
                 ...telemetryContext,
                 stage,
-                reason: "workflow_step_failed",
                 errorName: error instanceof Error ? error.name : "UnknownError",
                 errorMessage: message,
                 durationMs: Date.now() - startedAt,
-            })
+            }
+
+            if (error instanceof CardCapacityError) {
+                telemetry.warn(EVENT.IMPORT.FAILED, {
+                    ...failureContext,
+                    reason: "card_capacity_exceeded",
+                    existingTrackCount: error.existingTrackCount,
+                    incomingTrackCount: error.incomingTrackCount,
+                })
+            } else {
+                telemetry.error(EVENT.IMPORT.FAILED, {
+                    ...failureContext,
+                    reason: "workflow_step_failed",
+                })
+            }
             throw error
         } finally {
             try {
