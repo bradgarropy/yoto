@@ -16,10 +16,13 @@ vi.mock("./sandbox.server", () => ({
 }))
 
 import {
+    assertCardCapacity,
+    CardCapacityError,
     createAudioTracks,
     inspectVideo,
     processAudio,
     updateCard,
+    YOTO_CARD_TRACK_LIMIT,
 } from "./import.server"
 
 const mockEnv = createMockEnv()
@@ -99,6 +102,31 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks()
+})
+
+describe("assertCardCapacity", () => {
+    it("allows imports that fill the card exactly", () => {
+        expect(() => assertCardCapacity(58, 42)).not.toThrow()
+    })
+
+    it("rejects imports that exceed the card limit", () => {
+        expect(() => assertCardCapacity(58, 43)).toThrow(
+            "This import would exceed Yoto's 100-track card limit. This card has 58 tracks and the import contains 43 tracks.",
+        )
+    })
+
+    it("includes both track counts in the capacity error", () => {
+        try {
+            assertCardCapacity(0, YOTO_CARD_TRACK_LIMIT + 1)
+            expect.unreachable("Expected the capacity check to fail")
+        } catch (error) {
+            expect(error).toBeInstanceOf(CardCapacityError)
+            expect(error).toMatchObject({
+                existingTrackCount: 0,
+                incomingTrackCount: 101,
+            })
+        }
+    })
 })
 
 describe("createAudioTracks", () => {

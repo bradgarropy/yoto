@@ -87,6 +87,33 @@ type AudioLogContext = {
 const CONCURRENCY_LIMIT = 5
 const TRANSCODE_MAX_ATTEMPTS = 60
 const TRANSCODE_POLL_INTERVAL = 5000
+const YOTO_CARD_TRACK_LIMIT = 100
+
+class CardCapacityError extends Error {
+    override readonly name = "CardCapacityError"
+
+    constructor(
+        readonly existingTrackCount: number,
+        readonly incomingTrackCount: number,
+    ) {
+        const formatTracks = (count: number) =>
+            `${count} track${count === 1 ? "" : "s"}`
+
+        super(
+            `This import would exceed Yoto's ${YOTO_CARD_TRACK_LIMIT}-track card limit. ` +
+                `This card has ${formatTracks(existingTrackCount)} and the import contains ${formatTracks(incomingTrackCount)}.`,
+        )
+    }
+}
+
+function assertCardCapacity(
+    existingTrackCount: number,
+    incomingTrackCount: number,
+): void {
+    if (existingTrackCount + incomingTrackCount > YOTO_CARD_TRACK_LIMIT) {
+        throw new CardCapacityError(existingTrackCount, incomingTrackCount)
+    }
+}
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
@@ -678,5 +705,13 @@ async function updateCard(
     }
 }
 
-export {createAudioTracks, inspectVideo, processAudio, updateCard}
+export {
+    assertCardCapacity,
+    createAudioTracks,
+    inspectVideo,
+    processAudio,
+    updateCard,
+    YOTO_CARD_TRACK_LIMIT,
+}
+export {CardCapacityError}
 export type {TranscodedTrack}
