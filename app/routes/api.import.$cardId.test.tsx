@@ -208,6 +208,21 @@ describe("api/import/:cardId loader", () => {
         expect(mockCreateWorkflow).not.toHaveBeenCalled()
     })
 
+    it("rejects YouTube Mixes", async () => {
+        const {args} = createLoaderArgs({
+            importUrl:
+                "https://www.youtube.com/watch?v=video-1&list=RDvideo-1&start_radio=1",
+        })
+
+        const response = await loader(args)
+
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toEqual({
+            error: "YouTube Mixes are not supported.",
+        })
+        expect(mockCreateWorkflow).not.toHaveBeenCalled()
+    })
+
     it("forwards progress errors to the client", async () => {
         mockProgressFetch.mockImplementation((request: Request) => {
             const importId = request.headers.get("X-Import-Id")
