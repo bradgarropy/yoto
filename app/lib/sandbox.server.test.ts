@@ -1,3 +1,5 @@
+import {execFile} from "node:child_process"
+
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 import {createMockEnv} from "~/tests/mocks"
@@ -67,6 +69,22 @@ const successfulCommand = (stdout = "") => ({
     stdout,
     stderr: "",
 })
+
+function executeShell(command: string): Promise<{
+    success: boolean
+    stdout: string
+    stderr: string
+}> {
+    return new Promise(resolve => {
+        execFile("/bin/sh", ["-c", command], (error, stdout, stderr) => {
+            resolve({
+                success: !error,
+                stdout,
+                stderr,
+            })
+        })
+    })
+}
 
 const preparedAudioRow = ({
     index = 0,
@@ -184,6 +202,9 @@ describe("splitAudio", () => {
                 /rm -f '\/tmp\/video-1-01\.m4a' '\/tmp\/video-1-02\.m4a'.+ffmpeg.+-ss 0.+video-1-01\.m4a.+ffmpeg.+-ss 60.+video-1-02\.m4a/s,
             ),
         )
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringMatching(/^\(\nset -e\n[\s\S]+\n\)$/),
+        )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
                 message: "audio.split.completed",
@@ -220,6 +241,32 @@ describe("splitAudio", () => {
             "rm -f '/tmp/video-1-01.m4a' '/tmp/video-1-02.m4a'",
         )
     })
+
+    it("keeps the parent shell alive when a strict split batch fails", async () => {
+        let parentShellOutput = ""
+        mockExec
+            .mockImplementationOnce(async (command: string) => {
+                const result = await executeShell(
+                    [
+                        "rm() { :; }",
+                        "ffmpeg() { return 1; }",
+                        command,
+                        "batch_status=$?",
+                        "printf '__PARENT_SHELL_ALIVE__'",
+                        'exit "$batch_status"',
+                    ].join("\n"),
+                )
+                parentShellOutput = result.stdout
+                return result
+            })
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            splitAudio(mockEnv, sandboxId, downloadedAudio, chapterTracks),
+        ).rejects.toThrow("Failed to split Chapter One: command failed")
+
+        expect(parentShellOutput).toBe("__PARENT_SHELL_ALIVE__")
+    })
 })
 
 describe("prepareAudio", () => {
@@ -239,6 +286,9 @@ describe("prepareAudio", () => {
             expect.stringMatching(
                 /stat.+ffprobe.+sha256sum.+\/tmp\/video-1\.m4a/s,
             ),
+        )
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringMatching(/^\(\nset -e\n[\s\S]+\n\)$/),
         )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -454,7 +504,7 @@ describe("prepareTracks", () => {
 
     it("downloads once and prepares each chapter in order", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(
                     preparedAudioRow({index: 0, duration: "60"}) +
                         preparedAudioRow({index: 1, duration: "120"}),
@@ -513,7 +563,7 @@ describe("prepareTracks", () => {
 
     it("uses the existing whole-video preparation path", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(preparedAudioRow({duration: "180"}))
             }
             return successfulCommand()
@@ -554,7 +604,7 @@ describe("prepareTracks", () => {
 
     it("removes the source and chapter files when preparation fails", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(
                     preparedAudioRow({index: 0, duration: "60"}) +
                         preparedAudioRow({
@@ -584,7 +634,7 @@ describe("prepareTracks", () => {
 
     it("removes every file when batch metadata is incomplete", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(
                     preparedAudioRow({index: 0, duration: "60"}),
                 )
