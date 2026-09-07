@@ -1,3 +1,5 @@
+import {execFile} from "node:child_process"
+
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 import {createMockEnv} from "~/tests/mocks"
@@ -67,6 +69,22 @@ const successfulCommand = (stdout = "") => ({
     stdout,
     stderr: "",
 })
+
+function executeShell(command: string): Promise<{
+    success: boolean
+    stdout: string
+    stderr: string
+}> {
+    return new Promise(resolve => {
+        execFile("/bin/sh", ["-c", command], (error, stdout, stderr) => {
+            resolve({
+                success: !error,
+                stdout,
+                stderr,
+            })
+        })
+    })
+}
 
 const preparedAudioRow = ({
     index = 0,
@@ -222,6 +240,32 @@ describe("splitAudio", () => {
             2,
             "rm -f '/tmp/video-1-01.m4a' '/tmp/video-1-02.m4a'",
         )
+    })
+
+    it("keeps the parent shell alive when a strict split batch fails", async () => {
+        let parentShellOutput = ""
+        mockExec
+            .mockImplementationOnce(async (command: string) => {
+                const result = await executeShell(
+                    [
+                        "rm() { :; }",
+                        "ffmpeg() { return 1; }",
+                        command,
+                        "batch_status=$?",
+                        "printf '__PARENT_SHELL_ALIVE__'",
+                        'exit "$batch_status"',
+                    ].join("\n"),
+                )
+                parentShellOutput = result.stdout
+                return result
+            })
+            .mockResolvedValueOnce(successfulCommand())
+
+        await expect(
+            splitAudio(mockEnv, sandboxId, downloadedAudio, chapterTracks),
+        ).rejects.toThrow("Failed to split Chapter One: command failed")
+
+        expect(parentShellOutput).toBe("__PARENT_SHELL_ALIVE__")
     })
 })
 
