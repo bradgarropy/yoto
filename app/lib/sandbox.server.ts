@@ -48,6 +48,10 @@ function escapeShellArg(arg: string): string {
     return shellEscape([arg])
 }
 
+function createSubshellCommand(commands: string[]): string {
+    return ["(", ...commands, ")"].join("\n")
+}
+
 function parseDuration(value: string | undefined): number | undefined {
     if (!value) return undefined
 
@@ -306,7 +310,7 @@ async function splitAudio(
                 `{ printf '${SPLIT_ERROR_MARKER}\\t${index}\\n' >&2; exit 1; }`,
         )
         const splitResult = await sandbox.exec(
-            ["set -e", cleanupCommand, ...splitCommands].join("\n"),
+            createSubshellCommand(["set -e", cleanupCommand, ...splitCommands]),
         )
         if (!splitResult.success) {
             const marker = new RegExp(`${SPLIT_ERROR_MARKER}\\t(\\d+)`).exec(
@@ -441,12 +445,12 @@ async function prepareAudioBatch(
 
     try {
         const result = await sandbox.exec(
-            [
+            createSubshellCommand([
                 "set -e",
                 ...inputs.map(({audio}, index) =>
                     getPrepareCommand(audio, index),
                 ),
-            ].join("\n"),
+            ]),
         )
         if (!result.success) {
             throw getPrepareCommandError(inputs, result.stderr)

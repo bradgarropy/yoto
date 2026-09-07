@@ -184,6 +184,9 @@ describe("splitAudio", () => {
                 /rm -f '\/tmp\/video-1-01\.m4a' '\/tmp\/video-1-02\.m4a'.+ffmpeg.+-ss 0.+video-1-01\.m4a.+ffmpeg.+-ss 60.+video-1-02\.m4a/s,
             ),
         )
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringMatching(/^\(\nset -e\n[\s\S]+\n\)$/),
+        )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
                 message: "audio.split.completed",
@@ -239,6 +242,9 @@ describe("prepareAudio", () => {
             expect.stringMatching(
                 /stat.+ffprobe.+sha256sum.+\/tmp\/video-1\.m4a/s,
             ),
+        )
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringMatching(/^\(\nset -e\n[\s\S]+\n\)$/),
         )
         expect(mockLoggerInfo).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -454,7 +460,7 @@ describe("prepareTracks", () => {
 
     it("downloads once and prepares each chapter in order", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(
                     preparedAudioRow({index: 0, duration: "60"}) +
                         preparedAudioRow({index: 1, duration: "120"}),
@@ -513,7 +519,7 @@ describe("prepareTracks", () => {
 
     it("uses the existing whole-video preparation path", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(preparedAudioRow({duration: "180"}))
             }
             return successfulCommand()
@@ -554,7 +560,7 @@ describe("prepareTracks", () => {
 
     it("removes the source and chapter files when preparation fails", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(
                     preparedAudioRow({index: 0, duration: "60"}) +
                         preparedAudioRow({
@@ -584,7 +590,7 @@ describe("prepareTracks", () => {
 
     it("removes every file when batch metadata is incomplete", async () => {
         mockExec.mockImplementation((command: string) => {
-            if (command.startsWith("set -e")) {
+            if (command.includes("\nset -e\n")) {
                 return successfulCommand(
                     preparedAudioRow({index: 0, duration: "60"}),
                 )
