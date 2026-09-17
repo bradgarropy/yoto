@@ -19,7 +19,7 @@ import {
 } from "~/lib/import.server"
 import {readImportCredential} from "~/lib/import-credential.server"
 import {logger} from "~/lib/logger.server"
-import {destroySandbox} from "~/lib/sandbox.server"
+import {destroySandbox, getYtDlpVersion} from "~/lib/sandbox.server"
 import {EVENT, telemetry} from "~/lib/telemetry.server"
 import {getCanonicalYouTubeUrl, getYouTubeUrlType} from "~/lib/youtube"
 
@@ -46,6 +46,7 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         }
         const startedAt = event.timestamp.getTime()
         let stage: ImportStage = "inspect_video"
+        let ytDlpVersion = "unknown"
 
         logger.info({
             message: "import.workflow.started",
@@ -84,6 +85,26 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
         }
 
         try {
+            try {
+                ytDlpVersion = await step.do(
+                    "read yt-dlp version",
+                    {
+                        retries: {limit: 0, delay: 0},
+                        timeout: "1 minute",
+                    },
+                    () => getYtDlpVersion(this.env, sandboxId),
+                )
+            } catch (error) {
+                logger.warn({
+                    message: "import.yt_dlp_version.unavailable",
+                    importId: cardImport.id,
+                    sandboxId,
+                    cardId: cardImport.cardId,
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                })
+            }
+
             stage = "inspect_video"
             const tracks = await step.do(
                 "inspect video",
@@ -170,6 +191,8 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
             await progress.reportComplete(completedResult)
             telemetry.info(EVENT.IMPORT.COMPLETED, {
                 ...telemetryContext,
+                workerVersionId: this.env.CF_VERSION_METADATA.id,
+                ytDlpVersion,
                 durationMs: Date.now() - startedAt,
                 sourceTrackCount: tracks.length,
                 sourceDurationSeconds,
@@ -190,6 +213,8 @@ class ImportWorkflow extends WorkflowEntrypoint<Env, ImportWorkflowParams> {
             await progress.reportError(message)
             const failureContext = {
                 ...telemetryContext,
+                workerVersionId: this.env.CF_VERSION_METADATA.id,
+                ytDlpVersion,
                 stage,
                 errorName: error instanceof Error ? error.name : "UnknownError",
                 errorMessage: message,

@@ -7,6 +7,7 @@ import {createMockEnv} from "~/tests/mocks"
 const mockDestroySandbox = vi.fn()
 const mockCheckCardCapacity = vi.fn()
 const mockGetProgress = vi.fn()
+const mockGetYtDlpVersion = vi.fn()
 const mockGetYotoSdk = vi.fn()
 const mockInspectVideo = vi.fn()
 const mockProcessAudio = vi.fn()
@@ -54,6 +55,7 @@ vi.mock("~/lib/import.server", () => ({
 
 vi.mock("~/lib/sandbox.server", () => ({
     destroySandbox: (...args: unknown[]) => mockDestroySandbox(...args),
+    getYtDlpVersion: (...args: unknown[]) => mockGetYtDlpVersion(...args),
 }))
 
 import {ImportWorkflow} from "./import-workflow"
@@ -123,6 +125,7 @@ describe("ImportWorkflow", () => {
             reportProgress: mockReportProgress,
         })
         mockGetYotoSdk.mockReturnValue({content: {}, media: {}})
+        mockGetYtDlpVersion.mockResolvedValue("2026.09.15.123456")
         mockInspectVideo.mockResolvedValue(inspectedTracks)
         mockProcessAudio.mockResolvedValue(transcodedTracks)
         mockReadImportCredential.mockResolvedValue("access-token")
@@ -140,6 +143,15 @@ describe("ImportWorkflow", () => {
 
         expect(step.do).toHaveBeenNthCalledWith(
             1,
+            "read yt-dlp version",
+            {
+                retries: {limit: 0, delay: 0},
+                timeout: "1 minute",
+            },
+            expect.any(Function),
+        )
+        expect(step.do).toHaveBeenNthCalledWith(
+            2,
             "inspect video",
             {
                 retries: {
@@ -152,7 +164,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            2,
+            3,
             "check card capacity",
             {
                 retries: {limit: 0, delay: 0},
@@ -161,7 +173,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            3,
+            4,
             "process audio",
             {
                 retries: {
@@ -174,7 +186,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            4,
+            5,
             "update card",
             {
                 retries: {limit: 0, delay: 0},
@@ -183,7 +195,7 @@ describe("ImportWorkflow", () => {
             expect.any(Function),
         )
         expect(step.do).toHaveBeenNthCalledWith(
-            5,
+            6,
             "cleanup sandbox",
             {
                 retries: {
@@ -242,6 +254,8 @@ describe("ImportWorkflow", () => {
                 youtubeUrl: cardImport.youtubeUrl,
                 sourceType: "video",
                 splitByChapters: false,
+                workerVersionId: "test-worker-version",
+                ytDlpVersion: "2026.09.15.123456",
                 durationMs: expect.any(Number),
                 sourceTrackCount: 1,
                 sourceDurationSeconds: 180,
@@ -318,6 +332,8 @@ describe("ImportWorkflow", () => {
                 youtubeUrl: cardImport.youtubeUrl,
                 sourceType: "video",
                 splitByChapters: false,
+                workerVersionId: "test-worker-version",
+                ytDlpVersion: "2026.09.15.123456",
                 stage: "inspect_video",
                 reason: "workflow_step_failed",
                 errorName: "Error",
@@ -379,6 +395,31 @@ describe("ImportWorkflow", () => {
                 message: "import.sandbox.destroy_failed",
                 error: "Cleanup failed",
                 level: "warn",
+            }),
+        )
+    })
+
+    it("continues the import when the yt-dlp version cannot be read", async () => {
+        mockGetYtDlpVersion.mockRejectedValue(new Error("Version unavailable"))
+
+        const result = await ImportWorkflow.prototype.run.call(
+            createWorkflow(),
+            createEvent(),
+            createStep(),
+        )
+
+        expect(result).toEqual({importId: cardImport.id, ...importResult})
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "import.yt_dlp_version.unavailable",
+                error: "Version unavailable",
+                level: "warn",
+            }),
+        )
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.IMPORT.COMPLETED,
+                ytDlpVersion: "unknown",
             }),
         )
     })

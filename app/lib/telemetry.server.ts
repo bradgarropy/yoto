@@ -88,6 +88,11 @@ type ImportPayload = {
     splitByChapters: boolean
 }
 
+type ImportRuntimePayload = {
+    workerVersionId: string
+    ytDlpVersion: string
+}
+
 type ImportFailurePayload = ImportPayload & {
     stage:
         | "create_workflow"
@@ -160,6 +165,7 @@ type TelemetryPayloads = {
     [EVENT.AUTH.REFRESH.FAILED]: AuthFailurePayload
     [EVENT.IMPORT.STARTED]: ImportPayload
     [EVENT.IMPORT.COMPLETED]: ImportPayload &
+        ImportRuntimePayload &
         DurationPayload & {
             sourceTrackCount: number
             sourceDurationSeconds: number
@@ -167,7 +173,7 @@ type TelemetryPayloads = {
             skipped: number
             chapterSplitUnavailable: boolean
         }
-    [EVENT.IMPORT.FAILED]: ImportFailurePayload
+    [EVENT.IMPORT.FAILED]: ImportFailurePayload & Partial<ImportRuntimePayload>
     [EVENT.CARD.CREATE.COMPLETED]: CardCreatePayload
     [EVENT.CARD.CREATE.FAILED]: DurationPayload & {reason: string}
     [EVENT.CARD.DELETE.COMPLETED]: CardMutationPayload

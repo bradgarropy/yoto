@@ -34,6 +34,7 @@ import {
     destroySandbox,
     downloadVideo,
     getPlaylistInfo,
+    getYtDlpVersion,
     prepareAudio,
     prepareTrack,
     prepareTracks,
@@ -100,6 +101,29 @@ const preparedAudioRow = ({
 
 beforeEach(() => {
     vi.clearAllMocks()
+})
+
+describe("getYtDlpVersion", () => {
+    it("reads the exact version from the sandbox runtime", async () => {
+        mockExec.mockResolvedValue(successfulCommand("2026.09.15.123456\n"))
+
+        await expect(getYtDlpVersion(mockEnv, sandboxId)).resolves.toBe(
+            "2026.09.15.123456",
+        )
+        expect(mockExec).toHaveBeenCalledWith("yt-dlp --version")
+    })
+
+    it("fails when the runtime version is unavailable", async () => {
+        mockExec.mockResolvedValue({
+            success: false,
+            stdout: "",
+            stderr: "yt-dlp not found",
+        })
+
+        await expect(getYtDlpVersion(mockEnv, sandboxId)).rejects.toThrow(
+            "Failed to read yt-dlp version: yt-dlp not found",
+        )
+    })
 })
 
 describe("downloadVideo", () => {

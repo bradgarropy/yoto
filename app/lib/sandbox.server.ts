@@ -33,6 +33,20 @@ const MAX_TRACK_DURATION_SECONDS = 60 * 60
 const PREPARE_ERROR_MARKER = "__YOTO_PREPARE_ERROR__"
 const SPLIT_ERROR_MARKER = "__YOTO_SPLIT_ERROR__"
 
+async function getYtDlpVersion(env: Env, sandboxId: string): Promise<string> {
+    const sandbox = getSandbox(env.SANDBOX, sandboxId)
+    const result = await sandbox.exec("yt-dlp --version")
+    const version = result.stdout.trim().split("\n")[0]
+
+    if (!result.success || !version) {
+        throw new Error(
+            `Failed to read yt-dlp version: ${result.stderr || "empty output"}`,
+        )
+    }
+
+    return version
+}
+
 // Validate that a URL is a legitimate YouTube URL
 function isYoutubeUrl(url: string): boolean {
     const youtubePatterns = [
@@ -643,6 +657,7 @@ export {
     destroySandbox,
     downloadVideo,
     getPlaylistInfo,
+    getYtDlpVersion,
     prepareAudio,
     prepareTrack,
     prepareTracks,
