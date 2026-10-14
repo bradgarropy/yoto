@@ -4,13 +4,17 @@ import {EVENT} from "~/lib/telemetry.server"
 import {createMockEnv} from "~/tests/mocks"
 
 vi.mock("cloudflare:workers", () => ({
-    env: {YOTO_CLIENT_ID: "test-yoto-client-id"},
+    env: {
+        YOTO_AUTH_SECRET: "test-auth-secret",
+        YOTO_CLIENT_ID: "test-yoto-client-id",
+    },
 }))
 
 // Mock the auth-cookie module
 const mockGetTokensFromCookie = vi.fn()
 const mockSerializeAuthCookie = vi.fn()
 const mockClearAuthCookie = vi.fn()
+const mockSerializeOAuthStateCookie = vi.fn()
 
 vi.mock("./auth-cookie.server", () => ({
     getTokensFromCookie: (...args: unknown[]) =>
@@ -20,9 +24,21 @@ vi.mock("./auth-cookie.server", () => ({
     clearAuthCookie: (...args: unknown[]) => mockClearAuthCookie(...args),
 }))
 
+vi.mock("./oauth-state-cookie.server", () => ({
+    serializeOAuthStateCookie: (...args: unknown[]) =>
+        mockSerializeOAuthStateCookie(...args),
+}))
+
+vi.mock("pkce-challenge", () => ({
+    default: vi.fn(async () => ({
+        code_verifier: "test-code-verifier",
+        code_challenge: "test-code-challenge",
+        code_challenge_method: "S256",
+    })),
+}))
+
 // Create mock instances that will be returned by constructors
 const mockAuth = {
-    initiate: vi.fn(),
     pollForToken: vi.fn(),
     refreshToken: vi.fn(),
 }
@@ -35,7 +51,6 @@ vi.mock("@yotoplay/oauth-device-code-flow", () => ({
             mockDeviceCodeAuthConstructor(config)
         }
 
-        initiate = mockAuth.initiate
         pollForToken = mockAuth.pollForToken
         refreshToken = mockAuth.refreshToken
     },
@@ -73,6 +88,9 @@ beforeEach(() => {
     mockClearAuthCookie.mockResolvedValue(
         "yoto-auth=; Max-Age=0; Path=/; HttpOnly",
     )
+    mockSerializeOAuthStateCookie.mockResolvedValue(
+        "yoto-oauth-state=encrypted; Path=/auth/callback; HttpOnly",
+    )
 })
 
 afterEach(() => {
@@ -80,52 +98,57 @@ afterEach(() => {
 })
 
 describe("initiateLogin", () => {
-    it("should call auth.initiate and return device code info", async () => {
-        const deviceCodeResult = {
-            success: true,
-            deviceCode: "test-device-code",
-            userCode: "ABCD-EFGH",
-            verificationUri: "https://login.yotoplay.com/activate",
-            interval: 5,
-            expiresIn: 300,
-        }
-        mockAuth.initiate.mockResolvedValue(deviceCodeResult)
-
-        const result = await initiateLogin()
-
-        expect(mockDeviceCodeAuthConstructor).toHaveBeenCalledWith({
-            domain: "login.yotoplay.com",
-            clientId: "test-yoto-client-id",
-            audience: "https://api.yotoplay.com",
+    it("should store the verifier and redirect to Yoto", async () => {
+        const request = new Request("http://localhost:3000/login", {
+            method: "POST",
         })
-        expect(mockAuth.initiate).toHaveBeenCalledWith(
-            "user:content:manage offline_access",
+
+        const response = await initiateLogin(request)
+        const location = new URL(response.headers.get("Location") ?? "")
+        const state = location.searchParams.get("state")
+
+        expect(response.status).toBe(302)
+        expect(location.origin + location.pathname).toBe(
+            "https://login.yotoplay.com/authorize",
         )
-        expect(result).toEqual(deviceCodeResult)
+        expect(Object.fromEntries(location.searchParams)).toEqual({
+            audience: "https://api.yotoplay.com",
+            scope: "user:content:manage offline_access",
+            response_type: "code",
+            client_id: "test-yoto-client-id",
+            redirect_uri: "http://localhost:3000/auth/callback",
+            state,
+            code_challenge: "test-code-challenge",
+            code_challenge_method: "S256",
+        })
+        expect(state).toEqual(expect.any(String))
+        expect(mockSerializeOAuthStateCookie).toHaveBeenCalledWith(
+            {
+                state,
+                codeVerifier: "test-code-verifier",
+                redirectUri: "http://localhost:3000/auth/callback",
+            },
+            false,
+        )
+        expect(response.headers.get("Set-Cookie")).toBe(
+            "yoto-oauth-state=encrypted; Path=/auth/callback; HttpOnly",
+        )
         expect(console.info).toHaveBeenCalledWith({
             event: EVENT.AUTH.LOGIN.STARTED,
             level: "info",
         })
     })
 
-    it("should return error result when initiate fails", async () => {
-        const errorResult = {
-            success: false,
-            error: "Failed to initiate device code flow",
-        }
-        mockAuth.initiate.mockResolvedValue(errorResult)
+    it("should use secure state cookies in production", async () => {
+        await initiateLogin(
+            new Request("https://yoto.bradgarropy.com/login", {method: "POST"}),
+        )
 
-        const result = await initiateLogin()
-
-        expect(result).toEqual(errorResult)
-        expect(console.error).toHaveBeenCalledWith(
+        expect(mockSerializeOAuthStateCookie).toHaveBeenCalledWith(
             expect.objectContaining({
-                event: EVENT.AUTH.LOGIN.FAILED,
-                level: "error",
-                stage: "initiate",
-                reason: "provider_error",
-                durationMs: expect.any(Number),
+                redirectUri: "https://yoto.bradgarropy.com/auth/callback",
             }),
+            true,
         )
     })
 })

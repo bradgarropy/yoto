@@ -1,10 +1,10 @@
 import {
     DeviceCodeAuth,
-    type DeviceCodeResult,
     type StoredTokens,
 } from "@yotoplay/oauth-device-code-flow"
 import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
 import {env} from "cloudflare:workers"
+import pkceChallenge from "pkce-challenge"
 import {redirect} from "react-router"
 
 import {
@@ -12,6 +12,7 @@ import {
     getTokensFromCookie,
     serializeAuthCookie,
 } from "./auth-cookie.server"
+import {serializeOAuthStateCookie} from "./oauth-state-cookie.server"
 import {EVENT, telemetry} from "./telemetry.server"
 
 // Auth0 configuration for Yoto
@@ -89,25 +90,40 @@ const getAuthFailureReason = (error?: string) => {
     }
 }
 
-// Initiates device code flow - returns info for user to complete auth
-const initiateLogin = async (): Promise<DeviceCodeResult> => {
+// Starts the Authorization Code flow with PKCE and redirects to Yoto.
+const initiateLogin = async (request: Request) => {
     const startedAt = Date.now()
-    const auth = getAuth()
 
     telemetry.info(EVENT.AUTH.LOGIN.STARTED)
 
     try {
-        const result = await auth.initiate(AUTH_SCOPE)
+        const {code_verifier, code_challenge, code_challenge_method} =
+            await pkceChallenge()
+        const state = crypto.randomUUID()
+        const redirectUri = `${new URL(request.url).origin}/auth/callback`
+        const authorizationUrl = new URL(
+            `https://${AUTH_CONFIG.domain}/authorize`,
+        )
 
-        if (!result.success) {
-            telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
-                stage: "initiate",
-                reason: getAuthFailureReason(result.error),
-                durationMs: Date.now() - startedAt,
-            })
-        }
+        authorizationUrl.search = new URLSearchParams({
+            audience: AUTH_CONFIG.audience,
+            scope: AUTH_SCOPE,
+            response_type: "code",
+            client_id: env.YOTO_CLIENT_ID,
+            redirect_uri: redirectUri,
+            state,
+            code_challenge,
+            code_challenge_method,
+        }).toString()
 
-        return result
+        const setCookie = await serializeOAuthStateCookie(
+            {state, codeVerifier: code_verifier, redirectUri},
+            isSecureRequest(request),
+        )
+
+        return redirect(authorizationUrl.toString(), {
+            headers: {"Set-Cookie": setCookie},
+        })
     } catch (error) {
         telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
             stage: "initiate",
@@ -403,4 +419,4 @@ export {
     status,
 }
 
-export type {DeviceCodeResult, TokenStatus}
+export type {TokenStatus}
