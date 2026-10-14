@@ -12,6 +12,7 @@ const EVENT = {
             FAILED: "auth.logout.failed",
         },
         REFRESH: {
+            STARTED: "auth.refresh.started",
             COMPLETED: "auth.refresh.completed",
             FAILED: "auth.refresh.failed",
         },
@@ -78,7 +79,11 @@ type DurationPayload = {
 type AuthFailurePayload = DurationPayload & {
     reason: string
     errorName?: string
+    httpStatus?: number
+    oauthError?: string
 }
+
+type RefreshTrigger = "expired" | "near_expiry"
 
 type ImportPayload = {
     importId: string
@@ -150,14 +155,24 @@ type TrackNumberPayload = CardMutationPayload & {
 
 type TelemetryPayloads = {
     [EVENT.AUTH.LOGIN.STARTED]: undefined
-    [EVENT.AUTH.LOGIN.COMPLETED]: DurationPayload
+    [EVENT.AUTH.LOGIN.COMPLETED]: DurationPayload & {
+        expiresInSeconds: number
+        refreshTokenIssued: boolean
+    }
     [EVENT.AUTH.LOGIN.FAILED]: AuthFailurePayload & {
         stage: "initiate" | "complete"
     }
     [EVENT.AUTH.LOGOUT.COMPLETED]: DurationPayload
     [EVENT.AUTH.LOGOUT.FAILED]: AuthFailurePayload
-    [EVENT.AUTH.REFRESH.COMPLETED]: DurationPayload
-    [EVENT.AUTH.REFRESH.FAILED]: AuthFailurePayload
+    [EVENT.AUTH.REFRESH.STARTED]: {trigger: RefreshTrigger}
+    [EVENT.AUTH.REFRESH.COMPLETED]: DurationPayload & {
+        trigger: RefreshTrigger
+        expiresInSeconds: number
+        refreshTokenRotated: true
+    }
+    [EVENT.AUTH.REFRESH.FAILED]: AuthFailurePayload & {
+        trigger: RefreshTrigger
+    }
     [EVENT.IMPORT.STARTED]: ImportPayload
     [EVENT.IMPORT.COMPLETED]: ImportPayload &
         DurationPayload & {

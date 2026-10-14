@@ -82,7 +82,8 @@ yoto/
 ├── app/
 │   ├── routes/           # React Router pages
 │   │   ├── home.tsx      # Card grid dashboard
-│   │   ├── login.tsx     # Device code auth flow
+│   │   ├── login.tsx     # Start browser-based PKCE login
+│   │   ├── auth.callback.tsx # Complete browser-based PKCE login
 │   │   └── cards.$id.tsx # Card detail with tracks
 │   ├── components/ui/    # shadcn/ui components
 │   └── lib/              # Server-side utilities

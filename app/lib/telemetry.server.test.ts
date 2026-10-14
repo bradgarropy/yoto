@@ -19,10 +19,14 @@ describe("telemetry", () => {
 
         telemetry[method](EVENT.AUTH.LOGIN.COMPLETED, {
             durationMs: 250,
+            expiresInSeconds: 3600,
+            refreshTokenIssued: true,
         })
 
         expect(consoleSpy).toHaveBeenCalledWith({
             durationMs: 250,
+            expiresInSeconds: 3600,
+            refreshTokenIssued: true,
             event: EVENT.AUTH.LOGIN.COMPLETED,
             level,
         })

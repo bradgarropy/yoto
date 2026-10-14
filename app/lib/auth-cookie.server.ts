@@ -1,6 +1,6 @@
-import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
 import {createCookie} from "react-router"
 
+import type {StoredTokens} from "./auth-types"
 import {decrypt, encrypt} from "./encryption.server"
 
 // --- Cookie Setup ---
@@ -21,7 +21,7 @@ function getAuthCookie(env: Env, secure: boolean) {
 
     let cookie = cookieCache.get(cacheKey)
     if (!cookie) {
-        cookie = createCookie("yoto-auth", {
+        cookie = createCookie("yoto-auth-v2", {
             httpOnly: true,
             secure,
             sameSite: "lax",

@@ -12,7 +12,7 @@ A web application for syncing YouTube content to Yoto cards. Built with React Ro
 | Runtime          | Cloudflare Workers                            |
 | YouTube Download | yt-dlp via Cloudflare Containers (Sandbox DO) |
 | UI               | shadcn/ui + Tailwind CSS v4                   |
-| Auth             | @yotoplay/oauth-device-code-flow              |
+| Auth             | OAuth 2.0 Authorization Code flow with PKCE   |
 | Auth Storage     | Encrypted HTTP-only cookie (AES-256-GCM)      |
 
 ## Project Structure
@@ -24,7 +24,8 @@ yoto/
 │   ├── routes.ts                     # Route definitions
 │   ├── routes/
 │   │   ├── home.tsx                  # Dashboard (card grid)
-│   │   ├── login.tsx                 # Device code auth
+│   │   ├── login.tsx                 # Start browser-based PKCE login
+│   │   ├── auth.callback.tsx         # Complete browser-based PKCE login
 │   │   ├── cards.$id.tsx             # Card detail (track list)
 │   │   ├── api.import.$cardId.tsx    # Streaming import endpoint
 │   │   └── api.icons.ts              # Icon search endpoint
@@ -46,22 +47,25 @@ yoto/
 
 ## Routes
 
-| Route                 | Purpose                     |
-| --------------------- | --------------------------- |
-| `/`                   | Card grid with search/sort  |
-| `/login`              | Device code authentication  |
-| `/cards/:id`          | Card detail with track list |
-| `/api/import/:cardId` | Streaming import endpoint   |
-| `/api/icons`          | Icon search endpoint        |
+| Route                 | Purpose                      |
+| --------------------- | ---------------------------- |
+| `/`                   | Card grid with search/sort   |
+| `/login`              | Start PKCE authentication    |
+| `/auth/callback`      | Complete PKCE authentication |
+| `/cards/:id`          | Card detail with track list  |
+| `/api/import/:cardId` | Streaming import endpoint    |
+| `/api/icons`          | Icon search endpoint         |
 
 ## Data Flow
 
 ### Authentication
 
-1. User clicks Login → Device code flow initiated
-2. User opens Yoto website, confirms matching device code in browser
-3. Tokens encrypted and stored in HTTP-only cookie
-4. SDK created with JWT for API calls
+1. User clicks Login → PKCE verifier, challenge, and state are generated
+2. User signs in on Yoto and returns through `/auth/callback`
+3. The callback validates state and exchanges the authorization code for tokens
+4. Tokens are encrypted and stored in an HTTP-only cookie
+5. Refresh tokens are rotated through Yoto's OAuth token endpoint
+6. SDK created with JWT for API calls
 
 ### YouTube Import
 
@@ -75,7 +79,7 @@ yoto/
 ### Yoto API
 
 - `@yotoplay/yoto-sdk` - Content and media operations
-- `@yotoplay/oauth-device-code-flow` - Authentication with `offline_access` scope
+- `pkce-challenge` - PKCE verifier and challenge generation
 
 ## Future Enhancements
 

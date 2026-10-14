@@ -1,4 +1,3 @@
-import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
 import {beforeEach, describe, expect, it} from "vitest"
 
 import {createMockEnv} from "~/tests/mocks"
@@ -10,6 +9,7 @@ import {
     getTokensFromCookie,
     serializeAuthCookie,
 } from "./auth-cookie.server"
+import type {StoredTokens} from "./auth-types"
 
 // Mock env object
 const mockEnv = createMockEnv()
@@ -30,7 +30,7 @@ describe("auth-cookie", () => {
         it("should serialize tokens to a cookie string", async () => {
             const cookieString = await serializeAuthCookie(mockTokens, mockEnv)
 
-            expect(cookieString).toContain("yoto-auth=")
+            expect(cookieString).toContain("yoto-auth-v2=")
             expect(cookieString).toContain("Path=/")
             expect(cookieString).toContain("HttpOnly")
             expect(cookieString).toContain("SameSite=Lax")
@@ -89,10 +89,10 @@ describe("auth-cookie", () => {
             expect(result).toBeNull()
         })
 
-        it("should return null when yoto-auth cookie is not present", async () => {
+        it("should ignore the legacy yoto-auth cookie", async () => {
             const request = new Request("http://localhost/", {
                 headers: {
-                    Cookie: "other-cookie=some-value",
+                    Cookie: "yoto-auth=legacy-encrypted-value",
                 },
             })
 
@@ -104,7 +104,7 @@ describe("auth-cookie", () => {
         it("should return null for invalid/corrupted cookie data", async () => {
             const request = new Request("http://localhost/", {
                 headers: {
-                    Cookie: "yoto-auth=invalid-encrypted-data",
+                    Cookie: "yoto-auth-v2=invalid-encrypted-data",
                 },
             })
 
@@ -185,7 +185,7 @@ describe("auth-cookie", () => {
         it("should return a cookie string that clears the cookie", async () => {
             const cookieString = await clearAuthCookie(mockEnv)
 
-            expect(cookieString).toContain("yoto-auth=")
+            expect(cookieString).toContain("yoto-auth-v2=")
             expect(cookieString).toContain("Max-Age=0")
         })
 

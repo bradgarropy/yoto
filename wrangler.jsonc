@@ -4,6 +4,9 @@
     "compatibility_flags": ["nodejs_compat"],
     "workers_dev": true,
     "main": "./workers/app.ts",
+    "vars": {
+        "YOTO_CLIENT_ID": "tpc_nbBiRwSYohrNKK15CDemgw",
+    },
     "assets": {
         "directory": "./build/client",
     },

@@ -1,9 +1,6 @@
-import {
-    DeviceCodeAuth,
-    type DeviceCodeResult,
-    type StoredTokens,
-} from "@yotoplay/oauth-device-code-flow"
 import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
+import {env} from "cloudflare:workers"
+import pkceChallenge from "pkce-challenge"
 import {redirect} from "react-router"
 
 import {
@@ -11,27 +8,24 @@ import {
     getTokensFromCookie,
     serializeAuthCookie,
 } from "./auth-cookie.server"
+import type {StoredTokens} from "./auth-types"
+import {
+    clearOAuthStateCookie,
+    getOAuthStateFromCookie,
+    serializeOAuthStateCookie,
+} from "./oauth-state-cookie.server"
 import {EVENT, telemetry} from "./telemetry.server"
 
 // Auth0 configuration for Yoto
 const AUTH_CONFIG = {
     domain: "login.yotoplay.com",
-    clientId: "PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77",
     audience: "https://api.yotoplay.com",
 }
-const AUTH_SCOPE = "offline_access"
+const AUTH_SCOPE = "user:content:manage offline_access"
 
-// Lazy-initialized singletons
-let _auth: DeviceCodeAuth | null = null
+// Lazy-initialized SDK singleton
 let _sdk: YotoSdk | null = null
 let _sdkToken: string | null = null
-
-const getAuth = (): DeviceCodeAuth => {
-    if (!_auth) {
-        _auth = new DeviceCodeAuth(AUTH_CONFIG)
-    }
-    return _auth
-}
 
 type TokenStatus =
     | {valid: true; expiresIn: string; expiresAt: number; setCookie?: string}
@@ -72,38 +66,40 @@ const isSecureRequest = (request: Request): boolean => {
     return new URL(request.url).protocol === "https:"
 }
 
-const getAuthFailureReason = (error?: string) => {
-    switch (error) {
-        case "access_denied":
-            return "access_denied"
-        case "expired_token":
-            return "expired_token"
-        case "Authentication timeout. Please try again.":
-            return "timeout"
-        default:
-            return "provider_error"
-    }
-}
-
-// Initiates device code flow - returns info for user to complete auth
-const initiateLogin = async (): Promise<DeviceCodeResult> => {
+// Starts the Authorization Code flow with PKCE and redirects to Yoto.
+const initiateLogin = async (request: Request) => {
     const startedAt = Date.now()
-    const auth = getAuth()
 
     telemetry.info(EVENT.AUTH.LOGIN.STARTED)
 
     try {
-        const result = await auth.initiate(AUTH_SCOPE)
+        const {code_verifier, code_challenge, code_challenge_method} =
+            await pkceChallenge()
+        const state = crypto.randomUUID()
+        const redirectUri = `${new URL(request.url).origin}/auth/callback`
+        const authorizationUrl = new URL(
+            `https://${AUTH_CONFIG.domain}/authorize`,
+        )
 
-        if (!result.success) {
-            telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
-                stage: "initiate",
-                reason: getAuthFailureReason(result.error),
-                durationMs: Date.now() - startedAt,
-            })
-        }
+        authorizationUrl.search = new URLSearchParams({
+            audience: AUTH_CONFIG.audience,
+            scope: AUTH_SCOPE,
+            response_type: "code",
+            client_id: env.YOTO_CLIENT_ID,
+            redirect_uri: redirectUri,
+            state,
+            code_challenge,
+            code_challenge_method,
+        }).toString()
 
-        return result
+        const setCookie = await serializeOAuthStateCookie(
+            {state, codeVerifier: code_verifier, redirectUri},
+            isSecureRequest(request),
+        )
+
+        return redirect(authorizationUrl.toString(), {
+            headers: {"Set-Cookie": setCookie},
+        })
     } catch (error) {
         telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
             stage: "initiate",
@@ -115,63 +111,205 @@ const initiateLogin = async (): Promise<DeviceCodeResult> => {
     }
 }
 
-// Polls for token after user completes auth in browser
-// Returns the Set-Cookie header value on success
-const completeLogin = async (
+type OAuthTokenResponse = {
+    access_token: string
+    refresh_token?: string
+    expires_in: number
+    token_type: string
+}
+
+type RefreshTrigger = "expired" | "near_expiry"
+
+class InvalidTokenResponseError extends Error {
+    constructor() {
+        super("Invalid token response")
+        this.name = "InvalidTokenResponseError"
+    }
+}
+
+const getSafeOAuthError = (value: unknown): string | undefined => {
+    return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
+        ? value
+        : undefined
+}
+
+const getOAuthError = async (
+    response: Response,
+): Promise<string | undefined> => {
+    try {
+        const body = (await response.json()) as {error?: unknown}
+        return getSafeOAuthError(body.error)
+    } catch {
+        // Provider responses are not guaranteed to be JSON.
+    }
+
+    return undefined
+}
+
+const getTokenResponse = async (
+    response: Response,
+): Promise<OAuthTokenResponse> => {
+    try {
+        return (await response.json()) as OAuthTokenResponse
+    } catch {
+        throw new InvalidTokenResponseError()
+    }
+}
+
+const toStoredTokens = (
+    tokenResponse: OAuthTokenResponse,
+    requireRefreshToken = false,
+): StoredTokens => {
+    if (
+        !tokenResponse.access_token ||
+        !tokenResponse.token_type ||
+        !Number.isFinite(tokenResponse.expires_in) ||
+        tokenResponse.expires_in <= 0 ||
+        (requireRefreshToken && !tokenResponse.refresh_token)
+    ) {
+        throw new InvalidTokenResponseError()
+    }
+
+    return {
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        expiresAt: Date.now() + tokenResponse.expires_in * 1000,
+        tokenType: tokenResponse.token_type,
+    }
+}
+
+const redirectToLoginError = async (
     request: Request,
-    env: Env,
-    deviceCode: string,
-    interval: number,
-    timeout: number = 300000, // 5 minutes default
-): Promise<
-    | {success: true; expiresIn: string; setCookie: string}
-    | {success: false; error: string}
-> => {
+    reason: string,
+): Promise<Response> => {
+    const headers = new Headers()
+    headers.append(
+        "Set-Cookie",
+        await clearOAuthStateCookie(isSecureRequest(request)),
+    )
+
+    return redirect(`/login?error=${encodeURIComponent(reason)}`, {headers})
+}
+
+// Validates Yoto's callback and exchanges its one-time code for tokens.
+const completeLogin = async (request: Request): Promise<Response> => {
     const startedAt = Date.now()
-    const auth = getAuth()
+    const callbackUrl = new URL(request.url)
+    const providerError = callbackUrl.searchParams.get("error")
+    const code = callbackUrl.searchParams.get("code")
+    const returnedState = callbackUrl.searchParams.get("state")
+    const oauthState = await getOAuthStateFromCookie(request)
+
+    if (!returnedState) {
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
+            stage: "complete",
+            reason: "invalid_callback",
+            durationMs: Date.now() - startedAt,
+        })
+        return redirectToLoginError(request, "invalid_callback")
+    }
+
+    if (!oauthState) {
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
+            stage: "complete",
+            reason: "expired_state",
+            durationMs: Date.now() - startedAt,
+        })
+        return redirectToLoginError(request, "expired_state")
+    }
+
+    if (returnedState !== oauthState.state) {
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
+            stage: "complete",
+            reason: "state_mismatch",
+            durationMs: Date.now() - startedAt,
+        })
+        return redirectToLoginError(request, "state_mismatch")
+    }
+
+    if (providerError) {
+        const reason =
+            providerError === "access_denied"
+                ? "access_denied"
+                : "provider_error"
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
+            stage: "complete",
+            reason,
+            ...(getSafeOAuthError(providerError)
+                ? {oauthError: providerError}
+                : {}),
+            durationMs: Date.now() - startedAt,
+        })
+        return redirectToLoginError(request, reason)
+    }
+
+    if (!code) {
+        telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
+            stage: "complete",
+            reason: "invalid_callback",
+            durationMs: Date.now() - startedAt,
+        })
+        return redirectToLoginError(request, "invalid_callback")
+    }
 
     try {
-        const result = await auth.pollForToken(deviceCode, interval, timeout)
+        const response = await fetch(
+            `https://${AUTH_CONFIG.domain}/oauth/token`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: new URLSearchParams({
+                    grant_type: "authorization_code",
+                    client_id: env.YOTO_CLIENT_ID,
+                    code_verifier: oauthState.codeVerifier,
+                    code,
+                    redirect_uri: oauthState.redirectUri,
+                }),
+            },
+        )
 
-        if (!result.success || !result.tokens) {
-            const error = result.error ?? "Authentication failed"
-            const reason = getAuthFailureReason(error)
-            const context = {
-                stage: "complete" as const,
-                reason,
+        if (!response.ok) {
+            const oauthError = await getOAuthError(response)
+            telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
+                stage: "complete",
+                reason: "token_exchange_rejected",
+                httpStatus: response.status,
+                ...(oauthError ? {oauthError} : {}),
                 durationMs: Date.now() - startedAt,
-            }
-
-            if (reason === "provider_error") {
-                telemetry.error(EVENT.AUTH.LOGIN.FAILED, context)
-            } else {
-                telemetry.warn(EVENT.AUTH.LOGIN.FAILED, context)
-            }
-
-            return {success: false, error}
+            })
+            return redirectToLoginError(request, "token_exchange_failed")
         }
 
-        const setCookie = await serializeAuthCookie(
-            result.tokens,
-            env,
-            isSecureRequest(request),
+        const tokenResponse = await getTokenResponse(response)
+        const tokens = toStoredTokens(tokenResponse)
+        const headers = new Headers()
+        headers.append(
+            "Set-Cookie",
+            await serializeAuthCookie(tokens, env, isSecureRequest(request)),
         )
-        const timeRemaining = getTimeUntilExpiry(result.tokens)
-        const expiresIn = formatTimeRemaining(timeRemaining)
+        headers.append(
+            "Set-Cookie",
+            await clearOAuthStateCookie(isSecureRequest(request)),
+        )
 
         telemetry.info(EVENT.AUTH.LOGIN.COMPLETED, {
+            expiresInSeconds: tokenResponse.expires_in,
+            refreshTokenIssued: Boolean(tokenResponse.refresh_token),
             durationMs: Date.now() - startedAt,
         })
 
-        return {success: true, expiresIn, setCookie}
+        return redirect("/cards", {headers})
     } catch (error) {
         telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
             stage: "complete",
-            reason: "unexpected_error",
+            reason:
+                error instanceof InvalidTokenResponseError
+                    ? "invalid_response"
+                    : "request_failed",
             errorName: error instanceof Error ? error.name : "UnknownError",
             durationMs: Date.now() - startedAt,
         })
-        throw error
+        return redirectToLoginError(request, "token_exchange_failed")
     }
 }
 
@@ -212,6 +350,7 @@ const status = async (request: Request, env: Env): Promise<TokenStatus> => {
                 env,
                 tokens.refreshToken,
                 isSecureRequest(request),
+                "expired",
             )
             if (refreshResult) {
                 const timeRemaining = getTimeUntilExpiry(refreshResult.tokens)
@@ -236,36 +375,61 @@ const status = async (request: Request, env: Env): Promise<TokenStatus> => {
 
 // Attempts to refresh the token, returns new tokens and cookie or null
 const tryRefreshToken = async (
-    env: Env,
+    workerEnv: Env,
     refreshToken: string,
     secure: boolean,
+    trigger: RefreshTrigger,
 ): Promise<{tokens: StoredTokens; setCookie: string} | null> => {
     const startedAt = Date.now()
-    const auth = getAuth()
+
+    telemetry.info(EVENT.AUTH.REFRESH.STARTED, {trigger})
 
     try {
-        const result = await auth.refreshToken(refreshToken)
-        if (result.success && result.tokens) {
-            const setCookie = await serializeAuthCookie(
-                result.tokens,
-                env,
-                secure,
-            )
+        const response = await fetch(
+            `https://${AUTH_CONFIG.domain}/oauth/token`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: new URLSearchParams({
+                    grant_type: "refresh_token",
+                    client_id: env.YOTO_CLIENT_ID,
+                    refresh_token: refreshToken,
+                }),
+            },
+        )
 
-            telemetry.info(EVENT.AUTH.REFRESH.COMPLETED, {
+        if (!response.ok) {
+            const oauthError = await getOAuthError(response)
+            telemetry.warn(EVENT.AUTH.REFRESH.FAILED, {
+                reason: "rejected",
+                trigger,
+                httpStatus: response.status,
+                ...(oauthError ? {oauthError} : {}),
                 durationMs: Date.now() - startedAt,
             })
-
-            return {tokens: result.tokens, setCookie}
+            return null
         }
 
-        telemetry.warn(EVENT.AUTH.REFRESH.FAILED, {
-            reason: "rejected",
+        // Yoto refresh tokens are single-use, so require and store the rotated token.
+        const tokenResponse = await getTokenResponse(response)
+        const tokens = toStoredTokens(tokenResponse, true)
+        const setCookie = await serializeAuthCookie(tokens, workerEnv, secure)
+
+        telemetry.info(EVENT.AUTH.REFRESH.COMPLETED, {
+            trigger,
+            expiresInSeconds: tokenResponse.expires_in,
+            refreshTokenRotated: true,
             durationMs: Date.now() - startedAt,
         })
+
+        return {tokens, setCookie}
     } catch (error) {
         telemetry.error(EVENT.AUTH.REFRESH.FAILED, {
-            reason: "unexpected_error",
+            reason:
+                error instanceof InvalidTokenResponseError
+                    ? "invalid_response"
+                    : "request_failed",
+            trigger,
             errorName: error instanceof Error ? error.name : "UnknownError",
             durationMs: Date.now() - startedAt,
         })
@@ -289,10 +453,12 @@ const getToken = async (
     // If token is expired or about to expire (within 5 minutes), try to refresh
     const timeRemaining = getTimeUntilExpiry(tokens)
     if (timeRemaining < 300 && tokens.refreshToken) {
+        const trigger = timeRemaining <= 0 ? "expired" : "near_expiry"
         const refreshResult = await tryRefreshToken(
             env,
             tokens.refreshToken,
             isSecureRequest(request),
+            trigger,
         )
         if (refreshResult) {
             return {
@@ -317,8 +483,8 @@ const requireAuthCore = async (
     const result = await getToken(request, env)
 
     if (!result) {
-        const tokenStatus = await status(request, env)
-        if (tokenStatus.valid === false && tokenStatus.reason === "expired") {
+        const tokens = await getTokensFromCookie(request, env)
+        if (tokens && isTokenExpired(tokens)) {
             throw new Error("Token expired. Please log in again.")
         }
         throw new Error("Not logged in. Please log in.")
@@ -340,33 +506,12 @@ const getYotoSdk = (token: string): YotoSdk => {
     return _sdk
 }
 
-// Helper to require authentication in loaders
-// Redirects to /login if not authenticated
-const requireAuth = async (
-    request: Request,
-    env: Env,
-): Promise<{
-    valid: true
-    expiresIn: string
-    expiresAt: number
-    setCookie?: string
-}> => {
-    const authStatus = await status(request, env)
-
-    if (!authStatus.valid) {
-        throw redirect("/login")
-    }
-
-    return authStatus
-}
-
 // Helper to get authenticated SDK, with redirect on failure
 // Returns SDK and optional setCookie if token was refreshed
 const getAuthenticatedSdk = async (
     request: Request,
     env: Env,
 ): Promise<{sdk: YotoSdk; setCookie?: string}> => {
-    const {setCookie} = await requireAuth(request, env)
     const tokenResult = await getToken(request, env)
 
     if (!tokenResult) {
@@ -374,7 +519,7 @@ const getAuthenticatedSdk = async (
     }
 
     const sdk = getYotoSdk(tokenResult.token)
-    return {sdk, setCookie: setCookie ?? tokenResult.setCookie}
+    return {sdk, setCookie: tokenResult.setCookie}
 }
 
 // Check if user is authenticated (without redirect)
@@ -382,8 +527,8 @@ const isAuthenticated = async (
     request: Request,
     env: Env,
 ): Promise<boolean> => {
-    const authStatus = await status(request, env)
-    return authStatus.valid
+    const tokens = await getTokensFromCookie(request, env)
+    return Boolean(tokens && !isTokenExpired(tokens))
 }
 
 export {
@@ -394,9 +539,8 @@ export {
     initiateLogin,
     isAuthenticated,
     logout,
-    requireAuth,
     requireAuthCore,
     status,
 }
 
-export type {DeviceCodeResult, TokenStatus}
+export type {TokenStatus}
