@@ -1,5 +1,9 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
+vi.mock("cloudflare:workers", () => ({
+    env: {YOTO_CLIENT_ID: "test-yoto-client-id"},
+}))
+
 import {EVENT} from "~/lib/telemetry.server"
 import {authContext} from "~/middleware/auth.server"
 

@@ -3,6 +3,10 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {EVENT} from "~/lib/telemetry.server"
 import {createMockEnv} from "~/tests/mocks"
 
+vi.mock("cloudflare:workers", () => ({
+    env: {YOTO_CLIENT_ID: "test-yoto-client-id"},
+}))
+
 // Mock the auth-cookie module
 const mockGetTokensFromCookie = vi.fn()
 const mockSerializeAuthCookie = vi.fn()
@@ -22,10 +26,15 @@ const mockAuth = {
     pollForToken: vi.fn(),
     refreshToken: vi.fn(),
 }
+const mockDeviceCodeAuthConstructor = vi.fn()
 
 // Mock the OAuth package with class constructors
 vi.mock("@yotoplay/oauth-device-code-flow", () => ({
     DeviceCodeAuth: class MockDeviceCodeAuth {
+        constructor(config: unknown) {
+            mockDeviceCodeAuthConstructor(config)
+        }
+
         initiate = mockAuth.initiate
         pollForToken = mockAuth.pollForToken
         refreshToken = mockAuth.refreshToken
@@ -84,7 +93,14 @@ describe("initiateLogin", () => {
 
         const result = await initiateLogin()
 
-        expect(mockAuth.initiate).toHaveBeenCalledWith("offline_access")
+        expect(mockDeviceCodeAuthConstructor).toHaveBeenCalledWith({
+            domain: "login.yotoplay.com",
+            clientId: "test-yoto-client-id",
+            audience: "https://api.yotoplay.com",
+        })
+        expect(mockAuth.initiate).toHaveBeenCalledWith(
+            "user:content:manage offline_access",
+        )
         expect(result).toEqual(deviceCodeResult)
         expect(console.info).toHaveBeenCalledWith({
             event: EVENT.AUTH.LOGIN.STARTED,

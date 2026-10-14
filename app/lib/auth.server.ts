@@ -4,6 +4,7 @@ import {
     type StoredTokens,
 } from "@yotoplay/oauth-device-code-flow"
 import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
+import {env} from "cloudflare:workers"
 import {redirect} from "react-router"
 
 import {
@@ -16,19 +17,22 @@ import {EVENT, telemetry} from "./telemetry.server"
 // Auth0 configuration for Yoto
 const AUTH_CONFIG = {
     domain: "login.yotoplay.com",
-    clientId: "PhKouPhz6NPVaWLtyeiEwjfB7m8sVR77",
     audience: "https://api.yotoplay.com",
 }
-const AUTH_SCOPE = "offline_access"
+const AUTH_SCOPE = "user:content:manage offline_access"
 
 // Lazy-initialized singletons
 let _auth: DeviceCodeAuth | null = null
+let _authClientId: string | null = null
 let _sdk: YotoSdk | null = null
 let _sdkToken: string | null = null
 
 const getAuth = (): DeviceCodeAuth => {
-    if (!_auth) {
-        _auth = new DeviceCodeAuth(AUTH_CONFIG)
+    const clientId = env.YOTO_CLIENT_ID
+
+    if (!_auth || _authClientId !== clientId) {
+        _auth = new DeviceCodeAuth({...AUTH_CONFIG, clientId})
+        _authClientId = clientId
     }
     return _auth
 }

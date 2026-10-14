@@ -21,7 +21,7 @@ function getAuthCookie(env: Env, secure: boolean) {
 
     let cookie = cookieCache.get(cacheKey)
     if (!cookie) {
-        cookie = createCookie("yoto-auth", {
+        cookie = createCookie("yoto-auth-v2", {
             httpOnly: true,
             secure,
             sameSite: "lax",
