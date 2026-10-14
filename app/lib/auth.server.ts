@@ -118,6 +118,44 @@ type OAuthTokenResponse = {
     token_type: string
 }
 
+type RefreshTrigger = "expired" | "near_expiry"
+
+class InvalidTokenResponseError extends Error {
+    constructor() {
+        super("Invalid token response")
+        this.name = "InvalidTokenResponseError"
+    }
+}
+
+const getSafeOAuthError = (value: unknown): string | undefined => {
+    return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
+        ? value
+        : undefined
+}
+
+const getOAuthError = async (
+    response: Response,
+): Promise<string | undefined> => {
+    try {
+        const body = (await response.json()) as {error?: unknown}
+        return getSafeOAuthError(body.error)
+    } catch {
+        // Provider responses are not guaranteed to be JSON.
+    }
+
+    return undefined
+}
+
+const getTokenResponse = async (
+    response: Response,
+): Promise<OAuthTokenResponse> => {
+    try {
+        return (await response.json()) as OAuthTokenResponse
+    } catch {
+        throw new InvalidTokenResponseError()
+    }
+}
+
 const toStoredTokens = (
     tokenResponse: OAuthTokenResponse,
     requireRefreshToken = false,
@@ -129,7 +167,7 @@ const toStoredTokens = (
         tokenResponse.expires_in <= 0 ||
         (requireRefreshToken && !tokenResponse.refresh_token)
     ) {
-        throw new Error("Invalid token response")
+        throw new InvalidTokenResponseError()
     }
 
     return {
@@ -197,6 +235,9 @@ const completeLogin = async (request: Request): Promise<Response> => {
         telemetry.warn(EVENT.AUTH.LOGIN.FAILED, {
             stage: "complete",
             reason,
+            ...(getSafeOAuthError(providerError)
+                ? {oauthError: providerError}
+                : {}),
             durationMs: Date.now() - startedAt,
         })
         return redirectToLoginError(request, reason)
@@ -228,17 +269,19 @@ const completeLogin = async (request: Request): Promise<Response> => {
         )
 
         if (!response.ok) {
+            const oauthError = await getOAuthError(response)
             telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
                 stage: "complete",
                 reason: "token_exchange_rejected",
+                httpStatus: response.status,
+                ...(oauthError ? {oauthError} : {}),
                 durationMs: Date.now() - startedAt,
             })
             return redirectToLoginError(request, "token_exchange_failed")
         }
 
-        const tokens = toStoredTokens(
-            (await response.json()) as OAuthTokenResponse,
-        )
+        const tokenResponse = await getTokenResponse(response)
+        const tokens = toStoredTokens(tokenResponse)
         const headers = new Headers()
         headers.append(
             "Set-Cookie",
@@ -250,6 +293,8 @@ const completeLogin = async (request: Request): Promise<Response> => {
         )
 
         telemetry.info(EVENT.AUTH.LOGIN.COMPLETED, {
+            expiresInSeconds: tokenResponse.expires_in,
+            refreshTokenIssued: Boolean(tokenResponse.refresh_token),
             durationMs: Date.now() - startedAt,
         })
 
@@ -257,7 +302,10 @@ const completeLogin = async (request: Request): Promise<Response> => {
     } catch (error) {
         telemetry.error(EVENT.AUTH.LOGIN.FAILED, {
             stage: "complete",
-            reason: "unexpected_error",
+            reason:
+                error instanceof InvalidTokenResponseError
+                    ? "invalid_response"
+                    : "request_failed",
             errorName: error instanceof Error ? error.name : "UnknownError",
             durationMs: Date.now() - startedAt,
         })
@@ -302,6 +350,7 @@ const status = async (request: Request, env: Env): Promise<TokenStatus> => {
                 env,
                 tokens.refreshToken,
                 isSecureRequest(request),
+                "expired",
             )
             if (refreshResult) {
                 const timeRemaining = getTimeUntilExpiry(refreshResult.tokens)
@@ -329,8 +378,11 @@ const tryRefreshToken = async (
     workerEnv: Env,
     refreshToken: string,
     secure: boolean,
+    trigger: RefreshTrigger,
 ): Promise<{tokens: StoredTokens; setCookie: string} | null> => {
     const startedAt = Date.now()
+
+    telemetry.info(EVENT.AUTH.REFRESH.STARTED, {trigger})
 
     try {
         const response = await fetch(
@@ -347,28 +399,37 @@ const tryRefreshToken = async (
         )
 
         if (!response.ok) {
+            const oauthError = await getOAuthError(response)
             telemetry.warn(EVENT.AUTH.REFRESH.FAILED, {
                 reason: "rejected",
+                trigger,
+                httpStatus: response.status,
+                ...(oauthError ? {oauthError} : {}),
                 durationMs: Date.now() - startedAt,
             })
             return null
         }
 
         // Yoto refresh tokens are single-use, so require and store the rotated token.
-        const tokens = toStoredTokens(
-            (await response.json()) as OAuthTokenResponse,
-            true,
-        )
+        const tokenResponse = await getTokenResponse(response)
+        const tokens = toStoredTokens(tokenResponse, true)
         const setCookie = await serializeAuthCookie(tokens, workerEnv, secure)
 
         telemetry.info(EVENT.AUTH.REFRESH.COMPLETED, {
+            trigger,
+            expiresInSeconds: tokenResponse.expires_in,
+            refreshTokenRotated: true,
             durationMs: Date.now() - startedAt,
         })
 
         return {tokens, setCookie}
     } catch (error) {
         telemetry.error(EVENT.AUTH.REFRESH.FAILED, {
-            reason: "unexpected_error",
+            reason:
+                error instanceof InvalidTokenResponseError
+                    ? "invalid_response"
+                    : "request_failed",
+            trigger,
             errorName: error instanceof Error ? error.name : "UnknownError",
             durationMs: Date.now() - startedAt,
         })
@@ -392,10 +453,12 @@ const getToken = async (
     // If token is expired or about to expire (within 5 minutes), try to refresh
     const timeRemaining = getTimeUntilExpiry(tokens)
     if (timeRemaining < 300 && tokens.refreshToken) {
+        const trigger = timeRemaining <= 0 ? "expired" : "near_expiry"
         const refreshResult = await tryRefreshToken(
             env,
             tokens.refreshToken,
             isSecureRequest(request),
+            trigger,
         )
         if (refreshResult) {
             return {

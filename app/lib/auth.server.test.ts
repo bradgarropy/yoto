@@ -210,6 +210,8 @@ describe("completeLogin", () => {
             expect.objectContaining({
                 event: EVENT.AUTH.LOGIN.COMPLETED,
                 level: "info",
+                expiresInSeconds: 3600,
+                refreshTokenIssued: true,
                 durationMs: expect.any(Number),
             }),
         )
@@ -264,11 +266,18 @@ describe("completeLogin", () => {
         expect(response.headers.get("Location")).toBe(
             "/login?error=access_denied",
         )
+        expect(console.warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGIN.FAILED,
+                reason: "access_denied",
+                oauthError: "access_denied",
+            }),
+        )
     })
 
     it("should handle a rejected token exchange", async () => {
         mockFetch.mockResolvedValue(
-            new Response("invalid_grant", {status: 400}),
+            Response.json({error: "invalid_grant"}, {status: 400}),
         )
 
         const response = await completeLogin(
@@ -281,6 +290,16 @@ describe("completeLogin", () => {
             "/login?error=token_exchange_failed",
         )
         expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.LOGIN.FAILED,
+                stage: "complete",
+                reason: "token_exchange_rejected",
+                httpStatus: 400,
+                oauthError: "invalid_grant",
+                durationMs: expect.any(Number),
+            }),
+        )
     })
 })
 
@@ -402,13 +421,30 @@ describe("status", () => {
             expiresAt: refreshedTokens.expiresAt,
             setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
         })
+        expect(console.info).toHaveBeenCalledWith({
+            event: EVENT.AUTH.REFRESH.STARTED,
+            level: "info",
+            trigger: "expired",
+        })
         expect(console.info).toHaveBeenCalledWith(
             expect.objectContaining({
                 event: EVENT.AUTH.REFRESH.COMPLETED,
                 level: "info",
+                trigger: "expired",
+                expiresInSeconds: 3605,
+                refreshTokenRotated: true,
                 durationMs: expect.any(Number),
             }),
         )
+
+        const logs = JSON.stringify([
+            ...vi.mocked(console.info).mock.calls,
+            ...vi.mocked(console.warn).mock.calls,
+            ...vi.mocked(console.error).mock.calls,
+        ])
+        expect(logs).not.toContain("refresh-token")
+        expect(logs).not.toContain("new-refresh-token")
+        expect(logs).not.toContain("new-token")
     })
 
     it("should warn when token refresh is rejected", async () => {
@@ -420,7 +456,7 @@ describe("status", () => {
         }
         mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
         mockFetch.mockResolvedValue(
-            new Response("invalid_grant", {status: 400}),
+            Response.json({error: "invalid_grant"}, {status: 400}),
         )
 
         const result = await status(createMockRequest(), mockEnv)
@@ -431,6 +467,9 @@ describe("status", () => {
                 event: EVENT.AUTH.REFRESH.FAILED,
                 level: "warn",
                 reason: "rejected",
+                trigger: "expired",
+                httpStatus: 400,
+                oauthError: "invalid_grant",
                 durationMs: expect.any(Number),
             }),
         )
@@ -460,8 +499,32 @@ describe("status", () => {
             expect.objectContaining({
                 event: EVENT.AUTH.REFRESH.FAILED,
                 level: "error",
-                reason: "unexpected_error",
-                errorName: "Error",
+                reason: "invalid_response",
+                trigger: "expired",
+                errorName: "InvalidTokenResponseError",
+            }),
+        )
+    })
+
+    it("should distinguish a refresh request failure", async () => {
+        mockGetTokensFromCookie.mockResolvedValue({
+            accessToken: "expired-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date.now() - 100000,
+            tokenType: "Bearer",
+        })
+        mockFetch.mockRejectedValue(new TypeError("fetch failed"))
+
+        const result = await status(createMockRequest(), mockEnv)
+
+        expect(result).toEqual({valid: false, reason: "expired"})
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.REFRESH.FAILED,
+                level: "error",
+                reason: "request_failed",
+                trigger: "expired",
+                errorName: "TypeError",
             }),
         )
     })
@@ -512,6 +575,17 @@ describe("getToken", () => {
             token: "refreshed-token",
             setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
         })
+        expect(console.info).toHaveBeenCalledWith({
+            event: EVENT.AUTH.REFRESH.STARTED,
+            level: "info",
+            trigger: "near_expiry",
+        })
+        expect(console.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.REFRESH.COMPLETED,
+                trigger: "near_expiry",
+            }),
+        )
     })
 
     it("should return null when expired and refresh fails", async () => {
