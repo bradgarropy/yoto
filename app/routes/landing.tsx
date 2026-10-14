@@ -24,7 +24,11 @@ export async function loader({request, context}: Route.LoaderArgs) {
     const authStatus = await status(request, env)
 
     if (authStatus.valid) {
-        throw redirect("/cards")
+        throw redirect("/cards", {
+            headers: authStatus.setCookie
+                ? {"Set-Cookie": authStatus.setCookie}
+                : undefined,
+        })
     }
 
     return {}

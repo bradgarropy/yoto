@@ -44,25 +44,6 @@ vi.mock("pkce-challenge", () => ({
     })),
 }))
 
-// Create mock instances that will be returned by constructors
-const mockAuth = {
-    pollForToken: vi.fn(),
-    refreshToken: vi.fn(),
-}
-const mockDeviceCodeAuthConstructor = vi.fn()
-
-// Mock the OAuth package with class constructors
-vi.mock("@yotoplay/oauth-device-code-flow", () => ({
-    DeviceCodeAuth: class MockDeviceCodeAuth {
-        constructor(config: unknown) {
-            mockDeviceCodeAuthConstructor(config)
-        }
-
-        pollForToken = mockAuth.pollForToken
-        refreshToken = mockAuth.refreshToken
-    },
-}))
-
 // Mock the SDK
 vi.mock("@yotoplay/yoto-sdk", () => ({
     createYotoSdk: vi.fn(() => ({content: {}, media: {}})),
@@ -71,6 +52,7 @@ vi.mock("@yotoplay/yoto-sdk", () => ({
 // Import after mocks are set up
 import {
     completeLogin,
+    getAuthenticatedSdk,
     getToken,
     initiateLogin,
     logout,
@@ -381,30 +363,43 @@ describe("status", () => {
             expiresAt: Date.now() - 100000, // Expired
             tokenType: "Bearer",
         }
-        const newTokens = {
-            accessToken: "new-token",
-            refreshToken: "new-refresh-token",
-            expiresAt: Date.now() + 3600000 + 5000, // 1 hour + 5s buffer
-            tokenType: "Bearer",
-        }
         mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
-        mockAuth.refreshToken.mockResolvedValue({
-            success: true,
-            tokens: newTokens,
-        })
+        mockFetch.mockResolvedValue(
+            Response.json({
+                access_token: "new-token",
+                refresh_token: "new-refresh-token",
+                expires_in: 3605,
+                token_type: "Bearer",
+            }),
+        )
 
         const result = await status(createMockRequest(), mockEnv)
+        const refreshedTokens = mockSerializeAuthCookie.mock.calls[0][0]
 
-        expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
+        expect(mockFetch).toHaveBeenCalledWith(
+            "https://login.yotoplay.com/oauth/token",
+            expect.objectContaining({method: "POST"}),
+        )
+        const requestBody = mockFetch.mock.calls[0][1].body as URLSearchParams
+        expect(Object.fromEntries(requestBody)).toEqual({
+            grant_type: "refresh_token",
+            client_id: "test-yoto-client-id",
+            refresh_token: "refresh-token",
+        })
         expect(mockSerializeAuthCookie).toHaveBeenCalledWith(
-            newTokens,
+            {
+                accessToken: "new-token",
+                refreshToken: "new-refresh-token",
+                expiresAt: expect.any(Number),
+                tokenType: "Bearer",
+            },
             mockEnv,
             false,
         )
         expect(result).toEqual({
             valid: true,
             expiresIn: "1 hour",
-            expiresAt: newTokens.expiresAt,
+            expiresAt: refreshedTokens.expiresAt,
             setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
         })
         expect(console.info).toHaveBeenCalledWith(
@@ -424,10 +419,9 @@ describe("status", () => {
             tokenType: "Bearer",
         }
         mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
-        mockAuth.refreshToken.mockResolvedValue({
-            success: false,
-            error: "Invalid refresh token",
-        })
+        mockFetch.mockResolvedValue(
+            new Response("invalid_grant", {status: 400}),
+        )
 
         const result = await status(createMockRequest(), mockEnv)
 
@@ -438,6 +432,36 @@ describe("status", () => {
                 level: "warn",
                 reason: "rejected",
                 durationMs: expect.any(Number),
+            }),
+        )
+    })
+
+    it("should reject a refresh response without a rotated refresh token", async () => {
+        const expiredTokens = {
+            accessToken: "expired-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date.now() - 100000,
+            tokenType: "Bearer",
+        }
+        mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
+        mockFetch.mockResolvedValue(
+            Response.json({
+                access_token: "new-token",
+                expires_in: 3600,
+                token_type: "Bearer",
+            }),
+        )
+
+        const result = await status(createMockRequest(), mockEnv)
+
+        expect(result).toEqual({valid: false, reason: "expired"})
+        expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
+        expect(console.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: EVENT.AUTH.REFRESH.FAILED,
+                level: "error",
+                reason: "unexpected_error",
+                errorName: "Error",
             }),
         )
     })
@@ -472,21 +496,18 @@ describe("getToken", () => {
             expiresAt: Date.now() + 200000, // Less than 5 minutes (300s)
             tokenType: "Bearer",
         }
-        const newTokens = {
-            accessToken: "refreshed-token",
-            refreshToken: "new-refresh-token",
-            expiresAt: Date.now() + 3600000,
-            tokenType: "Bearer",
-        }
         mockGetTokensFromCookie.mockResolvedValue(nearExpiryTokens)
-        mockAuth.refreshToken.mockResolvedValue({
-            success: true,
-            tokens: newTokens,
-        })
+        mockFetch.mockResolvedValue(
+            Response.json({
+                access_token: "refreshed-token",
+                refresh_token: "new-refresh-token",
+                expires_in: 3600,
+                token_type: "Bearer",
+            }),
+        )
 
         const result = await getToken(createMockRequest(), mockEnv)
 
-        expect(mockAuth.refreshToken).toHaveBeenCalledWith("refresh-token")
         expect(result).toEqual({
             token: "refreshed-token",
             setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
@@ -501,14 +522,40 @@ describe("getToken", () => {
             tokenType: "Bearer",
         }
         mockGetTokensFromCookie.mockResolvedValue(expiredTokens)
-        mockAuth.refreshToken.mockResolvedValue({
-            success: false,
-            error: "Invalid refresh token",
-        })
+        mockFetch.mockResolvedValue(
+            new Response("invalid_grant", {status: 400}),
+        )
 
         const result = await getToken(createMockRequest(), mockEnv)
 
         expect(result).toBeNull()
+    })
+})
+
+describe("getAuthenticatedSdk", () => {
+    it("should refresh an expired session only once", async () => {
+        mockGetTokensFromCookie.mockResolvedValue({
+            accessToken: "expired-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date.now() - 100000,
+            tokenType: "Bearer",
+        })
+        mockFetch.mockResolvedValue(
+            Response.json({
+                access_token: "refreshed-token",
+                refresh_token: "rotated-refresh-token",
+                expires_in: 3600,
+                token_type: "Bearer",
+            }),
+        )
+
+        const result = await getAuthenticatedSdk(createMockRequest(), mockEnv)
+
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        expect(result).toEqual({
+            sdk: {content: {}, media: {}},
+            setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
+        })
     })
 })
 

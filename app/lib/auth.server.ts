@@ -1,7 +1,3 @@
-import {
-    DeviceCodeAuth,
-    type StoredTokens,
-} from "@yotoplay/oauth-device-code-flow"
 import {createYotoSdk, type YotoSdk} from "@yotoplay/yoto-sdk"
 import {env} from "cloudflare:workers"
 import pkceChallenge from "pkce-challenge"
@@ -12,6 +8,7 @@ import {
     getTokensFromCookie,
     serializeAuthCookie,
 } from "./auth-cookie.server"
+import type {StoredTokens} from "./auth-types"
 import {
     clearOAuthStateCookie,
     getOAuthStateFromCookie,
@@ -26,21 +23,9 @@ const AUTH_CONFIG = {
 }
 const AUTH_SCOPE = "user:content:manage offline_access"
 
-// Lazy-initialized singletons
-let _auth: DeviceCodeAuth | null = null
-let _authClientId: string | null = null
+// Lazy-initialized SDK singleton
 let _sdk: YotoSdk | null = null
 let _sdkToken: string | null = null
-
-const getAuth = (): DeviceCodeAuth => {
-    const clientId = env.YOTO_CLIENT_ID
-
-    if (!_auth || _authClientId !== clientId) {
-        _auth = new DeviceCodeAuth({...AUTH_CONFIG, clientId})
-        _authClientId = clientId
-    }
-    return _auth
-}
 
 type TokenStatus =
     | {valid: true; expiresIn: string; expiresAt: number; setCookie?: string}
@@ -131,6 +116,28 @@ type OAuthTokenResponse = {
     refresh_token?: string
     expires_in: number
     token_type: string
+}
+
+const toStoredTokens = (
+    tokenResponse: OAuthTokenResponse,
+    requireRefreshToken = false,
+): StoredTokens => {
+    if (
+        !tokenResponse.access_token ||
+        !tokenResponse.token_type ||
+        !Number.isFinite(tokenResponse.expires_in) ||
+        tokenResponse.expires_in <= 0 ||
+        (requireRefreshToken && !tokenResponse.refresh_token)
+    ) {
+        throw new Error("Invalid token response")
+    }
+
+    return {
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        expiresAt: Date.now() + tokenResponse.expires_in * 1000,
+        tokenType: tokenResponse.token_type,
+    }
 }
 
 const redirectToLoginError = async (
@@ -229,22 +236,9 @@ const completeLogin = async (request: Request): Promise<Response> => {
             return redirectToLoginError(request, "token_exchange_failed")
         }
 
-        const tokenResponse = (await response.json()) as OAuthTokenResponse
-        if (
-            !tokenResponse.access_token ||
-            !tokenResponse.token_type ||
-            !Number.isFinite(tokenResponse.expires_in) ||
-            tokenResponse.expires_in <= 0
-        ) {
-            throw new Error("Invalid token response")
-        }
-
-        const tokens: StoredTokens = {
-            accessToken: tokenResponse.access_token,
-            refreshToken: tokenResponse.refresh_token,
-            expiresAt: Date.now() + tokenResponse.expires_in * 1000,
-            tokenType: tokenResponse.token_type,
-        }
+        const tokens = toStoredTokens(
+            (await response.json()) as OAuthTokenResponse,
+        )
         const headers = new Headers()
         headers.append(
             "Set-Cookie",
@@ -332,33 +326,46 @@ const status = async (request: Request, env: Env): Promise<TokenStatus> => {
 
 // Attempts to refresh the token, returns new tokens and cookie or null
 const tryRefreshToken = async (
-    env: Env,
+    workerEnv: Env,
     refreshToken: string,
     secure: boolean,
 ): Promise<{tokens: StoredTokens; setCookie: string} | null> => {
     const startedAt = Date.now()
-    const auth = getAuth()
 
     try {
-        const result = await auth.refreshToken(refreshToken)
-        if (result.success && result.tokens) {
-            const setCookie = await serializeAuthCookie(
-                result.tokens,
-                env,
-                secure,
-            )
+        const response = await fetch(
+            `https://${AUTH_CONFIG.domain}/oauth/token`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: new URLSearchParams({
+                    grant_type: "refresh_token",
+                    client_id: env.YOTO_CLIENT_ID,
+                    refresh_token: refreshToken,
+                }),
+            },
+        )
 
-            telemetry.info(EVENT.AUTH.REFRESH.COMPLETED, {
+        if (!response.ok) {
+            telemetry.warn(EVENT.AUTH.REFRESH.FAILED, {
+                reason: "rejected",
                 durationMs: Date.now() - startedAt,
             })
-
-            return {tokens: result.tokens, setCookie}
+            return null
         }
 
-        telemetry.warn(EVENT.AUTH.REFRESH.FAILED, {
-            reason: "rejected",
+        // Yoto refresh tokens are single-use, so require and store the rotated token.
+        const tokens = toStoredTokens(
+            (await response.json()) as OAuthTokenResponse,
+            true,
+        )
+        const setCookie = await serializeAuthCookie(tokens, workerEnv, secure)
+
+        telemetry.info(EVENT.AUTH.REFRESH.COMPLETED, {
             durationMs: Date.now() - startedAt,
         })
+
+        return {tokens, setCookie}
     } catch (error) {
         telemetry.error(EVENT.AUTH.REFRESH.FAILED, {
             reason: "unexpected_error",
@@ -413,8 +420,8 @@ const requireAuthCore = async (
     const result = await getToken(request, env)
 
     if (!result) {
-        const tokenStatus = await status(request, env)
-        if (tokenStatus.valid === false && tokenStatus.reason === "expired") {
+        const tokens = await getTokensFromCookie(request, env)
+        if (tokens && isTokenExpired(tokens)) {
             throw new Error("Token expired. Please log in again.")
         }
         throw new Error("Not logged in. Please log in.")
@@ -436,33 +443,12 @@ const getYotoSdk = (token: string): YotoSdk => {
     return _sdk
 }
 
-// Helper to require authentication in loaders
-// Redirects to /login if not authenticated
-const requireAuth = async (
-    request: Request,
-    env: Env,
-): Promise<{
-    valid: true
-    expiresIn: string
-    expiresAt: number
-    setCookie?: string
-}> => {
-    const authStatus = await status(request, env)
-
-    if (!authStatus.valid) {
-        throw redirect("/login")
-    }
-
-    return authStatus
-}
-
 // Helper to get authenticated SDK, with redirect on failure
 // Returns SDK and optional setCookie if token was refreshed
 const getAuthenticatedSdk = async (
     request: Request,
     env: Env,
 ): Promise<{sdk: YotoSdk; setCookie?: string}> => {
-    const {setCookie} = await requireAuth(request, env)
     const tokenResult = await getToken(request, env)
 
     if (!tokenResult) {
@@ -470,7 +456,7 @@ const getAuthenticatedSdk = async (
     }
 
     const sdk = getYotoSdk(tokenResult.token)
-    return {sdk, setCookie: setCookie ?? tokenResult.setCookie}
+    return {sdk, setCookie: tokenResult.setCookie}
 }
 
 // Check if user is authenticated (without redirect)
@@ -478,8 +464,8 @@ const isAuthenticated = async (
     request: Request,
     env: Env,
 ): Promise<boolean> => {
-    const authStatus = await status(request, env)
-    return authStatus.valid
+    const tokens = await getTokensFromCookie(request, env)
+    return Boolean(tokens && !isTokenExpired(tokens))
 }
 
 export {
@@ -490,7 +476,6 @@ export {
     initiateLogin,
     isAuthenticated,
     logout,
-    requireAuth,
     requireAuthCore,
     status,
 }

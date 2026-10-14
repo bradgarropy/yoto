@@ -1,4 +1,3 @@
-import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
 import {beforeEach, describe, expect, it} from "vitest"
 
 import {createMockEnv} from "~/tests/mocks"
@@ -10,6 +9,7 @@ import {
     getTokensFromCookie,
     serializeAuthCookie,
 } from "./auth-cookie.server"
+import type {StoredTokens} from "./auth-types"
 
 // Mock env object
 const mockEnv = createMockEnv()

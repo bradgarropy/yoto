@@ -1,6 +1,6 @@
-import type {StoredTokens} from "@yotoplay/oauth-device-code-flow"
 import {createCookie} from "react-router"
 
+import type {StoredTokens} from "./auth-types"
 import {decrypt, encrypt} from "./encryption.server"
 
 // --- Cookie Setup ---
