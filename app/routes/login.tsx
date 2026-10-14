@@ -1,4 +1,4 @@
-import {Form, redirect, useNavigation} from "react-router"
+import {Form, redirect, useLoaderData, useNavigation} from "react-router"
 
 import {Button} from "~/components/ui/button"
 import {
@@ -30,7 +30,19 @@ export async function loader({request, context}: Route.LoaderArgs) {
         throw redirect("/cards")
     }
 
-    return {}
+    const errorCode = new URL(request.url).searchParams.get("error")
+    const errors: Record<string, string> = {
+        access_denied: "Yoto access was denied. Please try again.",
+        expired_state: "Your login attempt expired. Please start again.",
+        invalid_callback: "Yoto returned an incomplete login response.",
+        provider_error: "Yoto could not complete the login request.",
+        state_mismatch: "The login response could not be verified.",
+        token_exchange_failed: "Yoto login failed while creating your session.",
+    }
+
+    return {
+        error: errorCode ? (errors[errorCode] ?? errors.provider_error) : null,
+    }
 }
 
 // Start the browser-based Authorization Code flow with PKCE.
@@ -39,6 +51,7 @@ export async function action({request}: Route.ActionArgs) {
 }
 
 export default function Login() {
+    const {error} = useLoaderData<typeof loader>()
     const navigation = useNavigation()
     const isStarting = navigation.state !== "idle"
 
@@ -52,7 +65,15 @@ export default function Login() {
                         return here automatically.
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
+                    {error && (
+                        <p
+                            role="alert"
+                            className="text-center text-sm text-destructive"
+                        >
+                            {error}
+                        </p>
+                    )}
                     <Form method="post">
                         <Button
                             type="submit"

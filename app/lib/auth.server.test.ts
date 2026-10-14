@@ -15,6 +15,9 @@ const mockGetTokensFromCookie = vi.fn()
 const mockSerializeAuthCookie = vi.fn()
 const mockClearAuthCookie = vi.fn()
 const mockSerializeOAuthStateCookie = vi.fn()
+const mockGetOAuthStateFromCookie = vi.fn()
+const mockClearOAuthStateCookie = vi.fn()
+const mockFetch = vi.fn()
 
 vi.mock("./auth-cookie.server", () => ({
     getTokensFromCookie: (...args: unknown[]) =>
@@ -27,6 +30,10 @@ vi.mock("./auth-cookie.server", () => ({
 vi.mock("./oauth-state-cookie.server", () => ({
     serializeOAuthStateCookie: (...args: unknown[]) =>
         mockSerializeOAuthStateCookie(...args),
+    getOAuthStateFromCookie: (...args: unknown[]) =>
+        mockGetOAuthStateFromCookie(...args),
+    clearOAuthStateCookie: (...args: unknown[]) =>
+        mockClearOAuthStateCookie(...args),
 }))
 
 vi.mock("pkce-challenge", () => ({
@@ -79,6 +86,7 @@ const mockEnv = createMockEnv()
 
 beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal("fetch", mockFetch)
     vi.spyOn(console, "info").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
@@ -91,9 +99,18 @@ beforeEach(() => {
     mockSerializeOAuthStateCookie.mockResolvedValue(
         "yoto-oauth-state=encrypted; Path=/auth/callback; HttpOnly",
     )
+    mockGetOAuthStateFromCookie.mockResolvedValue({
+        state: "test-state",
+        codeVerifier: "test-code-verifier",
+        redirectUri: "http://localhost:3000/auth/callback",
+    })
+    mockClearOAuthStateCookie.mockResolvedValue(
+        "yoto-oauth-state=; Max-Age=0; Path=/auth/callback; HttpOnly",
+    )
 })
 
 afterEach(() => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
 })
 
@@ -154,37 +171,59 @@ describe("initiateLogin", () => {
 })
 
 describe("completeLogin", () => {
-    it("should poll for token and return setCookie on success", async () => {
-        const tokens = {
-            accessToken: "test-access-token",
-            refreshToken: "test-refresh-token",
-            expiresAt: Date.now() + 3600000 + 5000, // 1 hour + 5s buffer from now in ms
-            tokenType: "Bearer",
-        }
-        mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
-
-        const result = await completeLogin(
-            createMockRequest(),
-            mockEnv,
-            "device-code",
-            5,
+    it("should exchange the code, set tokens, and clear OAuth state", async () => {
+        mockFetch.mockResolvedValue(
+            Response.json({
+                access_token: "test-access-token",
+                refresh_token: "test-refresh-token",
+                expires_in: 3600,
+                token_type: "Bearer",
+            }),
         )
 
-        expect(mockAuth.pollForToken).toHaveBeenCalledWith(
-            "device-code",
-            5,
-            300000,
+        const response = await completeLogin(
+            new Request(
+                "http://localhost:3000/auth/callback?code=test-code&state=test-state",
+            ),
         )
+
+        expect(mockGetOAuthStateFromCookie).toHaveBeenCalled()
+        expect(mockFetch).toHaveBeenCalledWith(
+            "https://login.yotoplay.com/oauth/token",
+            expect.objectContaining({
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            }),
+        )
+        const requestBody = mockFetch.mock.calls[0][1].body as URLSearchParams
+        expect(Object.fromEntries(requestBody)).toEqual({
+            grant_type: "authorization_code",
+            client_id: "test-yoto-client-id",
+            code_verifier: "test-code-verifier",
+            code: "test-code",
+            redirect_uri: "http://localhost:3000/auth/callback",
+        })
         expect(mockSerializeAuthCookie).toHaveBeenCalledWith(
-            tokens,
-            mockEnv,
+            {
+                accessToken: "test-access-token",
+                refreshToken: "test-refresh-token",
+                expiresAt: expect.any(Number),
+                tokenType: "Bearer",
+            },
+            expect.objectContaining({YOTO_CLIENT_ID: "test-yoto-client-id"}),
             false,
         )
-        expect(result).toEqual({
-            success: true,
-            expiresIn: "1 hour",
-            setCookie: "yoto-auth=encrypted; Path=/; HttpOnly",
-        })
+        expect(mockClearOAuthStateCookie).toHaveBeenCalledWith(false)
+        expect(response.status).toBe(302)
+        expect(response.headers.get("Location")).toBe("/cards")
+        expect(response.headers.get("Set-Cookie")).toContain(
+            "yoto-auth=encrypted",
+        )
+        expect(response.headers.get("Set-Cookie")).toContain(
+            "yoto-oauth-state=",
+        )
         expect(console.info).toHaveBeenCalledWith(
             expect.objectContaining({
                 event: EVENT.AUTH.LOGIN.COMPLETED,
@@ -194,78 +233,72 @@ describe("completeLogin", () => {
         )
     })
 
-    it("should return error when polling fails", async () => {
-        mockAuth.pollForToken.mockResolvedValue({
-            success: false,
-            error: "Authorization expired",
-        })
-
-        const result = await completeLogin(
-            createMockRequest(),
-            mockEnv,
-            "device-code",
-            5,
+    it("should reject a mismatched state without exchanging the code", async () => {
+        const response = await completeLogin(
+            new Request(
+                "http://localhost:3000/auth/callback?code=test-code&state=wrong-state",
+            ),
         )
 
+        expect(mockFetch).not.toHaveBeenCalled()
         expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
-        expect(result).toEqual({success: false, error: "Authorization expired"})
-        expect(console.error).toHaveBeenCalledWith(
-            expect.objectContaining({
-                event: EVENT.AUTH.LOGIN.FAILED,
-                level: "error",
-                stage: "complete",
-                reason: "provider_error",
-                durationMs: expect.any(Number),
-            }),
+        expect(response.headers.get("Location")).toBe(
+            "/login?error=state_mismatch",
         )
-    })
-
-    it("should warn when access is denied", async () => {
-        mockAuth.pollForToken.mockResolvedValue({
-            success: false,
-            error: "access_denied",
-        })
-
-        const result = await completeLogin(
-            createMockRequest(),
-            mockEnv,
-            "device-code",
-            5,
-        )
-
-        expect(result).toEqual({success: false, error: "access_denied"})
         expect(console.warn).toHaveBeenCalledWith(
             expect.objectContaining({
                 event: EVENT.AUTH.LOGIN.FAILED,
                 level: "warn",
                 stage: "complete",
-                reason: "access_denied",
+                reason: "state_mismatch",
                 durationMs: expect.any(Number),
             }),
         )
     })
 
-    it("should use custom timeout when provided", async () => {
-        const tokens = {
-            accessToken: "test-token",
-            expiresAt: Date.now() + 3600000,
-            tokenType: "Bearer",
-        }
-        mockAuth.pollForToken.mockResolvedValue({success: true, tokens})
+    it("should handle an expired state cookie", async () => {
+        mockGetOAuthStateFromCookie.mockResolvedValue(null)
 
-        await completeLogin(
-            createMockRequest(),
-            mockEnv,
-            "device-code",
-            5,
-            600000,
+        const response = await completeLogin(
+            new Request(
+                "http://localhost:3000/auth/callback?code=test-code&state=test-state",
+            ),
         )
 
-        expect(mockAuth.pollForToken).toHaveBeenCalledWith(
-            "device-code",
-            5,
-            600000,
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(response.headers.get("Location")).toBe(
+            "/login?error=expired_state",
         )
+    })
+
+    it("should handle access being denied by Yoto", async () => {
+        const response = await completeLogin(
+            new Request(
+                "http://localhost:3000/auth/callback?error=access_denied&state=test-state",
+            ),
+        )
+
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(response.headers.get("Location")).toBe(
+            "/login?error=access_denied",
+        )
+    })
+
+    it("should handle a rejected token exchange", async () => {
+        mockFetch.mockResolvedValue(
+            new Response("invalid_grant", {status: 400}),
+        )
+
+        const response = await completeLogin(
+            new Request(
+                "http://localhost:3000/auth/callback?code=test-code&state=test-state",
+            ),
+        )
+
+        expect(response.headers.get("Location")).toBe(
+            "/login?error=token_exchange_failed",
+        )
+        expect(mockSerializeAuthCookie).not.toHaveBeenCalled()
     })
 })
 
