@@ -21,7 +21,8 @@ const AUTH_CONFIG = {
     domain: "login.yotoplay.com",
     audience: "https://api.yotoplay.com",
 }
-const AUTH_SCOPE = "user:content:manage offline_access"
+const AUTH_SCOPE =
+    "user:content:view user:content:manage user:icons:manage offline_access"
 
 // Lazy-initialized SDK singleton
 let _sdk: YotoSdk | null = null

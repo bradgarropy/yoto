@@ -112,7 +112,7 @@ describe("initiateLogin", () => {
         )
         expect(Object.fromEntries(location.searchParams)).toEqual({
             audience: "https://api.yotoplay.com",
-            scope: "user:content:manage offline_access",
+            scope: "user:content:view user:content:manage user:icons:manage offline_access",
             response_type: "code",
             client_id: "test-yoto-client-id",
             redirect_uri: "http://localhost:3000/auth/callback",
