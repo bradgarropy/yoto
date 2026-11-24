@@ -212,10 +212,11 @@ async function downloadVideo(
     env: Env,
     sandboxId: string,
     video: YouTubeVideo,
+    workId = video.id,
 ): Promise<DownloadedAudio> {
     const startedAt = Date.now()
     const sandbox = getSandbox(env.SANDBOX, sandboxId)
-    const filename = `${video.id}.m4a`
+    const filename = `${workId}.m4a`
     const path = `/tmp/${filename}`
     const contentType = "audio/mp4"
     const escapedPath = escapeShellArg(path)
@@ -261,9 +262,10 @@ async function splitAudio(
     sandboxId: string,
     source: DownloadedAudio,
     tracks: AudioTrack[],
+    workId?: string,
 ): Promise<DownloadedAudio[]> {
     const startedAt = Date.now()
-    const segments = tracks.map(track => {
+    const segments = tracks.map((track, index) => {
         const {startTime, endTime} = track
         if (
             startTime === undefined ||
@@ -276,9 +278,12 @@ async function splitAudio(
             throw new Error(`Invalid chapter range for ${track.title}`)
         }
 
+        const filename = workId
+            ? `${workId}-${String(index + 1).padStart(2, "0")}.m4a`
+            : `${track.id}.m4a`
         const audio = {
-            path: `/tmp/${track.id}.m4a`,
-            filename: `${track.id}.m4a`,
+            path: `/tmp/${filename}`,
+            filename,
             contentType: source.contentType,
         }
         if (audio.path === source.path) {
@@ -509,6 +514,7 @@ async function prepareTrack(
     env: Env,
     sandboxId: string,
     track: YouTubeVideo,
+    workId = track.id,
 ): Promise<Track> {
     if (
         track.duration !== undefined &&
@@ -520,7 +526,7 @@ async function prepareTrack(
         )
     }
 
-    const audio = await downloadVideo(env, sandboxId, track)
+    const audio = await downloadVideo(env, sandboxId, track, workId)
     return prepareAudio(env, sandboxId, audio, track.title)
 }
 
@@ -530,6 +536,7 @@ async function prepareTracks(
     sandboxId: string,
     video: YouTubeVideo,
     tracks: AudioTrack[],
+    workId?: string,
 ): Promise<Track[]> {
     if (tracks.length === 0) return []
 
@@ -547,7 +554,7 @@ async function prepareTracks(
                 `Multiple whole tracks requested for ${video.title}`,
             )
         }
-        return [await prepareTrack(env, sandboxId, video)]
+        return [await prepareTrack(env, sandboxId, video, workId)]
     }
 
     if (segmentedTracks.length !== tracks.length) {
@@ -558,8 +565,8 @@ async function prepareTracks(
     let chapterAudio: DownloadedAudio[] = []
 
     try {
-        source = await downloadVideo(env, sandboxId, video)
-        chapterAudio = await splitAudio(env, sandboxId, source, tracks)
+        source = await downloadVideo(env, sandboxId, video, workId)
+        chapterAudio = await splitAudio(env, sandboxId, source, tracks, workId)
 
         const preparedTracks = await prepareAudioBatch(
             env,

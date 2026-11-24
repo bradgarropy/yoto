@@ -452,12 +452,14 @@ async function prepareSourceTracks(
     sandboxId: string,
     video: YouTubeVideo,
     tracks: PlannedTrack[],
+    workId: string,
 ): Promise<PreparedTrack[]> {
     const preparedTracks = await prepareTracks(
         env,
         sandboxId,
         video,
         tracks.map(({track}) => track),
+        workId,
     )
 
     if (preparedTracks.length !== tracks.length) {
@@ -526,8 +528,9 @@ async function processAudio(
     const uploadLimit = pLimit(CONCURRENCY_LIMIT)
     const pollLimit = pLimit(CONCURRENCY_LIMIT)
     let nextTrackIndex = 0
-    const sourcePlans = videos.map(video => ({
+    const sourcePlans = videos.map((video, sourceIndex) => ({
         video,
+        workId: `${video.id}-${sourceIndex}`,
         tracks: createAudioTracks([video], cardImport.splitByChapters).map(
             track => ({
                 index: nextTrackIndex++,
@@ -549,13 +552,14 @@ async function processAudio(
 
     let cacheHitCount = 0
     const preparationStartedAt = Date.now()
-    const preparationPromises = sourcePlans.map(({video, tracks}) =>
+    const preparationPromises = sourcePlans.map(({video, tracks, workId}) =>
         prepareLimit(async () => {
             const preparedTracks = await prepareSourceTracks(
                 env,
                 sandboxId,
                 video,
                 tracks,
+                workId,
             )
             tracks.forEach(({index}) => {
                 trackProgress[index].prepared = true
