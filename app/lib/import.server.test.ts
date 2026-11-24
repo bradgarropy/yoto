@@ -428,9 +428,37 @@ describe("processAudio", () => {
             sandboxId,
             videoWithChapters,
             chapterTracks,
+            "video-1-0",
         )
         expect(mockUploadTrack).toHaveBeenCalledTimes(2)
         expect(result.map(track => track.track)).toEqual(chapterTracks)
+    })
+
+    it("uses distinct sandbox paths for duplicate playlist videos", async () => {
+        mockGetTranscodedUpload.mockResolvedValue({
+            progress: {phase: "complete"},
+            transcodedSha256: "transcoded-sha",
+            transcodedInfo: {duration: 180, fileSize: 100000},
+        })
+
+        await processAudio(sdk, mockEnv, cardImport, [sourceTrack, sourceTrack])
+
+        expect(mockPrepareTracks).toHaveBeenNthCalledWith(
+            1,
+            mockEnv,
+            sandboxId,
+            sourceTrack,
+            [audioTrack],
+            "video-1-0",
+        )
+        expect(mockPrepareTracks).toHaveBeenNthCalledWith(
+            2,
+            mockEnv,
+            sandboxId,
+            sourceTrack,
+            [audioTrack],
+            "video-1-1",
+        )
     })
 
     it("removes prepared audio when upload fails", async () => {

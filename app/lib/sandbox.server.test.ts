@@ -592,6 +592,39 @@ describe("prepareTracks", () => {
         ).toHaveLength(0)
     })
 
+    it("uses a caller-provided work id for the sandbox file", async () => {
+        mockExec.mockImplementation((command: string) => {
+            if (command.includes("\nset -e\n")) {
+                return successfulCommand(preparedAudioRow({duration: "180"}))
+            }
+            return successfulCommand()
+        })
+
+        const [result] = await prepareTracks(
+            mockEnv,
+            sandboxId,
+            sourceTrack,
+            [
+                {
+                    id: sourceTrack.id,
+                    sourceId: sourceTrack.id,
+                    title: sourceTrack.title,
+                    url: sourceTrack.url,
+                    duration: 180,
+                },
+            ],
+            "video-1-occurrence-2",
+        )
+
+        expect(result).toMatchObject({
+            path: "/tmp/video-1-occurrence-2.m4a",
+            filename: "video-1-occurrence-2.m4a",
+        })
+        expect(mockExec).toHaveBeenCalledWith(
+            expect.stringContaining("-o '/tmp/video-1-occurrence-2.m4a'"),
+        )
+    })
+
     it("rejects tracks from a different source before downloading", async () => {
         await expect(
             prepareTracks(mockEnv, sandboxId, sourceTrack, [
